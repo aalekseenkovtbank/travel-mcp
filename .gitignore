@@ -9,6 +9,10 @@ travel-web/coverage/
 packages/contracts/dist/
 packages/travel-mcp/vendor/
 
+# TypeScript project references may emit the Vite config next to its source.
+travel-web/vite.config.js
+travel-web/vite.config.d.ts
+
 # Local agent configuration and generated visual experiments.
 .nessy/
 output/

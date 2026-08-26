@@ -1,1 +1,0 @@
-- [\[HotelStaticAPI\] GetLocationTree (/internal\_api/v1/search/location-tree)](/pages/viewpage.action?pageId=6609875090)

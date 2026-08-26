@@ -3,7 +3,9 @@
     "composite": true,
     "skipLibCheck": true,
     "module": "ESNext",
-    "moduleResolution": "Bundler"
+    "moduleResolution": "Bundler",
+    "outDir": "dist/config",
+    "tsBuildInfoFile": "dist/config/tsconfig.node.tsbuildinfo"
   },
   "include": ["vite.config.ts"]
 }

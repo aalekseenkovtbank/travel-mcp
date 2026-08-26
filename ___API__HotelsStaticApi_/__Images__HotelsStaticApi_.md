@@ -1,2 +1,0 @@
-- [📷 GetDynamicRoomImages \[HotelsStaticApi\]](/pages/viewpage.action?pageId=6725842083)
-- [🗜️ AddImageResizeTask \[HotelsStaticApi\]](/pages/viewpage.action?pageId=6969186770)

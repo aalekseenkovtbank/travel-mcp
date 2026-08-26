@@ -1,4 +1,0 @@
-- [\[HotelStaticApi\] GetHotelLandmarks (/internal\_api/v1/points\_of\_interest/landmarks)](/pages/viewpage.action?pageId=5402368128)
-- [\[HotelStaticApi\] GetHotelPOI (/internal\_api/v1/points\_of\_interest/search)](/pages/viewpage.action?pageId=4929875679)
-- [\[HotelStaticApi\] getPoiGroupsByHotelId (/internal\_api/v1/points\_of\_interest/groups)](/pages/viewpage.action?pageId=5283832916)
-- [\[HotelStaticApi\] GetTypesNearbyHotel (/internal\_api/v1/points\_of\_interest/types)](/pages/viewpage.action?pageId=7472566687)

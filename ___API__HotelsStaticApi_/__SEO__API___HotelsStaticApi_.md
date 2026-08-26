@@ -1,2 +1,0 @@
-- [🆔 GetHotelIds \[HotelsStaticApi\]](/pages/viewpage.action?pageId=5073992689)
-- [🗺️ GetLocationName \[HotelsStaticApi\]](/pages/viewpage.action?pageId=3448487831)

@@ -1,1 +1,0 @@
-- [🛀🏿 GetHotelRooms \[HotelStaticAPI\]](/pages/viewpage.action?pageId=3586319587)
