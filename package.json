@@ -1,0 +1,22 @@
+{
+  "name": "travel-nova",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "travel-api",
+    "travel-web",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @travel-growth-inspiration/contracts && npm run build -w travel-nova-api && npm run build -w travel-nova-web",
+    "typecheck": "npm run build -w @travel-growth-inspiration/contracts && npm run typecheck -w travel-nova-api && npm run typecheck -w travel-nova-web",
+    "test": "npm run build -w @travel-growth-inspiration/contracts && npm test -w travel-nova-api && npm test -w travel-nova-web && npm test -w @travel-growth-inspiration/mcp",
+    "test:travel-mcp": "npm test -w @travel-growth-inspiration/mcp",
+    "dev": "npm run build -w @travel-growth-inspiration/contracts && concurrently -n api,web -c yellow,cyan \"npm run dev -w travel-nova-api\" \"npm run dev -w travel-nova-web\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "main": "index.js",
+  "license": "MIT"
+}

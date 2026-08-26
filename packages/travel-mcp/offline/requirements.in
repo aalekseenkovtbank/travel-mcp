@@ -1,0 +1,5 @@
+# Read-only Travel MCP runtime. Playwright is intentionally absent: only the
+# full banking server's grocery checkout imports it, and that tool is not in the
+# immutable travel allowlist.
+mcp==1.29.1
+requests==2.34.2

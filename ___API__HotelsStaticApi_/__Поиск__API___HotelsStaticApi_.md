@@ -1,0 +1,4 @@
+- [\[HotelStaticApi\] GetByMasterHotelIdsOrdered (/internal\_api/v1/search/hotels)](/pages/viewpage.action?pageId=3382484723)
+- [\[HotelStaticApi\] GetHotelsAmenities (/internal\_api/v1/search/hotel\_amenities)](/pages/viewpage.action?pageId=3382480140)
+- [\[HotelStaticApi\] GetImageUrls (/internal\_api/v1/search/images)](/pages/viewpage.action?pageId=3348934699)
+- [\[HotelStaticApi\] GetLocationMigrationInfo (/internal\_api/v1/search/location\_migration\_info)](/pages/viewpage.action?pageId=4781974990)

@@ -1,0 +1,8 @@
+[versioning]
+source = "package"
+
+[publish]
+registry = "https://artifactory.tcsbank.ru/artifactory/api/npm/npm-hosted/"
+
+[monitoring]
+enabled = false

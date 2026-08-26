@@ -1,0 +1,1865 @@
+"""Builtin T-Bank API endpoint shapes (static params only — no device/session/account secrets).
+Generated from the API surface; the live sessionid/deviceId/access_token/cookies + per-call
+args (account, start/end, ...) are added at runtime by MobileSession. NO user secrets here."""
+
+# The app version string captured across every template below, plus the few
+# spots in client.py/server.py/checkout.py that need it outside a template.
+# One literal, not five copies of it.
+APP_VERSION = "7.31.6"
+
+BUILTIN_ENDPOINTS = {
+ "accounts_light": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/accounts_light",
+  "params": {
+   "origin": "mobile,ib5,loyalty,platform",
+   "inache": "drivetransitt",
+   "ccc": "true",
+   "appVersion": APP_VERSION,
+   "cpswc": "true",
+   "appName": "mobile",
+   "platform": "ios",
+   "connectionType": "WiFi"
+  }
+ },
+ "operations": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/operations",
+  "params": {
+   # NO isSuspicious: it is a per-operation FIELD, not a client flag. Passing
+   # isSuspicious=true narrows the result to fraud-flagged operations — verified
+   # live: same request 283 operations without it, 0 with it. It was captured from
+   # a one-off "suspicious operations" screen (item 105, which returned 0) and
+   # mistakenly baked in as a default.
+   "platform": "ios",
+   "origin": "mobile,ib5,loyalty,platform",
+   "appVersion": APP_VERSION,
+   "connectionType": "WiFi",
+   "ccc": "true",
+   "cpswc": "true",
+   "appName": "mobile",
+   "inache": "drivetransitt"
+  }
+ },
+ "operations_histogram": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/operations_histogram",
+  "params": {
+   "period": "day",
+   "config": "allNotInner",
+   "groupBy": "category",
+   "timeZone": "+03:00",
+   "appName": "mobile",
+   "appVersion": APP_VERSION,
+   "cpswc": "true",
+   "inache": "drivetransitt",
+   "ccc": "true",
+   "origin": "mobile,ib5,loyalty,platform",
+   "connectionType": "WiFi",
+   "platform": "ios"
+  }
+ },
+ "list_regular_payments": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/list_regular_payments_v2",
+  "params": {
+   "appVersion": APP_VERSION,
+   "origin": "mobile,ib5,loyalty,platform",
+   "appName": "mobile",
+   "connectionType": "WiFi",
+   "ccc": "true",
+   "cpswc": "true",
+   "platform": "ios",
+   "inache": "drivetransitt"
+  }
+ },
+ "active_loans": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/active_loans",
+  "params": {
+   "appVersion": APP_VERSION,
+   "inache": "drivetransitt",
+   "connectionType": "WiFi",
+   "appName": "mobile",
+   "platform": "ios",
+   "ccc": "true",
+   "origin": "mobile,ib5,loyalty,platform",
+   "cpswc": "true"
+  }
+ },
+ "credit_accounts_list": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/closing_accounts/credit_accounts_list",
+  "params": {
+   "origin": "mobile,ib5,loyalty,platform",
+   "inache": "drivetransitt",
+   "appName": "mobile",
+   "connectionType": "WiFi",
+   "appVersion": APP_VERSION,
+   "cpswc": "true",
+   "ccc": "true",
+   "platform": "ios"
+  }
+ },
+ "payments_credit_accounts": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/payments_credit_accounts",
+  "params": {
+   "appVersion": APP_VERSION,
+   "connectionType": "WiFi",
+   "origin": "mobile,ib5,loyalty,platform",
+   "inache": "drivetransitt",
+   "ccc": "true",
+   "appName": "mobile",
+   "platform": "ios",
+   "cpswc": "true"
+  }
+ },
+ "bonuses_aggregated": {
+  "method": "GET",
+  "host": "https://ms-loyalty-api.tinkoff.ru",
+  "path": "/api/bonusesAggregated",
+  "params": {
+   "ccc": "true",
+   "cpswc": "true",
+   "connectionType": "WiFi",
+   "platform": "ios",
+   "appVersion": APP_VERSION,
+   "origin": "mobile,ib5,loyalty,platform",
+   "appName": "mobile",
+   "inache": "drivetransitt"
+  }
+ },
+ "investbox_accounts": {
+  "method": "GET",
+  "host": "https://api-invest.t-bank-app.ru",
+  "path": "/investbox/api/account/all",
+  "params": {
+   "origin": "mobile,ib5,loyalty,platform",
+   "inache": "drivetransitt",
+   "cpswc": "true",
+   "ccc": "true",
+   "platform": "ios",
+   "appVersion": APP_VERSION,
+   "connectionType": "WiFi",
+   "appName": "mobile"
+  }
+ },
+ "ca_portfolio_statistics": {
+  "method": "GET",
+  "host": "https://api-invest-gw.t-bank-app.ru",
+  "path": "/ca-portfolio/api/v1/user/portfolio/statistics",
+  "params": {
+   "appName": "mobile",
+   "connectionType": "WiFi",
+   "cpswc": "true",
+   "ccc": "true",
+   "inache": "drivetransitt",
+   "origin": "mobile,ib5,loyalty,platform",
+   "platform": "ios",
+   "appVersion": APP_VERSION
+  }
+ },
+ "ca_operations": {
+  "method": "GET",
+  "host": "https://api-invest-gw.t-bank-app.ru",
+  "path": "/ca-operations/api/v1/user/operations",
+  "params": {
+   "appName": "mobile",
+   "connectionType": "WiFi",
+   "cpswc": "true",
+   "inache": "drivetransitt",
+   "ccc": "true",
+   "origin": "mobile,ib5,loyalty,platform",
+   "platform": "ios",
+   "appVersion": APP_VERSION
+  }
+ },
+ "purchased_securities": {
+  "method": "GET",
+  "host": "https://api-invest-gw.t-bank-app.ru",
+  "path": "/invest-portfolio/portfolios/purchased-securities",
+  "params": {
+   "connectionType": "WiFi",
+   "ccc": "true",
+   "platform": "ios",
+   "appName": "mobile",
+   "inache": "drivetransitt",
+   "origin": "mobile,ib5,loyalty,platform",
+   "cpswc": "true",
+   "appVersion": APP_VERSION
+  }
+ },
+ "session_status": {
+  "method": "GET",
+  "host": "https://www.tbank.ru",
+  "path": "/api/common/v1/session_status",
+  "params": {
+   "appName": "supreme",
+   "appVersion": "webview-2.47.31-6136d0cf",
+   "origin": "web,ib5,platform"
+  }
+ },
+ "ping": {
+  "method": "POST",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/ping",
+  "params": {
+   "ccc": "true",
+   "cpswc": "true"
+  }
+ },
+ "notification_count": {
+  "method": "GET",
+  "host": "https://social-api.t-bank-app.ru",
+  "path": "/api-gateway/social/notification/v1/notification/count",
+  "params": {
+   "inache": "drivetransitt",
+   "appVersion": APP_VERSION,
+   "platform": "ios",
+   "cpswc": "true",
+   "ccc": "true",
+   "appName": "mobile",
+   "connectionType": "WiFi",
+   "origin": "mobile,ib5,loyalty,platform"
+  }
+ },
+ "profile_own_lite": {
+  "method": "GET",
+  "host": "https://social-api.t-bank-app.ru",
+  "path": "/api-gateway/social/profile/v1/profile/own/lite",
+  "params": {
+   "appVersion": APP_VERSION,
+   "ccc": "true",
+   "platform": "ios",
+   "connectionType": "WiFi",
+   "appName": "mobile",
+   "origin": "mobile,ib5,loyalty,platform",
+   "cpswc": "true",
+   "inache": "drivetransitt"
+  }
+ },
+ "shopping_favorites": {
+  "method": "GET",
+  "host": "https://shopping.t-bank-app.ru",
+  "path": "/api/v1/favorites",
+  "params": {
+   "appVersion": APP_VERSION,
+   "appName": "mobile",
+   "platform": "ios"
+  }
+ },
+ "shopping_cart": {
+  "method": "POST",
+  "host": "https://webview.t-bank-app.ru",
+  "path": "/mybank/api/shopping/mobile/v1/carts/get-user-carts",
+  "params": {
+   "appName": "mobile",
+   "appVersion": APP_VERSION,
+   "platform": "webview_ios"
+  }
+ , "no_base_params": True, "no_bearer": True},
+ "get_requisites": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/get_requisites",
+  "params": {
+   "appName": "mobile",
+   "cpswc": "true",
+   "inache": "drivetransitt",
+   "appVersion": APP_VERSION,
+   "ccc": "true",
+   "connectionType": "WiFi",
+   "platform": "ios",
+   "origin": "mobile,ib5,loyalty,platform"
+  }
+ },
+ "subscription_all": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/subscription/all",
+  "params": {
+   "connectionType": "WiFi",
+   "platform": "ios",
+   "appVersion": APP_VERSION,
+   "ccc": "true",
+   "cpswc": "true",
+   "origin": "mobile,ib5,loyalty,platform",
+   "inache": "drivetransitt",
+   "appName": "mobile"
+  }
+ },
+ "subscription_all_bills": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/subscription/all_bills",
+  "params": {
+   "ccc": "true",
+   "cpswc": "true",
+   "appName": "mobile",
+   "inache": "drivetransitt",
+   "connectionType": "WiFi",
+   "platform": "ios",
+   "appVersion": APP_VERSION,
+   "origin": "mobile,ib5,loyalty,platform"
+  }
+ },
+ "subscription_bills": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/subscription/bills",
+  "params": {
+   "connectionType": "WiFi",
+   "platform": "ios",
+   "appName": "mobile",
+   "appVersion": APP_VERSION,
+   "origin": "mobile,ib5,loyalty,platform",
+   "cpswc": "true",
+   "ccc": "true",
+   "inache": "drivetransitt"
+  }
+ },
+ "account_details": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/account_details",
+  "params": {
+   "ccc": "true",
+   "cpswc": "true",
+   "connectionType": "WiFi",
+   "platform": "ios",
+   "appName": "mobile",
+   "origin": "mobile,ib5,loyalty,platform",
+   "appVersion": APP_VERSION,
+   "inache": "drivetransitt"
+  }
+ },
+ "full_debt_amount": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/full_debt_amount",
+  "params": {
+   "connectionType": "WiFi",
+   "appName": "mobile",
+   "appVersion": APP_VERSION,
+   "cpswc": "true",
+   "inache": "drivetransitt",
+   "origin": "mobile,ib5,loyalty,platform",
+   "platform": "ios",
+   "ccc": "true"
+  }
+ },
+ "payment_templates": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/templates",
+  "params": {
+   "inache": "drivetransitt",
+   "platform": "ios",
+   "appName": "mobile",
+   "appVersion": APP_VERSION,
+   "ccc": "true",
+   "origin": "mobile,ib5,loyalty,platform",
+   "connectionType": "WiFi",
+   "cpswc": "true"
+  }
+ },
+ "invoices_to_pay": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/cm/invoices_to_pay",
+  "params": {
+   "appName": "mobile",
+   "appVersion": APP_VERSION,
+   "platform": "ios",
+   "inache": "drivetransitt",
+   "origin": "mobile,ib5,loyalty,platform",
+   "connectionType": "WiFi",
+   "cpswc": "true",
+   "ccc": "true"
+  }
+ },
+ "get_invoices": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/get_invoices",
+  "params": {
+   "appName": "mobile",
+   "appVersion": APP_VERSION,
+   "inache": "drivetransitt",
+   "origin": "mobile,ib5,loyalty,platform",
+   "platform": "ios",
+   "connectionType": "WiFi",
+   "cpswc": "true",
+   "ccc": "true"
+  }
+ },
+ "my_invoices": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/cm/my_invoices",
+  "params": {
+   "cpswc": "true",
+   "appVersion": APP_VERSION,
+   "connectionType": "WiFi",
+   "appName": "mobile",
+   "platform": "ios",
+   "inache": "drivetransitt",
+   "origin": "mobile,ib5,loyalty,platform",
+   "ccc": "true"
+  }
+ },
+ "available_cards": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/available_cards",
+  "params": {
+   "origin": "mobile,ib5,loyalty,platform",
+   "appVersion": APP_VERSION,
+   "appName": "mobile",
+   "platform": "ios",
+   "ccc": "true",
+   "cpswc": "true",
+   "inache": "drivetransitt",
+   "connectionType": "WiFi"
+  }
+ },
+ "statements": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/statements",
+  "params": {
+   "platform": "ios",
+   "cpswc": "true",
+   "inache": "drivetransitt",
+   "appVersion": APP_VERSION,
+   "ccc": "true",
+   "origin": "mobile,ib5,loyalty,platform",
+   "connectionType": "WiFi",
+   "appName": "mobile"
+  }
+ },
+ "statement_exist": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/statement_exist",
+  "params": {
+   "ccc": "true",
+   "platform": "ios",
+   "inache": "drivetransitt",
+   "cpswc": "true",
+   "origin": "mobile,ib5,loyalty,platform",
+   "appName": "mobile",
+   "appVersion": APP_VERSION,
+   "connectionType": "WiFi"
+  }
+ },
+ "credit_payment_schedule": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/credit/payment_schedule",
+  "params": {
+   "cpswc": "true",
+   "origin": "mobile,ib5,loyalty,platform",
+   "inache": "drivetransitt",
+   "appName": "mobile",
+   "appVersion": APP_VERSION,
+   "platform": "ios",
+   "ccc": "true",
+   "connectionType": "WiFi"
+  }
+ },
+ "credit_rating": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/credit_rating",
+  "params": {
+   "connectionType": "WiFi",
+   "cpswc": "true",
+   "inache": "drivetransitt",
+   "platform": "ios",
+   "appVersion": APP_VERSION,
+   "ccc": "true",
+   "appName": "mobile",
+   "origin": "mobile,ib5,loyalty,platform"
+  }
+ },
+ "credit_recommendations": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/credit/recommendations",
+  "params": {
+   "connectionType": "WiFi",
+   "cpswc": "true",
+   "inache": "drivetransitt",
+   "platform": "ios",
+   "appVersion": APP_VERSION,
+   "ccc": "true",
+   "appName": "mobile",
+   "origin": "mobile,ib5,loyalty,platform"
+  }
+ },
+ "manager_info": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/manager_info",
+  "params": {
+   "connectionType": "WiFi",
+   "platform": "ios",
+   "appVersion": APP_VERSION,
+   "ccc": "true",
+   "cpswc": "true",
+   "origin": "mobile,ib5,loyalty,platform",
+   "inache": "drivetransitt",
+   "appName": "mobile"
+  }
+ },
+ "bank_info": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/bank_info",
+  "params": {
+   "appName": "mobile",
+   "ccc": "true",
+   "cpswc": "true",
+   "inache": "drivetransitt",
+   "origin": "mobile,ib5,loyalty,platform",
+   "platform": "ios",
+   "appVersion": APP_VERSION,
+   "connectionType": "WiFi"
+  }
+ },
+ "autopayments": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/autopayments",
+  "params": {
+   "connectionType": "WiFi",
+   "origin": "mobile,ib5,loyalty,platform",
+   "inache": "drivetransitt",
+   "appVersion": APP_VERSION,
+   "cpswc": "true",
+   "appName": "mobile",
+   "ccc": "true",
+   "platform": "ios"
+  }
+ },
+ "sbp_subscriptions": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/sbp/subscription/list",
+  "params": {
+   "cpswc": "true",
+   "ccc": "true",
+   "connectionType": "WiFi",
+   "platform": "ios",
+   "appVersion": APP_VERSION,
+   "origin": "mobile,ib5,loyalty,platform",
+   "appName": "mobile",
+   "inache": "drivetransitt"
+  }
+ },
+ "providers_compatible": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/providers/compatible/filter",
+  "params": {
+   "platform": "ios",
+   "ccc": "true",
+   "inache": "drivetransitt",
+   "appName": "mobile",
+   "appVersion": APP_VERSION,
+   "cpswc": "true",
+   "connectionType": "WiFi",
+   "origin": "mobile,ib5,loyalty,platform"
+  }
+ },
+ "client_offers": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/client_offer_essences",
+  "params": {
+   "inache": "drivetransitt",
+   "platform": "ios",
+   "appName": "mobile",
+   "appVersion": APP_VERSION,
+   "ccc": "true",
+   "origin": "mobile,ib5,loyalty,platform",
+   "connectionType": "WiFi",
+   "cpswc": "true"
+  }
+ },
+ "gift_for_recipient": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/gift/for_recipient",
+  "params": {
+   "appVersion": APP_VERSION,
+   "ccc": "true",
+   "platform": "ios",
+   "connectionType": "WiFi",
+   "appName": "mobile",
+   "origin": "mobile,ib5,loyalty,platform",
+   "cpswc": "true",
+   "inache": "drivetransitt"
+  }
+ },
+ "finhealth_balance_total": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/finhealth/v2/metric/balance/total",
+  "params": {
+   "appVersion": APP_VERSION,
+   "platform": "ios",
+   "origin": "mobile,ib5,loyalty,platform",
+   "cpswc": "true",
+   "appName": "mobile",
+   "inache": "drivetransitt",
+   "ccc": "true",
+   "connectionType": "WiFi"
+  }
+ },
+ "finhealth_balance_turnover": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/finhealth/v2/metric/balance/turnover",
+  "params": {
+   "appVersion": APP_VERSION,
+   "platform": "ios",
+   "origin": "mobile,ib5,loyalty,platform",
+   "cpswc": "true",
+   "appName": "mobile",
+   "inache": "drivetransitt",
+   "ccc": "true",
+   "connectionType": "WiFi"
+  }
+ },
+ "finhealth_invest_turnover": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/finhealth/v2/metric/invest/turnover",
+  "params": {
+   "appVersion": APP_VERSION,
+   "platform": "ios",
+   "origin": "mobile,ib5,loyalty,platform",
+   "cpswc": "true",
+   "appName": "mobile",
+   "inache": "drivetransitt",
+   "ccc": "true",
+   "connectionType": "WiFi"
+  }
+ },
+ "p2p_countries": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/p2panybank/countries",
+  "params": {
+   "appName": "mobile",
+   "appVersion": APP_VERSION,
+   "inache": "drivetransitt",
+   "origin": "mobile,ib5,loyalty,platform",
+   "platform": "ios",
+   "connectionType": "WiFi",
+   "cpswc": "true",
+   "ccc": "true"
+  }
+ },
+ "services": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/services",
+  "params": {
+   "ccc": "true",
+   "cpswc": "true",
+   "connectionType": "WiFi",
+   "platform": "ios",
+   "appName": "mobile",
+   "origin": "mobile,ib5,loyalty,platform",
+   "appVersion": APP_VERSION,
+   "inache": "drivetransitt"
+  }
+ },
+ "invest_pension_profile": {
+  "method": "GET",
+  "host": "https://api-invest-gw.t-bank-app.ru",
+  "path": "/pension/person/api/v2/client/profile",
+  "params": {
+   "appName": "mobile",
+   "platform": "ios",
+   "inache": "drivetransitt",
+   "appVersion": APP_VERSION,
+   "connectionType": "WiFi",
+   "origin": "mobile,ib5,loyalty,platform",
+   "cpswc": "true",
+   "ccc": "true"
+  }
+ },
+ "investbox_offers": {
+  "method": "GET",
+  "host": "https://api-invest-gw.t-bank-app.ru",
+  "path": "/investbox/deposit/api/investdeposit/offers/info",
+  "params": {
+   "connectionType": "WiFi",
+   "origin": "mobile,ib5,loyalty,platform",
+   "cpswc": "true",
+   "platform": "ios",
+   "inache": "drivetransitt",
+   "appVersion": APP_VERSION,
+   "ccc": "true",
+   "appName": "mobile"
+  }
+ },
+ "investbox_product_yield": {
+  "method": "GET",
+  "host": "https://api-invest.t-bank-app.ru",
+  "path": "/investbox/api/product/yield",
+  "params": {
+   "cpswc": "true",
+   "origin": "mobile,ib5,loyalty,platform",
+   "inache": "drivetransitt",
+   "appName": "mobile",
+   "platform": "ios",
+   "appVersion": APP_VERSION,
+   "ccc": "true",
+   "connectionType": "WiFi"
+  }
+ },
+ "broker_margin": {
+  "method": "GET",
+  "host": "https://api-invest.t-bank-app.ru",
+  "path": "/broker-api/portfolio/margin-attributes",
+  "params": {
+   "appName": "mobile",
+   "origin": "mobile,ib5,loyalty,platform",
+   "cpswc": "true",
+   "ccc": "true",
+   "inache": "drivetransitt",
+   "connectionType": "WiFi",
+   "platform": "ios",
+   "appVersion": APP_VERSION
+  }
+ },
+ "invest_offers": {
+  "method": "GET",
+  "host": "https://api-invest-gw.t-bank-app.ru",
+  "path": "/offer/api/v1/instance/virtual-stock",
+  "params": {
+   "connectionType": "WiFi",
+   "ccc": "true",
+   "platform": "ios",
+   "appName": "mobile",
+   "inache": "drivetransitt",
+   "origin": "mobile,ib5,loyalty,platform",
+   "cpswc": "true",
+   "appVersion": APP_VERSION
+  }
+ },
+ "bundles_all": {
+  "method": "GET",
+  "host": "https://api-common-gw.t-bank-app.ru",
+  "path": "/bundles/api/v1/allBundles",
+  "params": {
+   "ccc": "true",
+   "appName": "mobile",
+   "appVersion": APP_VERSION,
+   "platform": "ios",
+   "origin": "mobile,ib5,loyalty,platform",
+   "connectionType": "WiFi",
+   "inache": "drivetransitt",
+   "cpswc": "true"
+  }
+ },
+ "business_account_info": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/get_business_account_info",
+  "params": {
+   "origin": "mobile,ib5,loyalty,platform",
+   "inache": "drivetransitt",
+   "appName": "mobile",
+   "connectionType": "WiFi",
+   "appVersion": APP_VERSION,
+   "cpswc": "true",
+   "ccc": "true",
+   "platform": "ios"
+  }
+ },
+ "shared_resources_owned": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/list_owner_shared_resources",
+  "params": {
+   "appName": "mobile",
+   "inache": "drivetransitt",
+   "platform": "ios",
+   "appVersion": APP_VERSION,
+   "ccc": "true",
+   "cpswc": "true",
+   "connectionType": "WiFi",
+   "origin": "mobile,ib5,loyalty,platform"
+  }
+ },
+ "shared_resources": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/list_shared_resources",
+  "params": {
+   "ccc": "true",
+   "appVersion": APP_VERSION,
+   "appName": "mobile",
+   "origin": "mobile,ib5,loyalty,platform",
+   "platform": "ios",
+   "inache": "drivetransitt",
+   "connectionType": "WiFi",
+   "cpswc": "true"
+  }
+ },
+ "contact_list": {
+  "method": "POST",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/contact/list",
+  "params": {
+   "appName": "mobile",
+   "inache": "drivetransitt",
+   "origin": "mobile,ib5,loyalty,platform",
+   "cpswc": "true",
+   "appVersion": APP_VERSION,
+   "platform": "ios",
+   "connectionType": "WiFi",
+   "ccc": "true"
+  }
+ },
+ "providers_groups": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/providers/providers/groups/filter",
+  "params": {
+   "origin": "mobile,ib5,loyalty,platform",
+   "appVersion": APP_VERSION,
+   "appName": "mobile",
+   "platform": "ios",
+   "ccc": "true",
+   "cpswc": "true",
+   "inache": "drivetransitt",
+   "connectionType": "WiFi"
+  }
+ },
+ # The provider CATALOGUE, and the only place the per-provider field schema lives:
+ # each record carries fields[] with an id, a human name, a validating `regexp`, a
+ # hint and usageTypes (which fields are required for `Pay` vs for a template).
+ # `groups` (a group NAME, not an id), `page`, `pageSize` and `frontendFeatureFlag`
+ # are sent by the app on every captured call — without them this returns a
+ # differently-scoped page than the app's own screen.
+ "providers_compatible_page": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/providers/compatible/page",
+  "params": {
+   "origin": "mobile,ib5,loyalty,platform",
+   "inache": "drivetransitt",
+   "cpswc": "true",
+   "ccc": "true",
+   "appName": "mobile",
+   "connectionType": "WiFi",
+   "platform": "ios",
+   "appVersion": APP_VERSION,
+   "pageSize": "100",
+   "page": "1",
+   "frontendFeatureFlag": "SHAWithSubs"
+  }
+ },
+ "atm_withdrawal_qrs": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/atm_withdrawal_qrs",
+  "params": {
+   "appVersion": APP_VERSION,
+   "connectionType": "WiFi",
+   "ccc": "true",
+   "platform": "ios",
+   "appName": "mobile",
+   "origin": "mobile,ib5,loyalty,platform",
+   "inache": "drivetransitt",
+   "cpswc": "true"
+  }
+ },
+ "check_rating": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/check_rating",
+  "params": {
+   "appVersion": APP_VERSION,
+   "platform": "ios",
+   "origin": "mobile,ib5,loyalty,platform",
+   "cpswc": "true",
+   "appName": "mobile",
+   "inache": "drivetransitt",
+   "ccc": "true",
+   "connectionType": "WiFi"
+  }
+ },
+ "credit_collection_info": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/credit/collection_info",
+  "params": {
+   "ccc": "true",
+   "cpswc": "true",
+   "connectionType": "WiFi",
+   "platform": "ios",
+   "appName": "mobile",
+   "origin": "mobile,ib5,loyalty,platform",
+   "appVersion": APP_VERSION,
+   "inache": "drivetransitt"
+  }
+ },
+ "active_account_options": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/active_account_options",
+  "params": {
+   "ccc": "true",
+   "cpswc": "true",
+   "connectionType": "WiFi",
+   "platform": "ios",
+   "appName": "mobile",
+   "origin": "mobile,ib5,loyalty,platform",
+   "appVersion": APP_VERSION,
+   "inache": "drivetransitt"
+  }
+ },
+ "appointment_deliveries": {
+  "method": "GET",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/appointment/v1/deliveries/active",
+  "params": {
+   "origin": "mobile,ib5,loyalty,platform",
+   "inache": "drivetransitt",
+   "appName": "mobile",
+   "connectionType": "WiFi",
+   "appVersion": APP_VERSION,
+   "ccc": "true",
+   "cpswc": "true",
+   "platform": "ios"
+  }
+ },
+ "grocery_cart_get": {
+  "method": "GET",
+  "host": "https://lifestyle.t-bank-app.ru",
+  "path": "/api/grocery/cart",
+  "params": {
+   "inache": "drivetransitt",
+   "platform": "ios",
+   "appVersion": APP_VERSION,
+   "cpswc": "true",
+   "origin": "mobile,ib5,loyalty,platform",
+   "ccc": "true",
+   "connectionType": "WiFi",
+   "appName": "mobile"
+  }
+ },
+ "grocery_cart_set": {
+  "method": "POST",
+  "host": "https://lifestyle.t-bank-app.ru",
+  "path": "/api/grocery/cart/set",
+  "params": {
+   "origin": "mobile,ib5,loyalty,platform",
+   "appName": "mobile",
+   "inache": "drivetransitt",
+   "platform": "ios",
+   "ccc": "true",
+   "cpswc": "true",
+   "appVersion": APP_VERSION,
+   "connectionType": "WiFi"
+  }
+ },
+ "grocery_cart_check": {
+  "method": "GET",
+  "host": "https://lifestyle.t-bank-app.ru",
+  "path": "/api/grocery/cart/check",
+  "params": {
+   "connectionType": "WiFi",
+   "inache": "drivetransitt",
+   "cpswc": "true",
+   "appVersion": APP_VERSION,
+   "platform": "ios",
+   "ccc": "true",
+   "origin": "mobile,ib5,loyalty,platform",
+   "appName": "mobile"
+  }
+ },
+ "grocery_order_get": {
+  "method": "GET",
+  "host": "https://lifestyle.t-bank-app.ru",
+  "path": "/api/grocery/order",
+  "params": {
+   "platform": "ios",
+   "inache": "drivetransitt",
+   "appName": "mobile",
+   "connectionType": "WiFi",
+   "origin": "mobile,ib5,loyalty,platform",
+   "ccc": "true",
+   "cpswc": "true",
+   "appVersion": APP_VERSION
+  }
+ },
+ "grocery_order_create": {
+  "method": "POST",
+  "host": "https://www.tbank.ru",
+  "path": "/api/supreme/lifestyle/api/grocery/order/create",
+  "params": {
+   "appName": "grocery_evo",
+   "appVersion": APP_VERSION,
+   "platform": "webview_ios"
+  }
+ },
+ "grocery_deliveries": {
+  "method": "POST",
+  "host": "https://www.tbank.ru",
+  "path": "/api/supreme/lifestyle/api/grocery/deliveries",
+  "params": {
+   "appName": "grocery_evo",
+   "appVersion": APP_VERSION,
+   "platform": "webview_ios"
+  }
+ },
+ "grocery_retailers": {
+  "method": "GET",
+  "host": "https://lifestyle.t-bank-app.ru",
+  "path": "/api/grocery/retailers",
+  "params": {
+   "appVersion": APP_VERSION,
+   "inache": "drivetransitt",
+   "connectionType": "WiFi",
+   "platform": "ios",
+   "origin": "mobile,ib5,loyalty,platform",
+   "ccc": "true",
+   "cpswc": "true",
+   "appName": "mobile"
+  }
+ },
+ "grocery_catalog": {
+  "method": "GET",
+  "host": "https://lifestyle.t-bank-app.ru",
+  "path": "/api/grocery/catalog",
+  "params": {
+   "inache": "drivetransitt",
+   "appName": "mobile",
+   "cpswc": "true",
+   "platform": "ios",
+   "appVersion": APP_VERSION,
+   "ccc": "true",
+   "connectionType": "WiFi",
+   "origin": "mobile,ib5,loyalty,platform"
+  }
+ },
+ "grocery_categories": {
+  "method": "GET",
+  "host": "https://lifestyle.t-bank-app.ru",
+  "path": "/api/grocery/categories",
+  "params": {
+   "appName": "mobile",
+   "connectionType": "WiFi",
+   "ccc": "true",
+   "cpswc": "true",
+   "origin": "mobile,ib5,loyalty,platform",
+   "appVersion": APP_VERSION,
+   "platform": "ios",
+   "inache": "drivetransitt"
+  }
+ },
+ "grocery_popular": {
+  "method": "GET",
+  "host": "https://lifestyle.t-bank-app.ru",
+  "path": "/api/grocery/popular",
+  "params": {
+   "ccc": "true",
+   "platform": "ios",
+   "appName": "mobile",
+   "appVersion": APP_VERSION,
+   "connectionType": "WiFi",
+   "origin": "mobile,ib5,loyalty,platform",
+   "inache": "drivetransitt",
+   "cpswc": "true"
+  }
+ },
+ "grocery_client_info": {
+  "method": "GET",
+  "host": "https://lifestyle.t-bank-app.ru",
+  "path": "/api/grocery/client/info",
+  "params": {
+   "ccc": "true",
+   "platform": "ios",
+   "origin": "mobile,ib5,loyalty,platform",
+   "appName": "mobile",
+   "connectionType": "WiFi",
+   "inache": "drivetransitt",
+   "cpswc": "true",
+   "appVersion": APP_VERSION
+  }
+ },
+ "grocery_unseen_orders": {
+  "method": "GET",
+  "host": "https://lifestyle.t-bank-app.ru",
+  "path": "/api/orders/unseen/count",
+  "params": {
+   "platform": "ios",
+   "origin": "mobile,ib5,loyalty,platform",
+   "ccc": "true",
+   "inache": "drivetransitt",
+   "appVersion": APP_VERSION,
+   "cpswc": "true",
+   "connectionType": "WiFi",
+   "appName": "mobile"
+  }
+ },
+ # The WEB payment gate (the grocery Playwright checkout). Pg-Api-System names the
+ # calling system and the gate receives it on EVERY captured call — the comment on
+ # the mobile sibling below has always said so and named this exact value, but the
+ # header was never actually set here.
+ "payment_gate_pay": {
+  "method": "POST",
+  "host": "https://www.tbank.ru",
+  "path": "/api/common/pg-api/v1/payment-gate/payments",
+  "params": {
+   "origin": "web,ib5,platform"
+  },
+  "headers": {
+   "Pg-Api-System": "t-grocery-ib"
+  }
+ },
+ "payment_commission": {
+  "method": "POST",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/payment_commission",
+  "form": True,
+  "params": {
+   "platform": "ios",
+   "inache": "drivetransitt",
+   "appName": "mobile",
+   "origin": "mobile,ib5,loyalty,platform",
+   "connectionType": "WiFi",
+   "ccc": "true",
+   "cpswc": "true",
+   "appVersion": APP_VERSION
+  }
+ },
+ "shopping_change_qty": {
+  "method": "POST",
+  "host": "https://webview.t-bank-app.ru",
+  "path": "/mybank/api/shopping/mobile/v1/carts/change-items-quantity",
+  "params": {
+   "appVersion": APP_VERSION,
+   "appName": "mobile",
+   "platform": "webview_ios"
+  }
+ , "no_base_params": True, "no_bearer": True},
+ "shopping_cart_detail": {
+  "method": "POST",
+  "host": "https://webview.t-bank-app.ru",
+  "path": "/mybank/api/shopping/mobile/v1/carts/cart-detail-info",
+  "params": {
+   "appName": "mobile",
+   "appVersion": APP_VERSION,
+   "platform": "webview_ios"
+  }
+ , "no_base_params": True, "no_bearer": True},
+ "store_products": {
+  "method": "GET",
+  "host": "https://webview.t-bank-app.ru",
+  "path": "/mybank/api/shopping/mobile/v1/store-products",
+  "params": {
+   "appVersion": APP_VERSION,
+   "appName": "mobile",
+   "platform": "webview_ios"
+  }
+ , "no_base_params": True, "no_bearer": True},
+ "store_product": {
+  "method": "GET",
+  "host": "https://webview.t-bank-app.ru",
+  "path": "/mybank/api/shopping/mobile/v1/product",
+  "params": {
+   "appVersion": APP_VERSION,
+   "appName": "mobile",
+   "platform": "webview_ios"
+  }
+ , "no_base_params": True, "no_bearer": True},
+ "store_categories": {
+  "method": "GET",
+  "host": "https://webview.t-bank-app.ru",
+  "path": "/mybank/api/shopping/mobile/v4/store-categories",
+  "params": {
+   "appVersion": APP_VERSION,
+   "appName": "mobile",
+   "platform": "webview_ios"
+  }
+ , "no_base_params": True, "no_bearer": True},
+ "sphere_categories": {
+  "method": "GET",
+  "host": "https://webview.t-bank-app.ru",
+  "path": "/mybank/api/shopping/mobile/v5/sphere/categories",
+  "params": {
+   "appName": "mobile",
+   "platform": "webview_ios",
+   "appVersion": APP_VERSION
+  }
+ , "no_base_params": True, "no_bearer": True},
+ "grocery_goods": {
+  "method": "GET",
+  "host": "https://lifestyle.t-bank-app.ru",
+  "path": "/api/grocery/goods",
+  "params": {
+   "appVersion": APP_VERSION,
+   "platform": "ios",
+   "inache": "drivetransitt",
+   "sortBy": "DEFAULT",
+   "onlyDirectGoods": "false",
+   "origin": "mobile,ib5,loyalty,platform",
+   "ccc": "true",
+   "cpswc": "true",
+   "appName": "mobile",
+   "connectionType": "WiFi"
+  }
+ },
+ "payment_methods": {
+  "method": "POST",
+  "host": "https://webview.t-bank-app.ru",
+  "path": "/mybank/api/shopping/mobile/v6/payment-methods",
+  "params": {
+   "appVersion": APP_VERSION,
+   "appName": "mobile",
+   "platform": "webview_ios"
+  }
+ , "no_base_params": True, "no_bearer": True},
+ "v1_pay": {
+  "method": "POST",
+  "host": "https://api.t-bank-app.ru",
+  "path": "/v1/pay",
+  "params": {
+   "platform": "ios",
+   "ccc": "true",
+   "inache": "drivetransitt",
+   "appName": "mobile",
+   "connectionType": "WiFi",
+   "appVersion": APP_VERSION,
+   "cpswc": "true",
+   "origin": "mobile,ib5,loyalty,platform"
+  }
+ },
+ "checkout_process_order": {
+  "method": "POST",
+  "host": "https://webview.t-bank-app.ru",
+  "path": "/mybank/api/shopping/mobile/v1/checkout/process-order",
+  "params": {
+   "appName": "mobile",
+   "appVersion": APP_VERSION,
+   "platform": "webview_ios"
+  }
+ , "no_base_params": True, "no_bearer": True},
+ # Shared by conversations / messages / hints / faq (path per call).
+ #
+ # no_base_params: the app sends the messenger host NOTHING in the query — every
+ # captured URL on tm.t-bank-app.ru carries at most messageId/direction. We were
+ # appending sessionid, deviceId, oldDeviceId, appName… to all of them, and
+ # sessionid is the HMAC key for /v1/pay: a payment credential in a URL, on a host
+ # that never asks for it and logs it like any other. Verified live that dropping
+ # them changes nothing: conversations, messages and unread answer identically with
+ # and without (the messenger authorises on the tmsgSessionID cookie).
+ #
+ # no_bearer: for the same reason and with the same evidence. Across the captured
+ # tm.t-bank-app.ru traffic the app sends an Authorization header exactly zero
+ # times — the cookie IS the credential here. We were adding the access_token, the
+ # Bearer for every other host in this file, to a host that never asks for it.
+ # Verified live: conversations, messages, unread and the file download all answer
+ # identically with no Authorization at all.
+ #
+ # messenger_send and messenger_mark_read keep theirs: the same captures say the
+ # app sends none there either, but a send is a real message to a support agent and
+ # cannot be probe-tested, so that one stays as it is until someone has a reason to
+ # send a message anyway.
+ "messenger_base": {
+  "method": "GET",
+  "host": "https://tm.t-bank-app.ru",
+  "path": "/app/bank/messenger/conversations/unread",
+  "params": {},
+  "no_base_params": True, "no_bearer": True
+ },
+ "messenger_send": {
+  "method": "POST",
+  "host": "https://tm.t-bank-app.ru",
+  "path": "/app/bank/messenger/conversations/{conversation_id}/messages",
+  "params": {},
+  "no_base_params": True,          # see messenger_base: no sessionid on this host
+  "headers": {
+   "Content-Type": "application/vnd.chats.chatapi.text.message.in.v1+json",
+   "Accept": "application/vnd.chats.chatapi.text.message.out.v1+json"
+   # Tmsg-User-Agent is NOT pinned here: it carries the app version, the iOS
+   # version and the device model, all of which the session already knows.
+   # Frozen as a literal it said iOS:17.5.1 — the exact stale value removed from
+   # the main User-Agent — and omitted the `device:` segment every captured
+   # request carries. Built in client._mobile_headers instead.
+  }
+ }
+}
+
+# 14 additional valuable endpoints found by the completeness audit.
+BUILTIN_ENDPOINTS.update({
+    "detected_merchant_subscriptions": {"method": "GET", "host": "https://api.t-bank-app.ru", "path": "/subscriptions/merchant/v2/subscriptions", "params": {}},
+    "user_profile": {"method": "GET", "host": "https://id.t-bank-app.ru", "path": "/userinfo/userinfo", "params": {"ccc": "true", "cpswc": "true", "client_id": "gorod-app"}},
+    "broker_portfolio_accounts": {"method": "POST", "host": "https://api-invest-gw.t-bank-app.ru", "path": "/invest-portfolio/portfolios/accounts/for-mb", "params": {"withClosingIis": "false", "currency": "RUB"}},
+    "my_homes": {"method": "GET", "host": "https://my-home.tinkoff.ru", "path": "/api/v1/gw/homes", "params": {}},
+    "my_home_activities": {"method": "GET", "host": "https://my-home.tinkoff.ru", "path": "/api/v1/gw/activities", "params": {}},
+    "my_cars": {"method": "GET", "host": "https://myauto.t-bank-app.ru", "path": "/api/my-auto/v2/cars/list-light", "params": {"inache": "drivetransitt"}},
+    "payment_shortcuts": {"method": "GET", "host": "https://shortcuts.t-bank-app.ru", "path": "/v2/shortcuts", "params": {}},
+    "unread_support_requests": {"method": "GET", "host": "https://csc.tbank.ru", "path": "/app/bank/api/v1/tracker/userRequests/unread", "params": {}},
+    "resolve_payment_qr": {"method": "POST", "host": "https://api.t-bank-app.ru", "path": "/providers/providers/qr/resolve", "params": {}},
+    "merchant_brand": {"method": "GET", "host": "https://api.t-bank-app.ru", "path": "/v1/brand_by_merchant", "params": {}},
+    "money_request_public_page": {"method": "GET", "host": "https://api.t-bank-app.ru", "path": "/v1/cm/public_page/money_request", "params": {}},
+    "finhealth_account_presets": {"method": "GET", "host": "https://api.t-bank-app.ru", "path": "/finhealth/v2/settings/accounts/presets/default", "params": {}},
+    "get_ip": {"method": "GET", "host": "https://api.tbank.ru", "path": "/v1/get_ip", "params": {}},
+    "push_unread_count": {"method": "GET", "host": "https://push-history-api.t-bank-app.ru", "path": "/bank/v3/notifications/unseen/count", "params": {}},
+})
+
+# Endpoints for the scenarios added from captures2.xml (cards, documents, orders,
+# grocery nutrition, cinema). Verified against the capture; item numbers in comments
+# refer to captures2.xml.
+#
+# `session_param` overrides the query key the mobile sessionid is sent under. Most
+# hosts take `sessionid`, but the prefill-profile and insurance hosts spell it
+# `sessionId` and 401 on the lowercase form.
+BUILTIN_ENDPOINTS.update({
+    # ---- cards & accounts (items 368/370/374/428) --------------------------
+    "account_cards": {"method": "GET", "host": "https://api.t-bank-app.ru",
+                      "path": "/v1/account_cards", "params": {}},
+    # ?ucid=<card ucid> — the card's ucid, NOT its id (account_cards gives both)
+    "card_limits": {"method": "GET", "host": "https://api.t-bank-app.ru",
+                    "path": "/v1/limits", "params": {}},
+    # Returns the FULL pan + cvv2 + expireDate. The app sends a device-attributes
+    # bundle alongside; card_requisites() fills those in from the session.
+    "card_credentials": {"method": "GET", "host": "https://api.t-bank-app.ru",
+                         "path": "/v1/card_credentials", "params": {}},
+    # ?account=<id>;RUB (repeatable — pass a list to get every currency at once)
+    "account_group_requisites": {"method": "GET", "host": "https://api.t-bank-app.ru",
+                                 "path": "/v1/account_group_requisites", "params": {}},
+
+    # ---- identity documents (items 8/14/15) -------------------------------
+    "prefill_contact": {"method": "GET", "host": "https://api.t-bank-app.ru",
+                        "path": "/api/prefill/profile/contact", "params": {},
+                        "session_param": "sessionId"},
+    # path is parameterized: /api/prefill/profile/contact/{contactId}/document/all
+    "prefill_documents": {"method": "GET", "host": "https://api.t-bank-app.ru",
+                          "path": "/api/prefill/profile/contact/_/document/all",
+                          "params": {}, "session_param": "sessionId"},
+    "prefill_userinfo_brief": {"method": "GET", "host": "https://api.t-bank-app.ru",
+                               "path": "/api/prefill/profile/contact/_/userinfo/brief",
+                               "params": {}, "session_param": "sessionId"},
+
+    # ---- orders across every vertical (items 96/97/121) --------------------
+    # /api/orders/list is the only endpoint that returns groceries, cinema,
+    # concerts, flights, trains and hotels in ONE list (187 orders back to 2018).
+    "orders_list": {"method": "GET", "host": "https://lifestyle.t-bank-app.ru",
+                    "path": "/api/orders/list", "params": {}},
+    # ?orderId= — full detail for entertainment orders (seats, hall, QR code)
+    "order_get": {"method": "GET", "host": "https://lifestyle.t-bank-app.ru",
+                  "path": "/api/order", "params": {}},
+
+    # ---- grocery item detail incl. nutrition (item 1020) -------------------
+    "grocery_good": {"method": "GET", "host": "https://lifestyle.t-bank-app.ru",
+                     "path": "/api/grocery/good", "params": {"isExpress": "false"}},
+
+    # ---- cinema (items 717/730/800) ---------------------------------------
+    # POST with body {"genres": []}; the collectionCode selects the city listing
+    "events_collection": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
+                          "path": "/api/events/collection",
+                          "params": {"service": "cinema", "page": "1", "count": "30"}},
+    # POST {"date","eventId","city","sort":{"by":"distance"},"location":{lat,lon}}
+    "schedule_movie": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
+                       "path": "/api/schedule/movie", "params": {}},
+
+    # ---- extras surfaced by captures2 -------------------------------------
+    # bank-issued certificates (справки) — returns a BARE list, no envelope
+    "bank_documents": {"method": "GET", "host": "https://cx-evolution-api.t-bank-app.ru",
+                       "path": "/v3/cx-evolution-api/documents/get-document-list",
+                       # X-Api-Version: v2 selects the record shape. Without it the
+                       # endpoint answers in the v1 form, whose ids are negative ints
+                       # in `tecmId` rather than the uuid in `tecmUuid` — which is why
+                       # the tool used to print negative ids nothing else accepts.
+                       # Capture-verified: captures2.xml #44.
+                       "headers": {"X-Api-Version": "v2"},
+                       "params": {}},
+    "insurance_policies": {"method": "GET", "host": "https://api.tinsurance.ru",
+                           "path": "/api/v2/policy/active_with_claims", "params": {},
+                           "session_param": "sessionId"},
+    # ?paymentId= — responds with application/pdf, not JSON (raw=True).
+    # The BFF picks its serializer from Accept: with `application/json` (our
+    # default) it answers 200 + {"resultCode":"INTERNAL_ERROR","errorMessage":
+    # "Unsupported EndpointOutput: FixedStatusCode"}. Only the app's browser-ish
+    # Accept yields the PDF — verified live across four paymentIds.
+    "payment_receipt_pdf": {"method": "GET", "host": "https://api.t-bank-app.ru",
+                            "path": "/v1/payment_receipt_pdf", "params": {},
+                            "raw": True,
+                            "headers": {"Accept": "text/html,application/xhtml+xml,"
+                                                  "application/xml;q=0.9,*/*;q=0.8"}},
+})
+
+# messenger/conversations/unread does its own content negotiation and 406s on the
+# generic `application/json` that _mobile_headers injects. It needs the exact
+# vendor type below (capture: captures.xml items 126/211) — hence its own template
+# rather than a header on the shared `messenger_base`, which the conversations /
+# messages / hints / faq / markRead paths reuse and which DO take application/json.
+BUILTIN_ENDPOINTS.update({
+    "messenger_unread": {
+        "method": "GET", "host": "https://tm.t-bank-app.ru",
+        "path": "/app/bank/messenger/conversations/unread", "params": {},
+        "no_base_params": True, "no_bearer": True,   # see messenger_base
+        "headers": {"Accept": "application/vnd.chats.chatapi.unread.out.v3+json"},
+    },
+    # markRead is a PUT with its own vendor types and an empty body. It used to be
+    # sent through messenger_base, i.e. as a GET asking for application/json —
+    # neither the method nor the content types the app uses. The path is supplied
+    # per call via path_override.
+    "messenger_mark_read": {
+        "method": "PUT", "host": "https://tm.t-bank-app.ru",
+        "path": "/app/bank/messenger/conversations/unread", "params": {},
+        "no_base_params": True,          # see messenger_base: no sessionid here
+        "headers": {
+            "Content-Type": "application/vnd.chats.chatapi.markread.in.v1+json",
+            "Accept": "application/vnd.chats.chatapi.markread.out.v1+json",
+        },
+    },
+    # A chat attachment: the bytes behind content.fileId of a messageType="file"
+    # record. GET .../conversations/{conversationId}/files/{fileId}, path supplied
+    # per call. raw=True — the body is application/octet-stream, and _unwrap would
+    # raise HTTP_200 on it. Verified live against a support-chat .xlsx.
+    #
+    # Three properties of this route, all found by probing it:
+    #   * the tmsgSessionID cookie alone authorises it — with the cookie and NO
+    #     Authorization header it still answers 200 with the file;
+    #   * the file is scoped to its conversation. The same fileId under a different
+    #     conversationId of the SAME user answers 401 NOT_AUTHORIZED, so the pair is
+    #     the key, not the fileId;
+    #   * no_base_params, because the app sends none here (nor on any other
+    #     tm.t-bank-app.ru path — the captured messenger URLs carry only
+    #     messageId/direction). Sending them costs a 200 nothing, but sessionid is
+    #     the HMAC key for /v1/pay and does not belong in a URL this host will log.
+    "messenger_file": {
+        "method": "GET", "host": "https://tm.t-bank-app.ru",
+        "path": "/app/bank/messenger/conversations/unread", "params": {},
+        "raw": True, "no_base_params": True, "no_bearer": True,
+        # The app's own Accept for this route. It is NOT load-bearing here — the
+        # route also answers the `application/json` this template would otherwise
+        # inherit — but two endpoints in this file were already caught choosing
+        # their serializer off Accept (messenger_unread 406, payment_receipt_pdf
+        # answering an error envelope), so the app's spelling is the one to send.
+        "headers": {"Accept": "application/octet-stream"},
+    },
+})
+
+# Travel order detail. Only the hotel host is wired up here: it authorizes on the
+# Bearer alone (verified live).
+#
+# Trains and flights are NOT unreachable — that earlier reading was wrong, and the
+# captures-gorod.xml traffic shows why. `/v1/travel_link_auth_token` answers 200
+# there (the INSUFFICIENT_PRIVILEGES seen before was a session that had lapsed to
+# ANONYMOUS), and trains bootstrap from `trains-front/papi/auth/link-token`, not
+# from the `tsocial…/auth/game` path that returned B002D965. Both hosts want their
+# own cookie jar, which is why they are not templates yet rather than because the
+# bank refuses us. See docs/FLOWS.md.
+BUILTIN_ENDPOINTS.update({
+    # path is parameterized: /api/v1/hotels/bookings/{bookingId}
+    "hotel_booking": {"method": "GET", "host": "https://hotels.t-bank-app.ru",
+                      "path": "/api/v1/hotels/bookings/_", "params": {}},
+})
+
+# Public hotels facade used by the production web app. The www.tbank.ru prefix
+# proxies to the hotel backend and was verified live without Authorization,
+# Cookie or native mobile query parameters.
+# Keeping all three opt-outs explicit is deliberate: unknown hosts otherwise get
+# the saved SSO cookie via MobileSession._cookie_for().
+_HOTELS_PUBLIC = {"no_base_params": True, "no_bearer": True, "no_cookie": True}
+
+BUILTIN_ENDPOINTS.update({
+    "hotel_autocomplete": {
+        "method": "POST", "host": "https://www.tbank.ru",
+        "path": "/api/hotels/search-api/v1/hotels/autocomplete", "params": {},
+        "headers": {"Content-Type": "application/json",
+                    "x-api-method-name": "createAutocomplete"},
+        **_HOTELS_PUBLIC,
+    },
+    "hotel_search": {
+        "method": "POST", "host": "https://www.tbank.ru",
+        "path": "/api/v1/hotels/search", "params": {},
+        "headers": {"Content-Type": "application/json",
+                    "x-api-method-name": "createHotelsSearch"},
+        **_HOTELS_PUBLIC,
+    },
+    "hotel_search_points": {
+        "method": "POST", "host": "https://www.tbank.ru",
+        "path": "/api/hotels/search-api/v2/hotels/map/searchHotelPoints",
+        "params": {}, "headers": {"Content-Type": "application/json"},
+        **_HOTELS_PUBLIC,
+    },
+    "hotel_static_info": {
+        "method": "POST", "host": "https://www.tbank.ru",
+        "path": "/api/hotels/search-api/v1/hotels/getHotelStaticInfo",
+        "params": {}, "headers": {"Content-Type": "application/json"},
+        **_HOTELS_PUBLIC,
+    },
+    # path is parameterized: /api/v1/hotels/{hotelId}
+    "hotel_details": {
+        "method": "GET", "host": "https://www.tbank.ru",
+        "path": "/api/hotels/api/v1/hotels/_", "params": {},
+        "headers": {"x-api-method-name": "getHotels"}, **_HOTELS_PUBLIC,
+    },
+    "hotel_filters": {
+        "method": "GET", "host": "https://www.tbank.ru",
+        "path": "/api/hotels/api/v1/hotels/search-filters", "params": {},
+        "headers": {"x-api-method-name": "getHotelsSearchFilters"},
+        **_HOTELS_PUBLIC,
+    },
+})
+
+# Ticket booking: seat map → order/create → payment-gate → cancel.
+# Verified against captures2.xml items 745/748/763/850/935/965/970.
+BUILTIN_ENDPOINTS.update({
+    # ?eventId&slotId&objectId — seats with status/price; seatId is "row:number"
+    # for cinemas and a composite "Сектор|цена§~§id|type" string for concerts.
+    "scheme_sectors_movie": {"method": "GET", "host": "https://lifestyle.t-bank-app.ru",
+                             "path": "/api/scheme/sectors/movie", "params": {}},
+    "scheme_sectors_concert": {"method": "GET", "host": "https://lifestyle.t-bank-app.ru",
+                               "path": "/api/scheme/sectors/concert", "params": {}},
+    # free-seating venues answer here instead, as sectors with availableTickets
+    "scheme_hall_concert": {"method": "GET", "host": "https://lifestyle.t-bank-app.ru",
+                            "path": "/api/scheme/hall/concert", "params": {}},
+    # POST {"eventId"} — concert showings are not date-scoped like movies
+    "schedule_concert": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
+                         "path": "/api/schedule/concert", "params": {}},
+    # POST {slotId, objectId, eventId, seats:[{id,type}]} → order + nfsPaymentToken.
+    # Creates a RESERVATION, moves no money; unpaid orders expire on their own.
+    "order_create_movie": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
+                           "path": "/api/order/create/movie", "params": {}},
+    "order_create_concert": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
+                             "path": "/api/order/create/concert", "params": {}},
+    # POST ?orderId=[&paymentId=] with an EMPTY body. What decides the outcome is
+    # the order's own isCancelAvailable, not the parameter set: the one captured
+    # success (delete-order.xml, a PAID order the bank had flagged cancelable) came
+    # back 200 {"status":"Success"} and the order moved to PARTIALLY_CANCELED. Seven
+    # attempts on fresh UNPAID reservations answered 200 with a BUSINESS refusal
+    # — {"status":"Failed","code":…}, codes 400/500/1002/1009 observed live — and
+    # changed nothing. Content-Type and Accept do not move that needle: both forms
+    # were tried on the same orders and answered identically. paymentId is sent
+    # because the app sends it, not because its absence is a silent no-op.
+    # Empty body with Content-Type: application/json — same as the grocery flavour
+    # below. The client must pass body=None; body={} would put a literal `{}` on the
+    # wire, which no captured cancel sends.
+    "order_cancel_movie": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
+                           "path": "/api/order/cancel/movie", "params": {},
+                           "headers": {"Content-Type": "application/json"}},
+    "order_cancel": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
+                     "path": "/api/order/cancel", "params": {},
+                     "headers": {"Content-Type": "application/json"}},
+    # The GROCERY flavour of the same path (cancel-grossary.xml): ONLY orderId in
+    # the query — no paymentId, unlike tickets above — and a genuinely EMPTY body
+    # that the app still stamps Content-Type: application/json. The verdict is
+    # payload.{status,code}; the outer "status":"Ok" is transport-level and reads
+    # Ok even when nothing was cancelled (payload {"status":"Failed","code":"605"}
+    # = the order is already cancelled).
+    "grocery_order_cancel": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
+                             "path": "/api/order/cancel", "params": {},
+                             "headers": {"Content-Type": "application/json"}},
+    # MONEY. Note the host: the existing `payment_gate_pay` template points at the
+    # WEB gate (www.tbank.ru, cookie-auth, used by the grocery Playwright
+    # checkout). Marketplace orders from the mobile app pay through the MOBILE
+    # gate below on a plain Bearer — no browser involved.
+    # Pg-Api-System names the calling system and the gate sends it on EVERY call.
+    # Both captured flavours carry it and they differ: the grocery web checkout says
+    # "t-grocery-ib", the app's own marketplace payment (tickets) says
+    # "t-entertainment-mb". Same path, same body shape, different caller — so
+    # omitting it leaves the gate to guess which one a payment came from.
+    "payment_gate_pay_mobile": {"method": "POST", "host": "https://api.t-bank-app.ru",
+                                "path": "/pg-api/v1/payment-gate/payments",
+                                "headers": {"Pg-Api-System": "t-entertainment-mb"},
+                                "params": {}},
+})
+
+
+# Theatre and exhibitions ride the same four shapes as cinema and concerts —
+# only the path segment differs. Counted in captures-gorod.xml, all 200:
+# schedule/spectacle 9, schedule/exhibition 1, scheme/sectors/spectacle 3,
+# scheme/sectors/exhibition 1, scheme/hall/spectacle 5, order/create/spectacle 2,
+# order/create/exhibition 1. There is no scheme/hall/exhibition anywhere.
+BUILTIN_ENDPOINTS.update({
+    "schedule_spectacle": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
+                           "path": "/api/schedule/spectacle", "params": {}},
+    "schedule_exhibition": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
+                            "path": "/api/schedule/exhibition", "params": {}},
+    "scheme_sectors_spectacle": {"method": "GET", "host": "https://lifestyle.t-bank-app.ru",
+                                 "path": "/api/scheme/sectors/spectacle", "params": {}},
+    "scheme_sectors_exhibition": {"method": "GET", "host": "https://lifestyle.t-bank-app.ru",
+                                  "path": "/api/scheme/sectors/exhibition", "params": {}},
+    "scheme_hall_spectacle": {"method": "GET", "host": "https://lifestyle.t-bank-app.ru",
+                              "path": "/api/scheme/hall/spectacle", "params": {}},
+    "order_create_spectacle": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
+                               "path": "/api/order/create/spectacle", "params": {}},
+    "order_create_exhibition": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
+                                "path": "/api/order/create/exhibition", "params": {}},
+    # ?service=&cityId= — the vertical's landing shelves. Its collections[].code
+    # holds the REAL collectionCode ("Segodnya-v_kino_Moskva"), which used to be
+    # guessed by transliterating the city name. The guess only ever worked for the
+    # cities whose code happens to match: the server's own codes spell Moscow three
+    # different ways (Moskva, moscow, msk) depending on the shelf.
+    "events_by_service": {"method": "GET", "host": "https://lifestyle.t-bank-app.ru",
+                          "path": "/api/events/by/service", "params": {}},
+
+    # ---- vertical catalogues ----------------------------------------------
+    # POST {"cityId":"1","count":20,"page":1,
+    #       "date":{"from":"…T00:00:00+03:00","to":"…T23:59:59+03:00"}}
+    #
+    # The app only ever sends a single day because its calendar picks one, but the
+    # server takes a RANGE — probed live: one day in Moscow is 83 films, eight days
+    # is 197 unique ones, and the extra titles are real (TheatreHD and Globe
+    # screenings that run on specific later dates). The time inside the bounds is
+    # ignored; an evening window returns the whole day.
+    #
+    # movie behaves differently from the other two and the difference is not
+    # cosmetic: it ignores count/page and returns the vertical whole, and its slots
+    # come back EMPTY — the showings are in schedule/movie. concert and spectacle
+    # paginate server-side and do carry slots. There is no /api/events/exhibition
+    # in any capture, so exhibitions have no catalogue of their own.
+    "events_movie": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
+                     "path": "/api/events/movie", "params": {}},
+    "events_concert": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
+                       "path": "/api/events/concert", "params": {}},
+    "events_spectacle": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
+                         "path": "/api/events/spectacle", "params": {}},
+
+    # ---- venues -----------------------------------------------------------
+    # ?service=&cityId=&page=&count=&include=all — the venue directory, and the
+    # only way to learn an objectId without going through some event that plays
+    # there. count tops out at 100: 116 answers 400, so Moscow's 116 cinemas are
+    # two pages. There is NO text search — no q/query/name/title in any captured
+    # request — so matching a name is the client's job and every page has to be
+    # read before filtering. service is a validated enum: cinema/concert/theatre/
+    # exhibition are accepted (spectacle and museum answer 400), but only cinema
+    # returns data right now; the other three answer 204, which is «this vertical
+    # is not serving» and must not be printed as «no venues here».
+    "events_places": {"method": "GET", "host": "https://lifestyle.t-bank-app.ru",
+                      "path": "/api/events/objects",
+                      "params": {"include": "all", "page": "1", "count": "100"}},
+    # ?objectId&page&count — what is on at one venue. Covers concert, theatre and
+    # exhibition; cinemas are NOT here, their repertoire comes from schedule/movie
+    # with an objectId and a date.
+    "place_schedule": {"method": "GET", "host": "https://lifestyle.t-bank-app.ru",
+                       "path": "/api/events/place/schedule",
+                       "params": {"page": "1", "count": "50"}},
+    # ?objectId — the venue card. geo.address came back EMPTY in all seven captured
+    # calls, so the address has to be read from place_halls instead.
+    "place_info": {"method": "GET", "host": "https://lifestyle.t-bank-app.ru",
+                   "path": "/api/events/place/info", "params": {}},
+    "place_halls": {"method": "GET", "host": "https://lifestyle.t-bank-app.ru",
+                    "path": "/api/events/place/halls", "params": {}},
+})
+
+
+# ---- afisha verticals ------------------------------------------------------
+# One row per vertical, because the bank spells each one four different ways and
+# picking the wrong spelling fails differently every time. The path segment is
+# `movie`, the ?service= for the same thing is `cinema`; theatre is `spectacle`
+# in a path and `theatre` in a service. Nothing in the responses declares the
+# mapping — it was read off objects that carry both at once (an event with
+# eventType=spectacle arriving under service=theatre).
+#
+# `order_types` is a DIFFERENT axis: it is the type of the VENUE, not of the
+# vertical, and the two disagree — the orders feed holds objectType=cinema rows
+# whose eventType is concert. It belongs here only because the feed filter has to
+# be built from somewhere, and having one table beats four hand-kept tuples.
+#
+# Confirmed live except where noted.
+VERTICALS = {
+    "movie": {
+        "ru": "кино",
+        "segment": "movie",          # /api/{schedule,scheme/sectors,order/create}/…
+        "service": "cinema",         # ?service= on events/objects, events/info, by/service
+        "screen": "movie_main",      # search_app screen
+        "order_types": ("cinema",),
+        "sectors_key": "scheme_sectors_movie",
+        "hall_key": "",              # cinemas have numbered seats, no free seating
+        "schedule_key": "schedule_movie",
+        "create_key": "order_create_movie",
+        "cancel_key": "order_cancel_movie",   # the only cancel segment in any capture
+        "seat_type": "basic",        # seats[].type — ONLY movie sends it
+        "seat_render": "grid",       # numbered rows vs a flat list
+        "catalog_key": "events_movie", "catalog_paged": False,
+    },
+    "concert": {
+        "ru": "концерт",
+        "segment": "concert",
+        "service": "concert",
+        "screen": "concerts_main",   # plural, unlike the others
+        "order_types": ("concerthall", "club", "sports", "other"),
+        "sectors_key": "scheme_sectors_concert",
+        "hall_key": "scheme_hall_concert",
+        "schedule_key": "schedule_concert",
+        "create_key": "order_create_concert",
+        "cancel_key": "order_cancel",
+        "seat_type": "",
+        "seat_render": "list",
+        "catalog_key": "events_concert", "catalog_paged": True,
+    },
+    "spectacle": {
+        "ru": "театр",
+        "segment": "spectacle",
+        "service": "theatre",
+        "screen": "spectacle_main",
+        # ASSUMED, not observed: no spectacle order appeared in any capture, so
+        # this is the venue type such an order would plausibly carry. An extra
+        # type in the feed filter is harmless; a missing one loses orders.
+        "order_types": ("theatre",),
+        "sectors_key": "scheme_sectors_spectacle",
+        "hall_key": "scheme_hall_spectacle",
+        "schedule_key": "schedule_spectacle",
+        "create_key": "order_create_spectacle",
+        "cancel_key": "order_cancel",
+        "seat_type": "",
+        "seat_render": "list",
+        "catalog_key": "events_spectacle", "catalog_paged": True,
+    },
+    "exhibition": {
+        "ru": "выставка",
+        "segment": "exhibition",
+        "service": "exhibition",
+        "screen": "exhibition_main",
+        "order_types": ("museum",),
+        "sectors_key": "scheme_sectors_exhibition",
+        "hall_key": "",              # no /api/scheme/hall/exhibition in any capture
+        "schedule_key": "schedule_exhibition",
+        "create_key": "order_create_exhibition",
+        "cancel_key": "order_cancel",
+        "seat_type": "",
+        "seat_render": "list",
+        "catalog_key": "", "catalog_paged": False,
+    },
+}
+
+# What an agent may type. The Russian words are what the tools document; the
+# segments are accepted too because the API uses them and they leak into
+# conversations through ids and paths.
+VERTICAL_ALIASES = {
+    "фильм": "movie", "кино": "movie", "movie": "movie", "cinema": "movie",
+    "концерт": "concert", "concert": "concert", "concerthall": "concert",
+    "театр": "spectacle", "спектакль": "spectacle",
+    "spectacle": "spectacle", "theatre": "spectacle", "theater": "spectacle",
+    "выставка": "exhibition", "музей": "exhibition",
+    "exhibition": "exhibition", "museum": "exhibition",
+}
+
+
+# ---- marketplace (Шопинг) --------------------------------------------------
+# webview.t-bank-app.ru serves the shopping webview, and it is not the native
+# app: across 179 captured requests there is not one Authorization header. It
+# authorises on cookies whose sessionID and sso_api_session both carry the very
+# access_token the mobile session already holds — hence no_bearer, and the cookie
+# is assembled in MobileSession._cookie_for. It also wants none of the native
+# query context: appName, appVersion and platform=webview_ios, nothing else.
+#
+# The search parameter is `search`, NOT `query` — the sibling media endpoint uses
+# `query`, which is exactly the kind of near-miss worth writing down.
+_SHOP = {"appName": "mobile", "appVersion": APP_VERSION, "platform": "webview_ios"}
+# The nine legacy webview templates above carry no_base_params/no_bearer for the
+# reason _SHOP_LEAN exists: webview.t-bank-app.ru authorises on its own cookies, and
+# 1177 of 1177 captured requests to that host carry NEITHER an Authorization header
+# NOR the native query block (sessionid, deviceId, oldDeviceId, ccc, cpswc, origin,
+# inache, connectionType). Sending what the app does not send is the same class of
+# divergence that once broke the grocery cart — and it was sending the Bearer to a
+# host that never asks for one.
+_SHOP_LEAN = {"no_base_params": True, "no_bearer": True}
+
+BUILTIN_ENDPOINTS.update({
+    # The delivery address, and the only source of the lat/lon that search wants.
+    "shop_address": {"method": "GET", "host": "https://webview.t-bank-app.ru",
+                     "path": "/mybank/api/shopping/mobile/v1/addresses/get",
+                     "params": dict(_SHOP), **_SHOP_LEAN},
+    # ?search=&size=&offset=&latitude=&longitude= — server-side paging, real
+    # totalHits. Products carry skuId/pointId/dolyameShopId, which is the triple a
+    # cart write needs.
+    "shop_search": {"method": "GET", "host": "https://webview.t-bank-app.ru",
+                    "path": "/mybank/api/shopping/mobile/v5/search/multi-search",
+                    "params": {**_SHOP, "size": "20", "offset": "0",
+                               "withFacets": "true", "showRating": "false",
+                               "withCorrection": "true", "showUnavailable": "true",
+                               "addUtm": "true", "useAutoFilters": "true"},
+                    **_SHOP_LEAN},
+    # Empty body with Content-Length: 0 — body=None, not {}.
+    "shop_carts": {"method": "POST", "host": "https://webview.t-bank-app.ru",
+                   "path": "/mybank/api/shopping/mobile/v1/carts/get-user-carts",
+                   "params": dict(_SHOP),
+                   "headers": {"Content-Type": "application/json"}, **_SHOP_LEAN},
+})
+
+
+# ---- flights (www.tbank.ru /api/travel) ------------------------------------
+# The captured traffic runs these under a WEB session (a psid cookie from a
+# multi-step bridge), which read as «unreachable from a mobile session». It is
+# not: probed live, the same endpoints answer under the plain mobile Bearer with
+# the session in `sessionId` and X-Travel-Context: mb. No bridge, no new
+# credential — so the whole psid apparatus the plan budgeted for is not built.
+#
+# The search streams. startStreaming opens it and returns the first batch;
+# nextBatch blocks until the next one is ready and sets isOver on the last.
+# offers[].flights are indices into the CONCATENATION of every batch, not into
+# the batch they arrived in — measured: 757 flights, highest offer index 756 — so
+# a flight can only be resolved after the whole stream is stitched.
+_TRAVEL_MB = {"session_param": "sessionId",
+              "headers": {"X-Travel-Context": "mb"}}
+_TRAVEL_MB_POST = {"session_param": "sessionId",
+                   "headers": {"Content-Type": "application/json",
+                               "X-Travel-Context": "mb"}}
+
+BUILTIN_ENDPOINTS.update({
+    "flight_search_start": {"method": "POST", "host": "https://www.tbank.ru",
+                            "path": "/api/travel/flight/search/startStreaming",
+                            "params": {}, **_TRAVEL_MB_POST},
+    "flight_search_next": {"method": "POST", "host": "https://www.tbank.ru",
+                           "path": "/api/travel/flight/search/nextBatch",
+                           "params": {}, **_TRAVEL_MB_POST},
+    # Past searches, and the only place codes come back WITH their names — there
+    # is no name→IATA resolver anywhere in the captures.
+    "flight_history": {"method": "GET", "host": "https://www.tbank.ru",
+                       "path": "/api/travel/flight/history/getSearchHistoryBySession",
+                       "params": {}, **_TRAVEL_MB},
+})
+
+
+# ---- rail (trains.t-bank-app.ru) -------------------------------------------
+# This host keeps its own session: GET https://trains.t-bank-app.ru/ with the
+# ordinary mobile Bearer answers with Set-Cookie, and the search API accepts
+# those cookies. One request, no redirect chain, no browser — the earlier note
+# calling it unreachable was reading the wrong bootstrap path.
+#
+# It takes none of the native query context and no Bearer on the API calls; the
+# cookie is what authorises, and MobileSession._ensure_trains mints it in an
+# ISOLATED jar because the bootstrap response also clears the tbank.ru cookie.
+_RAIL = {"no_base_params": True, "no_bearer": True,
+         "headers": {"Content-Type": "application/json",
+                     "Origin": "https://trains.t-bank-app.ru",
+                     "Referer": "https://trains.t-bank-app.ru/"}}
+
+BUILTIN_ENDPOINTS.update({
+    # {"directions":[{"origin","destination","departureDate"}],
+    #  "adultsCount","childrenCount"} — origin/destination are NUMERIC station
+    # codes (2000000 = Moscow), and nothing in the captures resolves a name to
+    # one, so the tools take codes and say where to get them.
+    "train_search": {"method": "POST", "host": "https://trains.t-bank-app.ru",
+                     "path": "/api/search/trains", "params": {}, **_RAIL},
+    # ?origin=&destination= — which dates are on sale at all.
+    "train_calendar": {"method": "GET", "host": "https://trains.t-bank-app.ru",
+                       "path": "/api/search/sale-calendar", "params": {},
+                       "no_base_params": True, "no_bearer": True},
+})

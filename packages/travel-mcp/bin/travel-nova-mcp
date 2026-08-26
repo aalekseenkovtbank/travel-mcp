@@ -1,0 +1,132 @@
+#!/bin/sh
+# Node/npm is only the distributor. After setup this process is replaced with
+# the Python CLI or FastMCP server, so no proxy can touch the stdio protocol.
+set -eu
+
+SCRIPT_PATH=$0
+while [ -L "$SCRIPT_PATH" ]; do
+  LINK_TARGET=$(readlink "$SCRIPT_PATH")
+  case "$LINK_TARGET" in
+    /*) SCRIPT_PATH=$LINK_TARGET ;;
+    *) SCRIPT_PATH=$(dirname -- "$SCRIPT_PATH")/$LINK_TARGET ;;
+  esac
+done
+PACKAGE_ROOT=$(CDPATH= cd -- "$(dirname -- "$SCRIPT_PATH")/.." && pwd)
+VENDOR_ROOT="$PACKAGE_ROOT/vendor/tbank-mcp"
+DATA_ROOT=${XDG_DATA_HOME:-"$HOME/.local/share"}/tbank-mcp
+VENV_ROOT="$DATA_ROOT/travel-venv"
+MARKER="$VENV_ROOT/.travel-nova-vendor"
+
+log() {
+  printf '%s\n' "$*" >&2
+}
+
+die() {
+  log "travel-mcp: $*"
+  exit 1
+}
+
+ACTION=${1:-help}
+case "$ACTION" in
+  help|-h|--help|"")
+    printf '%s\n' \
+      "Travel MCP (read-only)" \
+      "  npx -y @travel-growth-inspiration/mcp login" \
+      "  npx -y @travel-growth-inspiration/mcp serve"
+    exit 0
+    ;;
+  login|serve) ;;
+  *) die "неизвестная команда '$ACTION'; доступны login и serve" ;;
+esac
+
+case "$(uname -s)" in
+  Darwin|Linux) ;;
+  *) die "поддерживаются только macOS и Linux" ;;
+esac
+
+[ -f "$VENDOR_ROOT/pyproject.toml" ] || \
+  die "в npm-пакете отсутствует vendored tbank-mcp; переустановите @travel-growth-inspiration/mcp"
+
+PYTHON_COMMAND=""
+python_works() {
+  command -v "$1" >/dev/null 2>&1 && \
+    "$1" -c \
+      'import ssl, sys, venv, xml.parsers.expat; raise SystemExit(sys.version_info < (3, 11))' \
+      >/dev/null 2>&1
+}
+if [ -n "${TBANK_PYTHON:-}" ]; then
+  if python_works "$TBANK_PYTHON"; then
+    PYTHON_COMMAND=$TBANK_PYTHON
+  fi
+else
+  for CANDIDATE in python3 python3.13 python3.12 python3.11
+  do
+    if python_works "$CANDIDATE"; then
+      PYTHON_COMMAND=$CANDIDATE
+      break
+    fi
+  done
+fi
+[ -n "$PYTHON_COMMAND" ] || \
+  die "не найден исправный Python 3.11+ (можно задать TBANK_PYTHON)"
+
+mkdir -p "$DATA_ROOT"
+if [ ! -x "$VENV_ROOT/bin/python" ] || \
+  ! "$VENV_ROOT/bin/python" -m pip --version >/dev/null 2>&1
+then
+  if [ -d "$VENV_ROOT" ]; then
+    find "$VENV_ROOT" -mindepth 1 -delete
+  fi
+  log "travel-mcp: создаю Python-окружение в $VENV_ROOT"
+  if ! "$PYTHON_COMMAND" -m venv "$VENV_ROOT" 1>&2; then
+    die "не удалось создать venv через $PYTHON_COMMAND"
+  fi
+  "$VENV_ROOT/bin/python" -m pip --version >/dev/null 2>&1 || \
+    die "venv создан без рабочего pip"
+fi
+
+VENDOR_FINGERPRINT=$(
+  cd "$VENDOR_ROOT"
+  find pyproject.toml src ca -type f | LC_ALL=C sort | while IFS= read -r FILE
+  do
+    printf '%s ' "$FILE"
+    cksum <"$FILE"
+  done
+)
+INSTALLED_FINGERPRINT=$(test -f "$MARKER" && cat "$MARKER" || true)
+if [ "$VENDOR_FINGERPRINT" != "$INSTALLED_FINGERPRINT" ]; then
+  log "travel-mcp: устанавливаю Python-зависимости (только при первом запуске или обновлении)"
+  # The vendored Python project used to keep the same version across npm patch
+  # releases. A plain `pip install <directory>` then reported "already satisfied"
+  # and left `serve` importing stale code from site-packages, even though the
+  # launcher had detected a new fingerprint. First ensure all declared deps exist,
+  # then replace the project itself unconditionally without reinstalling the large
+  # dependency tree (notably Playwright).
+  "$VENV_ROOT/bin/python" -m pip install --disable-pip-version-check --quiet \
+    "$VENDOR_ROOT" 1>&2
+  "$VENV_ROOT/bin/python" -m pip install --disable-pip-version-check --quiet \
+    --force-reinstall --no-deps "$VENDOR_ROOT" 1>&2
+  printf '%s\n' "$VENDOR_FINGERPRINT" >"$MARKER"
+fi
+
+export TBANK_TRACE=${TBANK_TRACE:-0}
+
+case "${1:-}" in
+  login)
+    shift
+    [ "$#" -le 1 ] || die "использование: npx -y @travel-growth-inspiration/mcp login [phone]"
+    # npm/npx may consume or detach stdin while resolving the package.  The login
+    # is still running in the user's terminal, so reconnect it to the controlling
+    # TTY before Python asks for the phone, OTP, password or PIN.  Keep stdin as a
+    # fallback for callers that intentionally pipe input and have no /dev/tty.
+    if { : </dev/tty; } 2>/dev/null; then
+      exec "$VENV_ROOT/bin/python" "$VENDOR_ROOT/login_cli.py" "$@" </dev/tty
+    fi
+    exec "$VENV_ROOT/bin/python" "$VENDOR_ROOT/login_cli.py" "$@"
+    ;;
+  serve)
+    shift
+    [ "$#" -eq 0 ] || die "serve не принимает аргументы"
+    exec "$VENV_ROOT/bin/python" -m src.travel_server
+    ;;
+esac

@@ -1,0 +1,27 @@
+{
+  "name": "@travel-growth-inspiration/mcp",
+  "version": "0.2.1",
+  "description": "POSIX bootstrap for the read-only T-Bank Travel MCP",
+  "license": "MIT",
+  "bin": {
+    "travel-nova-mcp": "bin/travel-nova-mcp"
+  },
+  "files": [
+    "bin/",
+    "vendor/",
+    "README.md",
+    "PUBLISHING.md"
+  ],
+  "scripts": {
+    "prepack": "sh scripts/stage-vendor.sh",
+    "test": "sh scripts/test-package.sh",
+    "build:offline": "sh scripts/build-offline-bundle.sh"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ]
+}

@@ -1,0 +1,190 @@
+# T-Bank MCP: доступные вызовы и текущий статус
+
+Проверено: **16 августа 2026, Europe/Moscow**.
+
+MCP успешно запускается по stdio и публикует **82 инструмента**:
+
+- **64 READ** — только чтение;
+- **12 WRITE** — меняют состояние, но сами по себе не списывают деньги;
+- **6 MONEY** — могут начать или завершить списание.
+
+Во время проверки запускались **только READ-вызовы**. Переводы, оплаты, бронирования,
+сообщения, загрузка файлов и изменения корзины не выполнялись.
+
+## Обозначения
+
+| Значок | Значение |
+|---|---|
+| ✅ | Подтверждён живым успешным запросом в этой сессии |
+| 🟡 | Опубликован MCP, но живой вызов не делался: нужен ID, пользовательский ввод или приватный результат |
+| 🟠 | Доступен с обязательным контекстом или поддержан частично |
+| 🔴 | Сейчас не работает из этой среды |
+| ⛔ | Намеренно не запускался: меняет данные или может списать деньги |
+
+Режимы: `R` — чтение, `W` — изменение без прямого списания, `₽` — денежная операция.
+
+## Сессия
+
+| Вызов | Режим | Статус | Примечание |
+|---|:---:|:---:|---|
+| `login(phone)` | W | ⛔ | Начинает новый вход |
+| `confirm_otp(otp)` | W | ⛔ | Подтверждает SMS-код |
+| `confirm_password(password)` | W | ⛔ | Шаг авторизации |
+| `confirm_pin(pin)` | W | ⛔ | Шаг авторизации |
+| `refresh_session()` | W | ⛔ | Обновляет и сохраняет сессию |
+| `session_status()` | R | ✅ | Сессия активна |
+| `keepalive()` | R | ✅ | Пинг проходит |
+| `push_unread_count()` | R | ✅ | Счётчик push отвечает |
+
+## Счета и операции
+
+| Вызов | Режим | Статус | Примечание |
+|---|:---:|:---:|---|
+| `list_accounts()` | R | ✅ | Счета, балансы и идентификаторы карт |
+| `list_operations(account_id, days=30, limit=50)` | R | ✅ | Проверено на одном реальном счёте |
+| `spending_categories(account_id, days=30)` | R | ✅ | Категории трат отвечают |
+| `operations_histogram(account_id="", days=30)` | R | ✅ | Проверена дневная группировка по категориям |
+| `audience_profile()` | R | ✅ | Возвращает только возрастной диапазон и допустимость 18+, без даты рождения и пола |
+| `get_data(section, arg="", days=30)` | R | ✅ | Проверена секция `services`; доступны и другие секции из схемы инструмента |
+
+## Карты и документы
+
+| Вызов | Режим | Статус | Примечание |
+|---|:---:|:---:|---|
+| `list_cards()` | R | ✅ | Список карт отвечает |
+| `card_limits(ucid)` | R | 🟡 | Нужен `ucid` из `list_accounts()` |
+| `card_requisites(ucid, reveal=False)` | R | 🟡 | Приватные реквизиты; намеренно не запрашивались |
+| `card_operations(card_id, days=30, limit=50)` | R | 🟡 | Нужен `card_id` |
+| `account_requisites(account_id, currencies="RUB")` | R | 🟡 | Приватные реквизиты; намеренно не запрашивались |
+| `documents(kind="", include_others=False)` | R | ✅ | Хранилище документов отвечает |
+| `bank_documents()` | R | ✅ | Банковские справки отвечают |
+| `insurance_policies()` | R | 🔴 | `api.tinsurance.ru`: сетевой `ConnectTimeout` |
+| `payment_receipt(payment_id, save_to="")` | W | ⛔ | Скачивает чек в локальный файл; не запускался |
+
+## Заказы
+
+| Вызов | Режим | Статус | Примечание |
+|---|:---:|:---:|---|
+| `orders(kind="", limit=10)` | R | ✅ | Общий список заказов отвечает |
+| `order_details(order_id)` | R | 🟡 | Нужен ID заказа кино/афиши |
+| `travel_order_details(order_id)` | R | 🟠 | Отели поддержаны; для авиа и ЖД полная веб-сессия пока не реализована |
+
+## Продукты и доставка
+
+Для большинства вызовов сначала нужны `app_id` и `point_id` из `grocery_stores()`.
+
+| Вызов | Режим | Статус | Примечание |
+|---|:---:|:---:|---|
+| `grocery_stores()` | R | ✅ | Магазины по сохранённому адресу отвечают |
+| `grocery_search(query, app_id, point_id)` | R | ✅ | Проверено с контекстом магазина |
+| `grocery_rank(query, app_id, point_id)` | R | ✅ | Проверено с контекстом магазина |
+| `grocery_good_info(good_id, app_id, point_id)` | R | 🟡 | Нужен ID товара |
+| `grocery_plan_order(ingredients, app_id, point_id)` | R | 🟡 | Нужны ингредиенты и магазин |
+| `grocery_cart(app_id, point_id)` | R | ✅ | Без магазина даёт ожидаемый `NO_STORE_CONTEXT`; с IDs отвечает |
+| `grocery_attempts(limit=15)` | R | ✅ | История попыток оформления отвечает |
+| `grocery_order_status(order_id, app_id="")` | R | 🟡 | Нужен ID заказа |
+| `grocery_add_to_cart(items, app_id, point_id)` | W | ⛔ | Меняет корзину |
+| `grocery_set_cart(items, app_id, point_id)` | W | ⛔ | Перезаписывает/очищает корзину |
+| `grocery_order_cancel(order_id, app_id="")` | W | ⛔ | Отменяет заказ |
+| `grocery_checkout(...)` | ₽ | ⛔ | Оформление и оплата заказа |
+
+## Кино, концерты и афиша
+
+| Вызов | Режим | Статус | Примечание |
+|---|:---:|:---:|---|
+| `cinema_search(query="", city="Москва")` | R | ✅ | Город обязателен; с городом отвечает |
+| `cinema_schedule(event_id, date, city=...)` | R | 🟡 | Нужен фильм/кинотеатр и дата |
+| `afisha_catalog(kind, city, date_from, date_to)` | R | ✅ | Город и даты обязательны; корректный вызов отвечает |
+| `afisha_places(kind="movie", city="Москва")` | R | ✅ | Список площадок отвечает |
+| `place_schedule(object_id)` | R | 🟡 | Нужен ID площадки |
+| `place_info(object_id)` | R | 🟡 | Нужен ID площадки |
+| `cinema_seats(event_id, slot_id, object_id)` | R | 🟡 | Нужны IDs события, сеанса и площадки |
+| `concert_schedule(event_id, kind="concert")` | R | 🟡 | Нужен ID события |
+| `concert_hall(event_id, slot_id, object_id)` | R | 🟡 | Нужны IDs из расписания |
+| `ticket_qr(order_id)` | R | 🟡 | Нужен оплаченный заказ |
+| `cinema_book(event_id, slot_id, object_id, seats)` | W | ⛔ | Создаёт бронь |
+| `ticket_cancel(order_id)` | W | ⛔ | Отменяет заказ |
+| `ticket_pay(order_id, amount, nfs_payment_token)` | ₽ | ⛔ | Оплачивает бронь |
+
+## Поиск, путешествия и маркетплейс
+
+| Вызов | Режим | Статус | Примечание |
+|---|:---:|:---:|---|
+| `search_app(query, screen="afisha")` | R | ✅ | Полнотекстовый поиск отвечает |
+| `flight_search(from_code, to_code, date)` | R | ✅ | Живой поиск `LED → MOW` на 19.08.2026 прошёл |
+| `flight_history()` | R | ✅ | История и IATA-коды отвечают |
+| `train_search(origin, destination, date)` | R | 🔴 | `trains.t-bank-app.ru:443`: TCP/`ConnectTimeout` |
+| `train_calendar(origin, destination)` | R | 🔴 | Та же сетевая проблема ЖД-хоста |
+| `hotel_autocomplete(query)` | R | ✅ | Прод: «Москва» вернула 5 локаций и 1 конкретный отель |
+| `hotel_search(destination_id, checkin_date, checkout_date)` | R | ✅ | Актуальный v2-поиск: priced ids из `searchHotelPoints` объединяются со статическими карточками |
+| `hotel_details(hotel_id)` | R | ✅ | Прод: карточка первого результата, 13 групп удобств |
+| `hotel_filters()` | R | ✅ | Прод: 14 фильтров и 7 популярных |
+| `shop_search(query)` | R | ✅ | Поиск товаров отвечает |
+| `shop_cart(limit=20)` | R | ✅ | Корзины маркетплейса отвечают |
+
+Покупка авиа- и ЖД-билетов и бронирование отелей через MCP не реализованы:
+travel-инструменты предназначены для поиска и сравнения. Четыре hotel-вызова
+идут через публичный production proxy `www.tbank.ru/api/hotels/` без банковского
+`Authorization`, `Cookie` и session-параметров; это отдельно закреплено
+транспортным тестом.
+
+## Мессенджер
+
+| Вызов | Режим | Статус | Примечание |
+|---|:---:|:---:|---|
+| `messenger_conversations()` | R | ✅ | Список чатов отвечает |
+| `messenger_messages(conversation_id)` | R | 🟡 | Нужен ID чата; приватный текст не запрашивался |
+| `messenger_unread()` | R | ✅ | Список непрочитанных отвечает |
+| `messenger_file(conversation_id, file_id)` | R | 🟡 | Нужен ID вложения; сохраняет файл при вызове |
+| `messenger_send(conversation_id, text)` | W | ⛔ | Отправляет сообщение живому получателю |
+
+## Платежи и переводы
+
+| Вызов | Режим | Статус | Примечание |
+|---|:---:|:---:|---|
+| `transfer_sbp_resolve(phone)` | R | 🟡 | Нужен телефон получателя |
+| `payment_qr(qr)` | R | 🟡 | Нужна строка платёжного QR |
+| `payment_commission(body)` | R | 🟡 | Нужны реквизиты предполагаемой операции |
+| `payment_providers()` | R | ✅ | Каталог групп провайдеров отвечает |
+| `payment_status(attempt_id)` | R | 🟡 | Нужен ID существующей попытки |
+| `pay_bill(provider_id, fields, amount)` | ₽ | ⛔ | Оплата услуги |
+| `transfer(amount, to_account, ...)` | ₽ | ⛔ | Перевод по телефону/счёту |
+| `transfer_requisites(...)` | ₽ | ⛔ | Перевод юрлицу по реквизитам |
+| `confirm_payment(attempt_id, otp="")` | ₽ | ⛔ | Завершает удерживаемое списание |
+
+## Инвестиции
+
+| Вызов | Режим | Статус | Примечание |
+|---|:---:|:---:|---|
+| `invest_accounts()` | R | ✅ | Список инвест-счетов отвечает |
+| `invest_portfolio(broker_account_id, days=30)` | R | 🟡 | Нужен ID брокерского счёта |
+| `invest_operations(broker_account_id)` | R | 🟡 | Нужен ID брокерского счёта |
+| `invest_securities(broker_account_id="")` | R | ✅ | Список портфелей/бумаг отвечает |
+
+## Служебные инструменты
+
+| Вызов | Режим | Статус | Примечание |
+|---|:---:|:---:|---|
+| `flows(topic="")` | R | ✅ | Подсказки по последовательностям вызовов |
+| `diagnostics(limit=40)` | R | ✅ | Локальные очищенные события платежных сценариев |
+| `debug_report(runs=0, top=6)` | R | ✅ | Локальная статистика использования MCP |
+
+## Практический минимальный набор для Travel-ассистента
+
+```text
+session_status()
+list_accounts()
+list_operations(account_id, days=30)
+spending_categories(account_id, days=30)
+orders(kind="путешествия")
+flight_history()
+flight_search("LED", "MOW", "2026-08-19")
+hotel_autocomplete("Москва")
+hotel_search(17039, "2026-08-19", "2026-08-20")
+cinema_search(city="Москва")
+afisha_catalog(kind="movie", city="Москва", date_from="2026-08-16", date_to="2026-08-23")
+```
+
+Для ЖД пока нужен другой источник или исправление доступа к
+`trains.t-bank-app.ru`; сам MCP-метод и его схема существуют, но сетевое соединение
+до API не устанавливается.

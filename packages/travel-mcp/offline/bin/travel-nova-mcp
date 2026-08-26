@@ -1,0 +1,67 @@
+#!/bin/sh
+# Ready-to-run launcher for the offline archive. All Python dependencies are
+# already installed under app/site-packages by build-offline-bundle.sh.
+set -eu
+
+SCRIPT_PATH=$0
+while [ -L "$SCRIPT_PATH" ]; do
+  LINK_TARGET=$(readlink "$SCRIPT_PATH")
+  case "$LINK_TARGET" in
+    /*) SCRIPT_PATH=$LINK_TARGET ;;
+    *) SCRIPT_PATH=$(dirname -- "$SCRIPT_PATH")/$LINK_TARGET ;;
+  esac
+done
+BUNDLE_ROOT=$(CDPATH= cd -- "$(dirname -- "$SCRIPT_PATH")/.." && pwd)
+PYTHON_COMMAND="$BUNDLE_ROOT/runtime/bin/python3"
+APP_ROOT="$BUNDLE_ROOT/app/tbank-mcp"
+SITE_PACKAGES="$BUNDLE_ROOT/app/site-packages"
+
+die() {
+  printf '%s\n' "travel-mcp-offline: $*" >&2
+  exit 1
+}
+
+[ -x "$PYTHON_COMMAND" ] || die "в архиве отсутствует runtime/bin/python3"
+[ -f "$APP_ROOT/login_cli.py" ] || die "в архиве отсутствует app/tbank-mcp"
+[ -d "$SITE_PACKAGES/mcp" ] || die "в архиве отсутствуют Python-зависимости"
+
+# Do not let user-site packages or an inherited PYTHONPATH change the audited
+# dependency set carried by the archive. Bytecode is prebuilt during packaging;
+# the extracted bundle can therefore also live in a read-only directory.
+export PYTHONNOUSERSITE=1
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONPATH="$APP_ROOT:$SITE_PACKAGES"
+export TBANK_TRACE=${TBANK_TRACE:-0}
+
+ACTION=${1:-help}
+case "$ACTION" in
+  help|-h|--help|"")
+    printf '%s\n' \
+      "Travel MCP offline bundle (read-only)" \
+      "  travel-nova-mcp login" \
+      "  travel-nova-mcp serve"
+    ;;
+  version|-V|--version)
+    if [ -f "$BUNDLE_ROOT/VERSION" ]; then
+      cat "$BUNDLE_ROOT/VERSION"
+    else
+      die "в архиве отсутствует VERSION"
+    fi
+    ;;
+  login)
+    shift
+    [ "$#" -le 1 ] || die "использование: travel-nova-mcp login [phone]"
+    # Keep credentials outside the MCP/LLM process and reconnect to the terminal
+    # if the parent process detached stdin.
+    if { : </dev/tty; } 2>/dev/null; then
+      exec "$PYTHON_COMMAND" "$APP_ROOT/login_cli.py" "$@" </dev/tty
+    fi
+    exec "$PYTHON_COMMAND" "$APP_ROOT/login_cli.py" "$@"
+    ;;
+  serve)
+    shift
+    [ "$#" -eq 0 ] || die "serve не принимает аргументы"
+    exec "$PYTHON_COMMAND" -m src.travel_server
+    ;;
+  *) die "неизвестная команда '$ACTION'; доступны login и serve" ;;
+esac

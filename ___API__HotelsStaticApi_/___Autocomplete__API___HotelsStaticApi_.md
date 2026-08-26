@@ -1,0 +1,4 @@
+- [\[HotelsStaticApi\] GET /internal\_api/v1/autocomplete/hotels](/pages/viewpage.action?pageId=5436463491)
+- [\[HotelsStaticApi\] GET /internal\_api/v1/autocomplete/hotels/byids](/pages/viewpage.action?pageId=7186721285)
+- [\[HotelsStaticApi\] GET /internal\_api/v1/autocomplete/regions](/pages/viewpage.action?pageId=5442459812)
+- [\[HotelsStaticApi\] GET /internal\_api/v1/autocomplete/regions/byids](/pages/viewpage.action?pageId=7186721568)

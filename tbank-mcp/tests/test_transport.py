@@ -1,0 +1,618 @@
+"""What actually goes on the wire.
+
+Every other test stubs `_call_read`, so the layer that builds the request — the one
+that has caused the most production bugs in this repo — was pinned by nothing:
+
+  b67cf9a  X-App-* headers injected on every host broke the lifestyle grocery cart
+  33da29e  isSuspicious baked into the operations template made list_operations
+           return nothing (283 operations without it, 0 with it)
+  a8c6519  the full mobile client context was missing, causing a class of 400s
+  cc54a62  payment_commission posted JSON to a form-urlencoded endpoint → 400
+  8a9f90f  prefill/profile spells the session key `sessionId`, not `sessionid`
+  18f60fe  id.t-bank-app.ru OIDC needs client_id and rejects the mobile-BFF params
+
+These drive the real transport against a fake HTTP session and assert on the URL,
+query and headers it produced.
+
+    python3 tests/test_transport.py
+"""
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.client import MobileSession, _STRICT_XAPP_HOSTS  # noqa: E402
+from src.endpoints import BUILTIN_ENDPOINTS  # noqa: E402
+
+failures = []
+
+
+def check(cond, msg):
+    if not cond:
+        failures.append(msg)
+
+
+class FakeResponse:
+    status_code = 200
+
+    def __init__(self, payload):
+        self._payload = payload
+        self.content = b"%PDF-1.4 fake"
+        self.text = ""
+        # A download reads the filename off the response, so the fake needs the
+        # headers a real one carries — empty here, which is the "server said
+        # nothing" case the caller must survive.
+        self.headers = {}
+
+    def json(self):
+        return self._payload
+
+    def raise_for_status(self):
+        pass
+
+
+class FakeHTTP:
+    """Records the request instead of sending it."""
+
+    def __init__(self, payload=None):
+        self.payload = payload if payload is not None else {"resultCode": "OK", "payload": []}
+        self.sent = []
+        self.headers = {}
+
+    def _record(self, method, url, **kw):
+        self.sent.append({"method": method, "url": url, "params": kw.get("params") or {},
+                          "headers": kw.get("headers") or {}, "json": kw.get("json"),
+                          "data": kw.get("data")})
+        return FakeResponse(self.payload)
+
+    def get(self, url, **kw):
+        return self._record("GET", url, **kw)
+
+    def post(self, url, **kw):
+        return self._record("POST", url, **kw)
+
+    def put(self, url, **kw):
+        return self._record("PUT", url, **kw)
+
+
+def session(payload=None):
+    s = MobileSession.__new__(MobileSession)
+    s.mobile_sessionid = "sid.authenticon-test"
+    s.access_token = "tok"
+    s.device_id = "00000000-1111-2222-3333-444444444444"
+    s.old_device_id = "0123456789abcdef"
+    s.cookie_str = "SSO_SESSION=x"
+    s.tmsg_session_id = "jwt"
+    s.app_name, s.app_version = "mobile", "7.31.6"
+    s.origin = "mobile,ib5,loyalty,platform"
+    s.platform, s.ccc, s.cpswc = "ios", "true", "true"
+    s.connection_type, s.vendor = "WiFi", "t_ios"
+    s.client_version, s.inache = "112.0.0", "drivetransitt"
+    s.base_url = "https://api.t-bank-app.ru"
+    s._memo = {}
+    s._http = FakeHTTP(payload)
+    return s
+
+
+def last(s):
+    return s._http.sent[-1]
+
+
+def test_operations_never_asks_for_suspicious_only():
+    """33da29e: isSuspicious is a per-operation FIELD, not a client flag. Sent as a
+    query param it narrows the result to fraud-flagged operations — 283 → 0."""
+    s = session({"resultCode": "OK", "payload": [
+        {"id": 1, "account": "1111111111"},
+        {"id": 2, "account": "9999999999"},
+    ]})
+    ops = s.list_operations("1111111111", 0, 1)
+    q = last(s)["params"]
+    check("isSuspicious" not in q,
+          f"isSuspicious is back in the operations query: {q.get('isSuspicious')!r}")
+    # The app does NOT scope /v1/operations server-side — it fetches everything and
+    # filters on the operation's own `account`. Asserting a server-side filter here
+    # would be asserting a divergence from the app.
+    check("account" not in q,
+          f"/v1/operations must not be scoped server-side (the app does not): {sorted(q)}")
+    check([o["id"] for o in ops] == [1],
+          f"the client-side account filter must still work, got {[o.get('id') for o in ops]}")
+
+    # And no template may reintroduce it.
+    offenders = [k for k, t in BUILTIN_ENDPOINTS.items()
+                 if "isSuspicious" in (t.get("params") or {})]
+    check(not offenders, f"templates carrying isSuspicious again: {offenders}")
+    print("  operations: no isSuspicious in the query or in any template")
+
+
+def test_x_app_headers_only_where_the_app_sends_them():
+    """b67cf9a: injecting X-App-* everywhere broke the grocery cart on lifestyle."""
+    s = session({"resultCode": "OK", "payload": {"cart": {"goods": []}}})
+    s.grocery_cart_get(app_id="204", point_id="5980")
+    h = last(s)["headers"]
+    check("X-App-Name" not in h,
+          f"X-App-* sent to lifestyle, which is what broke the cart: {sorted(h)}")
+    check(h.get("X-Lang") == "ru", f"the always-on mobile headers must still be there: {h}")
+    check(h.get("Authorization") == "Bearer tok", "the Bearer must be set")
+
+    # A host that DOES want them must still get them.
+    strict = sorted(_STRICT_XAPP_HOSTS)[0]
+    key = next((k for k, t in BUILTIN_ENDPOINTS.items()
+                if strict in (t.get("host") or "")), None)
+    check(key is not None, f"no template uses the strict host {strict}")
+    if key:
+        s2 = session()
+        s2._call_read(key)
+        h2 = last(s2)["headers"]
+        check("X-App-Name" in h2,
+              f"{strict} expects X-App-* and did not get them: {sorted(h2)}")
+    print(f"  X-App-*: absent on lifestyle, present on {strict}")
+
+
+def test_the_session_key_spelling_is_per_endpoint():
+    """8a9f90f: prefill/profile rejects the lowercase `sessionid`."""
+    s = session({"contacts": [{"id": "c-1"}]})
+    s.prefill_contact_id()
+    q = last(s)["params"]
+    check(q.get("sessionId") == "sid.authenticon-test",
+          f"prefill/profile needs sessionId (capital I): {sorted(q)}")
+    check("sessionid" not in q,
+          "sending both spellings is not what the app does")
+
+    s2 = session()
+    s2.list_accounts()
+    q2 = last(s2)["params"]
+    check(q2.get("sessionid") == "sid.authenticon-test",
+          f"the mobile BFF needs the lowercase sessionid: {sorted(q2)}")
+    print("  session key: sessionId for prefill, sessionid for the mobile BFF")
+
+
+def test_every_read_carries_the_mobile_client_context():
+    """a8c6519: templates with sparse params must still send the full context.
+
+    Except where the app itself sends none: `no_base_params` is that opt-out, and
+    it is deliberate per template — see test_a_lean_host_gets_only_what_the_app_
+    sends_it and test_the_messenger_host_never_sees_the_payment_key."""
+    sparse = [k for k, t in BUILTIN_ENDPOINTS.items()
+              if t.get("method", "GET").upper() == "GET"
+              and len(t.get("params") or {}) <= 2
+              and not t.get("session_param")
+              and not t.get("no_base_params")]
+    check(sparse, "expected at least one sparse template to exercise")
+    for key in sparse[:5]:
+        s = session()
+        try:
+            s._call_read(key)
+        except Exception as e:                                   # noqa: BLE001
+            failures.append(f"{key}: transport raised {type(e).__name__}: {e}")
+            continue
+        q = last(s)["params"]
+        for required in ("appName", "appVersion", "origin", "platform",
+                         "inache", "deviceId", "oldDeviceId"):
+            check(required in q, f"{key}: missing {required} from the query: {sorted(q)}")
+    print(f"  client context: {len(sparse[:5])} sparse templates all carry it")
+
+
+def test_form_endpoints_post_a_form_not_json():
+    """cc54a62: payment_commission is x-www-form-urlencoded; JSON there → 400."""
+    s = session({"resultCode": "OK", "payload": {"commission": 0}})
+    s.payment_commission({"payParameters": {"account": "1", "moneyAmount": 10}})
+    sent = last(s)
+    check(sent["json"] is None, "a form endpoint must not be sent as JSON")
+    check(isinstance(sent["data"], dict), f"expected form data, got {sent['data']!r}")
+    check("payParameters" in (sent["data"] or {}),
+          f"payParameters must be a form field: {sent['data']}")
+    value = (sent["data"] or {}).get("payParameters")
+    check(isinstance(value, str), "a dict field must be JSON-encoded into the form")
+    if isinstance(value, str):
+        check(json.loads(value)["account"] == "1", "the encoded field must round-trip")
+    print("  form endpoints: posted as a form with JSON-encoded fields")
+
+
+def test_raw_endpoints_return_bytes_not_parsed_json():
+    s = session()
+    pdf = s.payment_receipt_pdf("123")
+    check(isinstance(pdf, bytes), f"a raw endpoint must return bytes, got {type(pdf).__name__}")
+    check(pdf.startswith(b"%PDF"), "the body must come back untouched")
+    h = last(s)["headers"]
+    check("text/html" in (h.get("Accept") or ""),
+          f"the receipt endpoint picks its serializer from Accept: {h.get('Accept')!r}")
+    print("  raw endpoints: bytes returned, browser-ish Accept preserved")
+
+
+def test_messenger_uses_its_own_cookie_and_vendor_accept():
+    s = session({"unreadCount": 2})
+    s.messenger_unread()
+    sent = last(s)
+    check("tmsgSessionID=jwt" in (sent["headers"].get("Cookie") or ""),
+          f"messenger must use the tmsg cookie: {sent['headers'].get('Cookie')!r}")
+    check("SSO_SESSION" not in (sent["headers"].get("Cookie") or ""),
+          "the SSO cookie must NOT be sent to the messenger host")
+    check("vnd.chats" in (sent["headers"].get("Accept") or ""),
+          f"unread needs its vendor Accept or answers 406: {sent['headers'].get('Accept')!r}")
+    print("  messenger: tmsg cookie only, vendor Accept for unread")
+
+
+def test_the_messenger_host_never_sees_the_payment_key():
+    """The mobile sessionid is the HMAC key for /v1/pay. It travels as a QUERY
+    PARAM, so every host we send it to logs it — and the messenger never asks: in
+    the captures not one tm.t-bank-app.ru URL carries sessionid, deviceId or
+    appName, and the routes answer identically without them (verified live).
+    Attachments made this concrete: a file download URL is exactly the kind of
+    thing that ends up pasted somewhere."""
+    s = session()
+    s.messenger_conversations()
+    s.messenger_messages("CONV1")
+    s.messenger_file("CONV1", "FILE1")
+    s.messenger_mark_read("CONV1", "MSG1")
+    unread = session({"conversationIds": []})     # unread alone wants an object back
+    unread.messenger_unread()
+    for sent in s._http.sent + unread._http.sent:
+        check("tm.t-bank-app.ru" in sent["url"], f"unexpected host: {sent['url']}")
+        leaked = [k for k in sent["params"]
+                  if k.lower() in ("sessionid", "deviceid", "olddeviceid",
+                                   "appname", "appversion", "origin", "wuid")]
+        check(not leaked,
+              f"{sent['url'].rsplit('/', 1)[-1]}: client context leaked to the "
+              f"messenger: {leaked}")
+        check("sid.authenticon-test" not in sent["url"],
+              f"the sessionid reached the URL itself: {sent['url']}")
+    # The cookie IS the credential on the messenger paths: the app sends no
+    # Authorization there in any captured request, and every read answers the same
+    # without one. issueTokenBySSO is excluded on purpose — it is the call that
+    # MINTS the cookie, so it cannot be carrying it.
+    reads = [x for x in s._http.sent + unread._http.sent
+             if "/messenger/" in x["url"] and x["method"] == "GET"]
+    check(len(reads) >= 4, f"expected the messenger reads, got {len(reads)}")
+    for sent in reads:
+        check("Authorization" not in sent["headers"],
+              f"a Bearer went to the messenger: {sent['url']}")
+        check("tmsgSessionID=jwt" in (sent["headers"].get("Cookie") or ""),
+              f"the tmsg cookie is missing, and it is the only credential: {sent['url']}")
+    # …and the arguments the app DOES send still get through.
+    msgs = [x for x in s._http.sent if x["url"].endswith("/messages")]
+    check(any(x["params"].get("direction") for x in msgs),
+          f"messages lost its direction param: {[x['params'] for x in msgs]}")
+    print("  messenger: no sessionid/deviceId in the query, direction preserved")
+
+
+def test_templates_stay_structurally_sane():
+    """Guards the shape of BUILTIN_ENDPOINTS itself, which no test read before."""
+    for key, tpl in BUILTIN_ENDPOINTS.items():
+        check(isinstance(tpl.get("path"), str) and tpl["path"].startswith("/"),
+              f"{key}: path must be an absolute path, got {tpl.get('path')!r}")
+        host = tpl.get("host")
+        check(host is None or host.startswith("https://"),
+              f"{key}: host must be https, got {host!r}")
+        check((tpl.get("method") or "GET").upper() in ("GET", "POST", "PUT"),
+              f"{key}: unexpected method {tpl.get('method')!r}")
+        for live in ("sessionid", "sessionId", "Authorization", "Cookie"):
+            check(live not in (tpl.get("params") or {}),
+                  f"{key}: live credential {live} baked into the template params")
+            check(live.lower() not in {h.lower() for h in (tpl.get("headers") or {})},
+                  f"{key}: live credential {live} baked into the template headers")
+    print(f"  templates: {len(BUILTIN_ENDPOINTS)} shapes structurally valid, no baked secrets")
+
+
+def test_bank_documents_asks_for_the_v2_record_shape():
+    """Without X-Api-Version: v2 the endpoint answers in the v1 form, whose ids are
+    negative ints in tecmId instead of the uuid in tecmUuid — which is why the tool
+    used to print ids nothing else accepts (captures2.xml #44)."""
+    s = session({"documents": []})
+    s.bank_documents()
+    h = last(s)["headers"]
+    check(h.get("X-Api-Version") == "v2",
+          f"the v2 record shape must be requested explicitly: {sorted(h)}")
+    check("X-App-Name" in h,
+          f"the app sends X-App-* to cx-evolution-api too: {sorted(h)}")
+    print("  bank_documents: X-Api-Version v2 + X-App-* as the app sends them")
+
+
+def test_mark_read_is_a_put_with_its_own_vendor_types():
+    """markRead was sent through messenger_base — a GET template asking for
+    application/json. The captured request is a PUT with markRead's own vendor
+    Content-Type and Accept, and this host is exactly where the wrong Accept has
+    already cost a 406 (messenger_unread)."""
+    s = session({"ok": True})
+    s.messenger_mark_read("c-1", "m-1")
+    sent = last(s)
+    check(str(sent["method"]).upper() == "PUT",
+          f"markRead is a PUT in the capture, we sent {sent['method']}")
+    check(sent["url"].endswith("/messages/m-1/markRead"),
+          f"the per-message path must survive the template swap: {sent['url']}")
+    check("markread.in" in (sent["headers"].get("Content-Type") or ""),
+          f"markRead's vendor Content-Type is missing: {sorted(sent['headers'])}")
+    check("markread.out" in (sent["headers"].get("Accept") or ""),
+          f"markRead's vendor Accept is missing: {sent['headers'].get('Accept')!r}")
+    print("  markRead: PUT with its own vendor types, not a GET asking for json")
+
+
+def test_the_messenger_user_agent_is_built_from_the_session():
+    """Tmsg-User-Agent was a frozen template literal announcing iOS 17.5.1 — the
+    exact stale version removed from the main User-Agent — with no `device:`
+    segment, which every captured request to this host carries."""
+    from src.client import _IOS_VERSION
+    s = session({"ok": True})
+    s.messenger_send("c-1", "привет")
+    ua = last(s)["headers"].get("Tmsg-User-Agent") or ""
+    check(f"iOS:{_IOS_VERSION}" in ua,
+          f"the messenger UA must follow _IOS_VERSION, got {ua!r}")
+    check("17.5.1" not in ua, f"the stale iOS version is back: {ua!r}")
+    check("device:" in ua, f"the capture carries a device segment: {ua!r}")
+    check(f":{s.app_version};" in ua,
+          f"the app version must come from the session: {ua!r}")
+    print("  messenger UA: iOS version, app version and device model from the session")
+
+
+def test_the_web_payment_gate_names_its_calling_system():
+    """Asserted on the request that is actually sent, not on a dict.
+
+    The previous version compared BUILTIN_ENDPOINTS["payment_gate_pay"]["headers"]
+    to a literal — two constants, executing nothing — and the template it pinned has
+    no caller anywhere in src/. The grocery checkout's payment does not go through
+    the requests session at all: it is a fetch inside the checkout page, built in
+    src/checkout.py. So the header the test claimed to guard was absent from the one
+    call that needed it, and the test was green throughout.
+
+    captures.xml, POST www.tbank.ru/api/common/pg-api/v1/payment-gate/payments →
+    `Pg-Api-System: t-grocery-ib`. The mobile sibling (api.t-bank-app.ru, 4 captured
+    calls) says `t-entertainment-mb`."""
+    import re
+    from src import checkout as co
+
+    # The fetch is authored as JS inside checkout(); read the source of the function
+    # that issues it, which is what actually reaches the browser.
+    import inspect
+    body = inspect.getsource(co.checkout)
+    gate = re.search(r"payment-gate/payments[^`]*?\}, a\.ms\);", body, re.S)
+    check(gate is not None,
+          "the payment-gate fetch is gone from checkout() — this test no longer "
+          "guards the call it names")
+    if gate:
+        call = gate.group(0)
+        check("'Pg-Api-System': 't-grocery-ib'" in call,
+              f"the web gate call must announce t-grocery-ib, as every captured one "
+              f"does: {call[:200]!r}")
+        check("'Content-Type': 'application/json'" in call,
+              "the gate still needs its content type")
+
+    # The mobile gate DOES go through the requests session, so that half is checked
+    # where it is actually applied — on a built request.
+    from src.client import MobileSession
+    s = MobileSession("sid", "rt")
+    _, headers, _ = s._signed_parts("payment_gate_pay_mobile", "")
+    lower = {k.lower(): v for k, v in headers.items()}
+    check(lower.get("pg-api-system") == "t-entertainment-mb",
+          f"the mobile gate must announce t-entertainment-mb on the wire: "
+          f"{lower.get('pg-api-system')!r}")
+    print("  payment gates: the web fetch says t-grocery-ib, the mobile REQUEST says "
+          "t-entertainment-mb")
+
+
+def test_web_only_query_identifiers_stay_on_the_web_host():
+    """`wuid` is the web portal's device id and went out on every read to every
+    host. The app sends it only to www.tbank.ru under /api/common/ — zero of 410
+    captured api.t-bank-app.ru requests and zero of 235 lifestyle ones carry it, and
+    it was already removed from /v1/pay for exactly this reason.
+
+    `vendor`/`client_version` appear only on the OIDC authorize call, which builds
+    its own query and never reaches _call_read, so injecting them here was pure
+    divergence with no upside."""
+    import importlib
+
+    from src import client as C
+
+    s = session({"documents": []})
+    s.bank_documents()                       # api.t-bank-app.ru, an ordinary read
+    q = last(s)["params"]
+    for k in ("wuid", "vendor", "client_version"):
+        check(k not in q,
+              f"{k} was sent to the mobile BFF, where the app never sends it: {sorted(q)}")
+    # The parameters the app DOES send on every request must be untouched.
+    for k in ("appName", "appVersion", "origin", "platform", "inache",
+              "deviceId", "oldDeviceId"):
+        check(k in q, f"{k} went missing from the mobile client context: {sorted(q)}")
+
+    # Still sent where the app sends it: the web portal's own /api/common/ paths.
+    check(C._wants_wuid("https://www.tbank.ru", "/api/common/v1/session_status"),
+          "wuid must still go to the web portal's /api/common/ paths")
+    check(not C._wants_wuid("https://www.tbank.ru",
+                            "/api/supreme/lifestyle/api/grocery/order/create"),
+          "the grocery checkout paths on www.tbank.ru carry no wuid in the capture")
+
+    # And the documented rollback really rolls back.
+    os.environ["TBANK_QUERY_PROFILE"] = "legacy"
+    try:
+        importlib.reload(C)
+        check(C._LEGACY_QUERY, "TBANK_QUERY_PROFILE=legacy must be recognised")
+    finally:
+        os.environ.pop("TBANK_QUERY_PROFILE", None)
+        importlib.reload(C)
+    print("  query scope: wuid only on the web portal, no vendor/client_version, "
+          "legacy switch honoured")
+
+
+def test_the_accept_profile_is_off_by_default_and_correct_when_on():
+    """The app does not send application/json to its native hosts — that string is
+    the Apple URL-loading default appearing where no Accept is set, and it is
+    identical across every native host for that reason.
+
+    The captures also show the change is safe: of the templates present with both
+    sides recorded, every response is application/json whatever was asked for. But
+    63 templates live on the one host that changes and there is no staging
+    environment, so the profile ships OFF. What is pinned here is that the default
+    really is byte-for-byte the old behaviour, and that turning it on produces the
+    captured values — including the lifestyle paths whose host says json and whose
+    own capture says otherwise."""
+    import importlib
+
+    from src import client as C
+
+    check(C._accept_for("api.t-bank-app.ru") == "application/json",
+          "the default must stay application/json until the rollout is driven live")
+    check(C._accept_for("lifestyle.t-bank-app.ru") == "application/json",
+          "the default must be uniform, whatever the host")
+
+    for value, expected in (
+        ("auto", {("api.t-bank-app.ru", ""): C._NATIVE_ACCEPT,
+                  ("lifestyle.t-bank-app.ru", "/api/grocery/cart"): "application/json",
+                  ("lifestyle.t-bank-app.ru", "/api/orders/list"): C._NATIVE_ACCEPT,
+                  ("www.tbank.ru", ""): "*/*",
+                  ("id.t-bank-app.ru", ""): "application/json"}),
+        # A host list opts in one host at a time — the staged rollout.
+        ("api-invest.t-bank-app.ru", {("api-invest.t-bank-app.ru", ""): C._NATIVE_ACCEPT,
+                                      ("api.t-bank-app.ru", ""): "application/json"}),
+    ):
+        os.environ["TBANK_ACCEPT_PROFILE"] = value
+        try:
+            importlib.reload(C)
+            for (host, path), want in expected.items():
+                got = C._accept_for(host, path)
+                check(got == want,
+                      f"TBANK_ACCEPT_PROFILE={value}, {host}{path}: got {got!r}, "
+                      f"capture says {want!r}")
+        finally:
+            os.environ.pop("TBANK_ACCEPT_PROFILE", None)
+            importlib.reload(C)
+
+    # The signed pay path is verified against the capture and must not follow the
+    # switch in either direction.
+    check(C._NATIVE_ACCEPT.endswith("*/*;q=0.8"),
+          "the native Accept must stay a superset of application/json")
+    print("  Accept profile: off by default, captured values per host/path when on")
+
+
+def test_a_lean_host_gets_only_what_the_app_sends_it():
+    """Not every host wants the native client context. The webview-served ones
+    carry appName/appVersion/platform and nothing else, and are authorised by
+    cookie with no Bearer at all — so a template can opt out of both.
+
+    This is the same class of divergence that once broke the lifestyle cart:
+    sending a host what the real app does not send is not free, it is a 400 or a
+    silent no-op. The flags exist so the opt-out is per endpoint and visible in
+    the template, rather than another branch on hostname."""
+    from src.endpoints import BUILTIN_ENDPOINTS
+    BUILTIN_ENDPOINTS["_lean_probe"] = {
+        "method": "GET", "host": "https://webview.t-bank-app.ru",
+        "path": "/probe", "params": {"appName": "mobile", "platform": "webview_ios"},
+        "no_base_params": True, "no_bearer": True}
+    BUILTIN_ENDPOINTS["_fat_probe"] = {
+        "method": "GET", "host": "https://api.t-bank-app.ru",
+        "path": "/probe", "params": {}}
+    try:
+        s = session()
+        s._call_read("_lean_probe")
+        lean = s._http.sent[-1]
+        check(set(lean["params"]) == {"appName", "platform"},
+              f"a lean host got extra query params: {sorted(lean['params'])}")
+        check("Authorization" not in lean["headers"],
+              f"a lean host must get no Bearer: {sorted(lean['headers'])}")
+        cookie = lean["headers"].get("Cookie") or ""
+        # This host authorises on the access_token carried as sessionID, not on
+        # the SSO cookie every other host takes — sending the wrong one is a 400.
+        check("sessionID=tok" in cookie and "SSO_SESSION" not in cookie,
+              f"the shopping host needs its own cookie: {cookie!r}")
+
+        # The default is unchanged: everything else still carries the full context.
+        s2 = session()
+        s2._call_read("_fat_probe")
+        fat = s2._http.sent[-1]
+        for k in ("sessionid", "deviceId", "oldDeviceId", "appName", "origin",
+                  "platform", "inache"):
+            check(k in fat["params"], f"a normal read lost {k}: {sorted(fat['params'])}")
+        check(fat["headers"].get("Authorization") == "Bearer tok",
+              "a normal read must still carry the Bearer")
+    finally:
+        BUILTIN_ENDPOINTS.pop("_lean_probe", None)
+        BUILTIN_ENDPOINTS.pop("_fat_probe", None)
+    print("  lean hosts: no native context, no Bearer; every other read unchanged")
+
+
+def test_public_hotels_never_receive_bank_credentials():
+    """The production hotel facade is public; an unknown host would otherwise
+    inherit the saved SSO cookie from _cookie_for(). Pin all four hotel calls so a
+    future transport refactor cannot silently mix banking and hotel credentials."""
+    s = session({"payload": {}})
+    s._public_http = FakeHTTP({"payload": {}})
+
+    def cookie_would_be_a_leak(host):
+        failures.append(f"public hotel call consulted the bank cookie jar for {host}")
+        return "SSO_SESSION=must-not-leak"
+
+    s._cookie_for = cookie_would_be_a_leak
+    s.hotel_autocomplete("Москва")
+    s.hotel_search(17039, "2026-08-19", "2026-08-20",
+                   adults=2, children_ages=[5])
+    s.hotel_details("1471735")
+    s.hotel_filters()
+
+    check(not s._http.sent,
+          f"hotel calls used the banking HTTP session: {len(s._http.sent)} requests")
+    check(len(s._public_http.sent) == 4,
+          f"expected four isolated hotel requests, got {len(s._public_http.sent)}")
+    for sent in s._public_http.sent:
+        check(sent["params"] == {},
+              f"public hotel request got mobile/session query params: {sent['params']}")
+        lowered = {k.lower(): v for k, v in sent["headers"].items()}
+        check("authorization" not in lowered,
+              f"public hotel request got Authorization: {sorted(lowered)}")
+        check("cookie" not in lowered,
+              f"public hotel request got Cookie: {lowered.get('cookie')!r}")
+        wire = json.dumps(sent, ensure_ascii=False)
+        for secret in (s.mobile_sessionid, s.access_token, "SSO_SESSION"):
+            check(secret not in wire, f"hotel request leaked {secret!r}: {wire}")
+
+    auto, search, details, filters = s._public_http.sent
+    check(auto["method"] == "POST" and auto["url"].endswith(
+        "/search-api/v1/hotels/autocomplete"), f"bad autocomplete request: {auto}")
+    check(auto["json"] == {"input": "Москва"}, f"bad autocomplete body: {auto['json']}")
+    search_body = search["json"]
+    check(str(search_body.pop("searchTag", "")).startswith("mcp-"),
+          f"hotel searchTag is missing: {search['json']}")
+    check(search_body == {
+        "locationId": 17039,
+        "checkinDate": "2026-08-19",
+        "checkoutDate": "2026-08-20",
+        "guests": {"adultsCount": 2, "childrenAge": [5]},
+    }, f"bad hotel search body: {search['json']}")
+    check(details["url"].endswith("/search-api/v1/hotels/getHotelStaticInfo"),
+          f"hotel details used the wrong facade path: {details['url']}")
+    detail_body = details["json"]
+    check(detail_body.get("hotelIds") == [1471735] and
+          str(detail_body.get("searchTag", "")).startswith("mcp-details-"),
+          f"hotel id did not reach the static-info body: {detail_body}")
+    check(filters["url"].endswith("/hotels/api/v1/hotels/search-filters"),
+          f"bad filters path: {filters['url']}")
+    print("  hotels: four public calls carry no token, session query or Cookie")
+
+
+def main():
+    print("transport:")
+    test_the_accept_profile_is_off_by_default_and_correct_when_on()
+    test_web_only_query_identifiers_stay_on_the_web_host()
+    test_mark_read_is_a_put_with_its_own_vendor_types()
+    test_the_messenger_user_agent_is_built_from_the_session()
+    test_the_web_payment_gate_names_its_calling_system()
+    test_operations_never_asks_for_suspicious_only()
+    test_x_app_headers_only_where_the_app_sends_them()
+    test_the_session_key_spelling_is_per_endpoint()
+    test_every_read_carries_the_mobile_client_context()
+    test_form_endpoints_post_a_form_not_json()
+    test_raw_endpoints_return_bytes_not_parsed_json()
+    test_messenger_uses_its_own_cookie_and_vendor_accept()
+    test_the_messenger_host_never_sees_the_payment_key()
+    test_bank_documents_asks_for_the_v2_record_shape()
+    test_templates_stay_structurally_sane()
+    test_a_lean_host_gets_only_what_the_app_sends_it()
+    test_public_hotels_never_receive_bank_credentials()
+    if failures:
+        print("\nFAILED:")
+        for f in failures:
+            print("  - " + f)
+        return 1
+    print("\nOK")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

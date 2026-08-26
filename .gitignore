@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+config.env
+.DS_Store
+travel-api/data/
+travel-web/coverage/
+packages/contracts/dist/
+packages/travel-mcp/vendor/
+
+# Local agent configuration and generated visual experiments.
+.nessy/
+output/
