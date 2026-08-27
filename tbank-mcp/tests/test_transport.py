@@ -530,7 +530,7 @@ def test_a_lean_host_gets_only_what_the_app_sends_it():
 
 def test_public_hotels_never_receive_bank_credentials():
     """The production hotel facade is public; an unknown host would otherwise
-    inherit the saved SSO cookie from _cookie_for(). Pin all four hotel calls so a
+    inherit the saved SSO cookie from _cookie_for(). Pin all eight hotel calls so a
     future transport refactor cannot silently mix banking and hotel credentials."""
     s = session({"payload": {}})
     s._public_http = FakeHTTP({"payload": {}})
@@ -545,14 +545,38 @@ def test_public_hotels_never_receive_bank_credentials():
                    adults=2, children_ages=[5])
     s.hotel_details("1471735")
     s.hotel_filters()
+    s.hotel_search_filters(
+        17039, "2026-08-19", "2026-08-20", adults=2, children_ages=[5],
+        filters=[{"filterId": "stars", "value": ["4", "5"]}],
+        map_frame_input={"viewPort": {
+            "topLeft": {"latitude": 55.80, "longitude": 37.50},
+            "bottomRight": {"latitude": 55.70, "longitude": 37.70},
+        }}, favorite_hotel_ids=[1471735], language="EN")
+    s.hotel_latest_offers(
+        [1471735, 1471736], "2026-08-19", "2026-08-20",
+        location_id=17039, adults=2, children_ages=[5],
+        filters=[{"filterId": "free_cancellation_allowed", "value": ["true"]}])
+    s.hotel_rates("1471735", "2026-08-19", "2026-08-20",
+                  adults=2, children_ages=[5], filters=[{
+                      "$objectType": "boolean",
+                      "filterId": "free_cancellation_allowed",
+                      "value": True,
+                  }])
+    s.hotel_reviews("1471735", source_code="ostrovok", sort="rating",
+                    sort_type="asc", cursor="next-page", page_size=7,
+                    search_text="номер")
 
     check(not s._http.sent,
           f"hotel calls used the banking HTTP session: {len(s._http.sent)} requests")
-    check(len(s._public_http.sent) == 4,
-          f"expected four isolated hotel requests, got {len(s._public_http.sent)}")
+    check(len(s._public_http.sent) == 8,
+          f"expected eight isolated hotel requests, got {len(s._public_http.sent)}")
     for sent in s._public_http.sent:
-        check(sent["params"] == {},
-              f"public hotel request got mobile/session query params: {sent['params']}")
+        leaked_params = [key for key in sent["params"] if key.lower() in {
+            "sessionid", "deviceid", "olddeviceid", "appname", "appversion",
+            "origin", "platform", "ccc", "cpswc", "connectiontype", "inache", "wuid",
+        }]
+        check(not leaked_params,
+              f"public hotel request got mobile/session query params: {leaked_params}")
         lowered = {k.lower(): v for k, v in sent["headers"].items()}
         check("authorization" not in lowered,
               f"public hotel request got Authorization: {sorted(lowered)}")
@@ -562,7 +586,7 @@ def test_public_hotels_never_receive_bank_credentials():
         for secret in (s.mobile_sessionid, s.access_token, "SSO_SESSION"):
             check(secret not in wire, f"hotel request leaked {secret!r}: {wire}")
 
-    auto, search, details, filters = s._public_http.sent
+    auto, search, details, filters, search_filters, latest, rates, reviews = s._public_http.sent
     check(auto["method"] == "POST" and auto["url"].endswith(
         "/search-api/v1/hotels/autocomplete"), f"bad autocomplete request: {auto}")
     check(auto["json"] == {"input": "Москва"}, f"bad autocomplete body: {auto['json']}")
@@ -583,7 +607,55 @@ def test_public_hotels_never_receive_bank_credentials():
           f"hotel id did not reach the static-info body: {detail_body}")
     check(filters["url"].endswith("/hotels/api/v1/hotels/search-filters"),
           f"bad filters path: {filters['url']}")
-    print("  hotels: four public calls carry no token, session query or Cookie")
+    check(search_filters["method"] == "POST" and search_filters["url"].endswith(
+        "/search-api/v3/hotels/searchFilters"),
+        f"bad availability-aware filters request: {search_filters}")
+    check(search_filters["json"] == {
+        "locationId": 17039,
+        "checkinDate": "2026-08-19", "checkoutDate": "2026-08-20",
+        "guests": {"adultsCount": 2, "childrenAge": [5]},
+        "filters": [{"filterId": "stars", "value": ["4", "5"]}],
+        "mapFrameInput": {"viewPort": {
+            "topLeft": {"latitude": 55.80, "longitude": 37.50},
+            "bottomRight": {"latitude": 55.70, "longitude": 37.70},
+        }},
+        "favoriteHotelIds": [1471735],
+    }, f"bad searchFilters_v3 body: {search_filters['json']}")
+    check(search_filters["headers"].get("X-User-Language") == "EN",
+          f"searchFilters_v3 lost X-User-Language: {search_filters['headers']}")
+    sticky = "cin=20260819&cout=20260820&did=17039&adults=2&cages=5"
+    check(search_filters["headers"].get("x-sticky-id") == sticky,
+          f"searchFilters_v3 got a bad sticky id: {search_filters['headers']}")
+    check(latest["method"] == "POST" and latest["url"].endswith(
+        "/search-api/v1/hotels/getLatestHotelOffer"),
+        f"bad getLatestHotelOffer request: {latest}")
+    check(latest["json"] == {
+        "locationId": 17039,
+        "checkinDate": "2026-08-19", "checkoutDate": "2026-08-20",
+        "hotelIds": [1471735, 1471736],
+        "guests": {"adultsCount": 2, "childrenAge": [5]},
+        "filters": [{"filterId": "free_cancellation_allowed", "value": ["true"]}],
+    }, f"bad getLatestHotelOffer body: {latest['json']}")
+    check(latest["headers"].get("x-sticky-id") == sticky,
+          f"getLatestHotelOffer got a bad sticky id: {latest['headers']}")
+    check(rates["method"] == "POST" and rates["url"].endswith(
+        "/hotels/api/v3/hotels/1471735/rates"), f"bad rates request: {rates}")
+    check(rates["json"] == {
+        "checkInDate": "2026-08-19", "checkOutDate": "2026-08-20",
+        "guests": [{"adultsCount": 2, "childrenAge": [5]}],
+        "filters": [{
+            "$objectType": "boolean",
+            "filterId": "free_cancellation_allowed",
+            "value": True,
+        }],
+    }, f"bad rates body: {rates['json']}")
+    check(reviews["method"] == "GET" and reviews["url"].endswith(
+        "/hotels/api/v2/review/1471735/feedback"), f"bad reviews request: {reviews}")
+    check(reviews["params"] == {
+        "SourceCode": "ostrovok", "Sort": "rating", "SortType": "asc",
+        "Cursor": "next-page", "PageSize": "7", "SearchText": "номер",
+    }, f"bad reviews query: {reviews['params']}")
+    print("  hotels: eight public calls carry no token, session query or Cookie")
 
 
 def main():

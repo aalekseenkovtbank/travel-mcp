@@ -1506,6 +1506,21 @@ BUILTIN_ENDPOINTS.update({
         "params": {}, "headers": {"Content-Type": "application/json"},
         **_HOTELS_PUBLIC,
     },
+    "hotel_search_filters": {
+        "method": "POST", "host": "https://www.tbank.ru",
+        "path": "/api/hotels/search-api/v3/hotels/searchFilters",
+        "params": {}, "headers": {"Content-Type": "application/json"},
+        **_HOTELS_PUBLIC,
+    },
+    "hotel_latest_offers": {
+        "method": "POST", "host": "https://www.tbank.ru",
+        # The source document contains a visually similar Cyrillic ``е`` in
+        # getLatеstHotelOffer. HTTP paths are ASCII; the Swagger operation and
+        # the backend method name use the ordinary Latin spelling below.
+        "path": "/api/hotels/search-api/v1/hotels/getLatestHotelOffer",
+        "params": {}, "headers": {"Content-Type": "application/json"},
+        **_HOTELS_PUBLIC,
+    },
     "hotel_static_info": {
         "method": "POST", "host": "https://www.tbank.ru",
         "path": "/api/hotels/search-api/v1/hotels/getHotelStaticInfo",
@@ -1522,6 +1537,23 @@ BUILTIN_ENDPOINTS.update({
         "method": "GET", "host": "https://www.tbank.ru",
         "path": "/api/hotels/api/v1/hotels/search-filters", "params": {},
         "headers": {"x-api-method-name": "getHotelsSearchFilters"},
+        **_HOTELS_PUBLIC,
+    },
+    # path is parameterized: /api/hotels/api/v3/hotels/{hotelId}/rates
+    "hotel_rates": {
+        "method": "POST", "host": "https://www.tbank.ru",
+        "path": "/api/hotels/api/v3/hotels/_/rates", "params": {},
+        "headers": {"Content-Type": "application/json",
+                    "x-api-method-name": "createHotelsRates"},
+        **_HOTELS_PUBLIC,
+    },
+    # The production web app uses the v2 feedback contract.  Its query names are
+    # PascalCase on the wire (Sort, SortType, Cursor, PageSize, SearchText).
+    # path is parameterized: /api/hotels/api/v2/review/{hotelId}/feedback
+    "hotel_reviews": {
+        "method": "GET", "host": "https://www.tbank.ru",
+        "path": "/api/hotels/api/v2/review/_/feedback", "params": {},
+        "headers": {"x-api-method-name": "getReviewFeedback"},
         **_HOTELS_PUBLIC,
     },
 })

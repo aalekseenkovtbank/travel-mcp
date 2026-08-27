@@ -2,9 +2,9 @@
 
 Проверено: **16 августа 2026, Europe/Moscow**.
 
-MCP успешно запускается по stdio и публикует **82 инструмента**:
+MCP успешно запускается по stdio и публикует **92 инструмента**:
 
-- **64 READ** — только чтение;
+- **74 READ** — только чтение;
 - **12 WRITE** — меняют состояние, но сами по себе не списывают деньги;
 - **6 MONEY** — могут начать или завершить списание.
 
@@ -118,13 +118,17 @@ MCP успешно запускается по stdio и публикует **82 
 | `hotel_autocomplete(query)` | R | ✅ | Прод: «Москва» вернула 5 локаций и 1 конкретный отель |
 | `hotel_search(destination_id, checkin_date, checkout_date)` | R | ✅ | Актуальный v2-поиск: priced ids из `searchHotelPoints` объединяются со статическими карточками |
 | `hotel_details(hotel_id)` | R | ✅ | Прод: карточка первого результата, 13 групп удобств |
+| `hotel_rates(hotel_id, checkin_date, checkout_date, ...)` | R | ✅ | Прод: v3-комнаты и тарифы; точный POST body и отсутствие credentials закреплены транспортным тестом |
+| `hotel_reviews(hotel_id, ...)` | R | ✅ | Прод: текущий v2 feedback, сортировка/поиск/cursor; ответ проверен на публичном маршруте |
 | `hotel_filters()` | R | ✅ | Прод: 14 фильтров и 7 популярных |
+| `hotel_search_filters(location_id, ...)` | R | 🟡 | `searchFilters_v3`: контракт, валидация, sticky/language headers и публичный transport покрыты offline-тестами |
+| `hotel_latest_offers(hotel_ids, ...)` | R | 🟡 | `getLatestHotelOffer`: batch 1–1000 id, финальность цены и публичный transport покрыты offline-тестами |
 | `shop_search(query)` | R | ✅ | Поиск товаров отвечает |
 | `shop_cart(limit=20)` | R | ✅ | Корзины маркетплейса отвечают |
 
 Покупка авиа- и ЖД-билетов и бронирование отелей через MCP не реализованы:
-travel-инструменты предназначены для поиска и сравнения. Четыре hotel-вызова
-идут через публичный production proxy `www.tbank.ru/api/hotels/` без банковского
+travel-инструменты предназначены для поиска и сравнения. Все hotel-вызовы идут
+через публичный production proxy `www.tbank.ru/api/hotels/` без банковского
 `Authorization`, `Cookie` и session-параметров; это отдельно закреплено
 транспортным тестом.
 

@@ -1142,6 +1142,7 @@ class MobileSession:
     def _call_read(self, template_key: str, *, overrides: dict | None = None,
                    body: dict | list | None = None,
                    path_override: str | None = None,
+                   headers_override: dict[str, str] | None = None,
                    return_response: bool = False) -> Any:
         """Replay a read endpoint (builtin shape) with fresh sessionid + Bearer.
 
@@ -1203,6 +1204,8 @@ class MobileSession:
         # template header or Authorization/Cookie below still wins.
         for k, v in self._mobile_headers(host, path).items():
             headers.setdefault(k, v)
+        if headers_override:
+            headers.update({str(k): str(v) for k, v in headers_override.items()})
         # A few hosts are authorised by cookie alone and the app sends no Bearer to
         # them at all; carrying one there is another silent divergence.
         if not tpl.get("no_bearer"):
@@ -4474,6 +4477,82 @@ class MobileSession:
             "upstreamLoadingCompleted": search.get("isLoadingCompleted") is True,
         }
 
+    @staticmethod
+    def _hotel_sticky_id(location_id: int | None, checkin_date: str,
+                         checkout_date: str, adults: int,
+                         children_ages: list[int] | None) -> str:
+        """Build the optional Hotels Search API affinity key from request data."""
+        parts = [
+            f"cin={str(checkin_date).replace('-', '')}",
+            f"cout={str(checkout_date).replace('-', '')}",
+        ]
+        if location_id is not None:
+            parts.append(f"did={int(location_id)}")
+        parts.append(f"adults={int(adults)}")
+        ages = list(children_ages or [])
+        if ages:
+            parts.append("cages=" + ",".join(str(age) for age in ages))
+        return "&".join(parts)
+
+    def hotel_search_filters(self, location_id: int, checkin_date: str,
+                             checkout_date: str, *, adults: int = 1,
+                             children_ages: list[int] | None = None,
+                             filters: list[dict] | None = None,
+                             map_frame_input: dict | None = None,
+                             favorite_hotel_ids: list[int] | None = None,
+                             language: str = "RU") -> dict:
+        """Availability-aware filters for one hotel search (searchFilters_v3)."""
+        body = {
+            "locationId": int(location_id),
+            "checkinDate": checkin_date,
+            "checkoutDate": checkout_date,
+            "guests": {
+                "adultsCount": int(adults),
+                "childrenAge": list(children_ages or []),
+            },
+        }
+        if filters:
+            body["filters"] = list(filters)
+        if map_frame_input:
+            body["mapFrameInput"] = dict(map_frame_input)
+        if favorite_hotel_ids:
+            body["favoriteHotelIds"] = list(favorite_hotel_ids)
+        data = self._call_read(
+            "hotel_search_filters", body=body,
+            headers_override={
+                "x-sticky-id": self._hotel_sticky_id(
+                    location_id, checkin_date, checkout_date, adults, children_ages),
+                "X-User-Language": language,
+            })
+        return data if isinstance(data, dict) else {}
+
+    def hotel_latest_offers(self, hotel_ids: list[int], checkin_date: str,
+                            checkout_date: str, *, location_id: int | None = None,
+                            adults: int = 1,
+                            children_ages: list[int] | None = None,
+                            filters: list[dict] | None = None) -> dict:
+        """Refresh prices and conditions for selected hotels."""
+        body = {
+            "checkinDate": checkin_date,
+            "checkoutDate": checkout_date,
+            "hotelIds": list(hotel_ids),
+            "guests": {
+                "adultsCount": int(adults),
+                "childrenAge": list(children_ages or []),
+            },
+        }
+        if location_id is not None:
+            body["locationId"] = int(location_id)
+        if filters:
+            body["filters"] = list(filters)
+        data = self._call_read(
+            "hotel_latest_offers", body=body,
+            headers_override={
+                "x-sticky-id": self._hotel_sticky_id(
+                    location_id, checkin_date, checkout_date, adults, children_ages),
+            })
+        return data if isinstance(data, dict) else {}
+
     def hotel_details(self, hotel_id: str) -> dict:
         """Static hotel card from the current public hotel facade."""
         data = self._call_read("hotel_static_info", body={
@@ -4496,6 +4575,50 @@ class MobileSession:
     def hotel_filters(self) -> dict:
         """Current search-filter catalogue from the public hotel facade."""
         data = self._call_read("hotel_filters")
+        return data if isinstance(data, dict) else {}
+
+    def hotel_rates(self, hotel_id: str, checkin_date: str, checkout_date: str,
+                    *, adults: int = 1, children_ages: list[int] | None = None,
+                    filters: list[dict] | None = None) -> dict:
+        """Available v3 rooms and rates for one hotel and one room.
+
+        This is an availability lookup, despite being an HTTP POST: it creates no
+        booking and moves no money.  Like the other public hotel calls, it uses an
+        isolated cookie jar and sends no bank session, Bearer or Cookie.
+        """
+        data = self._call_read(
+            "hotel_rates",
+            path_override=f"/api/hotels/api/v3/hotels/{hotel_id}/rates",
+            body={
+                "checkInDate": checkin_date,
+                "checkOutDate": checkout_date,
+                "guests": [{
+                    "adultsCount": int(adults),
+                    "childrenAge": list(children_ages or []),
+                }],
+                "filters": list(filters or []),
+            },
+        )
+        return data if isinstance(data, dict) else {}
+
+    def hotel_reviews(self, hotel_id: str, *, source_code: str = "",
+                      sort: str = "date", sort_type: str = "desc",
+                      cursor: str = "", page_size: int = 10,
+                      search_text: str = "") -> dict:
+        """One page of public guest reviews for a hotel (current v2 contract)."""
+        query = {
+            "Sort": sort,
+            "SortType": sort_type,
+            "Cursor": cursor,
+            "PageSize": str(page_size),
+        }
+        if source_code:
+            query["SourceCode"] = source_code
+        if search_text:
+            query["SearchText"] = search_text
+        data = self._call_read(
+            "hotel_reviews", overrides=query,
+            path_override=f"/api/hotels/api/v2/review/{hotel_id}/feedback")
         return data if isinstance(data, dict) else {}
 
     # ---- grocery item detail + nutrition ---------------------------------

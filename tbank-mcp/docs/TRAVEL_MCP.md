@@ -40,7 +40,8 @@ Node.js работает только как npm-bootstrap: создаёт/об�
 - Авиа: `flight_search`, `compare_flight_prices`.
 - ЖД: `train_stations`, `train_search`, `compare_train_prices`.
 - Отели: `hotel_autocomplete`, `hotel_search`, `compare_hotel_prices`,
-  `hotel_details`, `hotel_filters`.
+  `hotel_search_filters`, `hotel_latest_offers`, `hotel_details`, `hotel_rates`,
+  `hotel_reviews`, `hotel_filters`.
 - Составная цена: `compare_flight_hotel_prices`.
 - Афиша: `search_app`, `cinema_search`, `cinema_schedule`, `cinema_seats`,
   `afisha_catalog`, `afisha_places`, `place_schedule`, `place_info`,

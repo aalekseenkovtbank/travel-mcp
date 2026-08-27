@@ -7,7 +7,7 @@ don't call `refresh_session` manually unless a tool returns SESSION EXPIRED.
 Served section-by-section by the `flows(topic)` tool — call it with no argument
 for the list of topics. Reading the whole file is rarely what you want.
 
-> **Tool names:** the **90 MCP tools** and their docstrings are the authoritative
+> **Tool names:** the **92 MCP tools** and their docstrings are the authoritative
 > interface. Some sections below describe INTERNAL api steps — e.g. the web
 > checkout + HMAC signing run INSIDE `grocery_checkout` / `transfer`. Call the MCP
 > tools, not the internal methods named in the prose (`pay`, `payment_gate_pay`,
@@ -524,10 +524,29 @@ host and is not part of the travel allowlist; do not use it as a resolver.
    v2 `searchHotelPoints`, затем `getHotelStaticInfo`; первый набор предложений с
    ценами уже пригоден для сравнения, даже если поставщики продолжают обогащать
    выдачу в фоне.
-3. `hotel_details(hotel_id)` → адрес, описание, время заезда/выезда и удобства.
-   `hotel_filters()` → текущая структура фильтров, если нужно построить интерфейс.
+3. `hotel_search_filters(location_id, checkin_date, checkout_date, adults,
+   children_ages, filters, map_frame_input, favorite_hotel_ids, language)` →
+   availability-aware фильтры и `filteredHotelsCount` для этих дат и гостей.
+   Вызывай при фильтрации/поиске на карте; значения имеют форму
+   `{filterId, value: [...]}`. Это Hotels Search API `searchFilters_v3`, а не
+   статический `hotel_filters()`.
+4. `hotel_latest_offers(hotel_ids, checkin_date, checkout_date, location_id,
+   adults, children_ages, filters)` → одним запросом актуальные цены, наличие,
+   питание, оплату и отмену для шорт-листа. Вызывай непосредственно перед тем,
+   как сравнивать эти изменчивые условия. При `price.isFinalPrice=false` остальные
+   условия по контракту не подтверждены.
+5. `hotel_details(hotel_id)` → адрес, описание, время заезда/выезда и удобства.
+6. `hotel_rates(hotel_id, checkin_date, checkout_date, adults, children_ages,
+   filters)` → комнаты и все актуальные тарифы выбранного отеля: полная цена,
+   питание, способ оплаты, правила отмены и доступность. `filters` — массив из
+   `hotel_filters()`; без него возвращаются все тарифы.
+7. `hotel_reviews(hotel_id, source_code, sort, sort_type, cursor, page_size,
+   search_text)` → страница отзывов. Для следующей страницы передай вернувшийся
+   `cursor` без изменений; `search_text="onlyPhotos"` оставляет отзывы с фото.
+8. `hotel_filters()` → общий каталог фильтров для UI/rates; он не учитывает
+   конкретные даты, гостей и доступность предложений.
 
-Эти четыре запроса идут через публичный production proxy
+Все hotel-запросы идут через публичный production proxy
 `www.tbank.ru/api/hotels/` без `Authorization`, `Cookie`, `sessionid` и других
 банковских credentials. Транспортный тест закрепляет это как инвариант. MCP не
 создаёт гостиничную бронь и не вызывает оплату: поиск и карточки — только чтение,

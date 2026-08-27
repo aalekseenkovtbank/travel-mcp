@@ -120,14 +120,14 @@ def test_hotel_order_details_json_drops_guest_identity():
                 "mealName": "Завтрак",
                 "guests": [{"firstName": "Секрет", "lastName": "Пользователь"}],
             }]},
-            "contactData": {"email": "secret@example.test", "phone": "+79990000000"},
+            "contactData": {"email": "user@example.com", "phone": "+79991234567"},
         },
     )
     detail = call(session, server.travel_order_details, "hotel-1")
     assert detail["hotelStars"] == 4 and detail["mealTypes"] == ["Завтрак"]
     assert detail["guestCount"] == 1 and detail["roomCount"] == 1
     serialized = json.dumps(detail, ensure_ascii=False)
-    assert "Секрет" not in serialized and "secret@example.test" not in serialized
+    assert "Секрет" not in serialized and "user@example.com" not in serialized
 
 
 def test_travel_searches_have_stable_json_contracts():
@@ -176,10 +176,80 @@ def test_travel_searches_have_stable_json_contracts():
                 },
             }],
         },
+        hotel_search_filters={
+            "filters": {
+                "stars_4": {
+                    "filterId": "stars", "filterType": "array",
+                    "isSelected": True, "isAvailable": True,
+                    "arrayValue": {"value": "4"},
+                },
+                "price": {
+                    "filterId": "price", "filterType": "range",
+                    "isSelected": False, "isAvailable": True,
+                    "rangeValue": {"min": 5000, "max": 30000, "unit": "RUB"},
+                },
+            },
+            "configurationParams": {
+                "allFilters": ["stars", "price"], "quickFilters": ["stars"],
+            },
+            "filteredHotelsCount": 37,
+            "isLoadingCompleted": True,
+        },
+        hotel_latest_offers={
+            "hotels": [{
+                "hotelId": 20,
+                "offerDetails": {
+                    "availableRoomsCount": 2,
+                    "freeCancellationUntil": "2026-09-16",
+                    "cardRequired": True,
+                    "paymentPlace": "now",
+                    "mealType": {"id": 1, "code": "BB", "name": "Завтрак"},
+                    "price": {"amount": 14900, "currency": "RUB", "isFinalPrice": True},
+                    "badgeSlugs": ["best-price"],
+                },
+            }, {
+                "hotelId": 21,
+                "offerDetails": {
+                    "price": {"amount": 9000, "currency": "RUB", "isFinalPrice": False},
+                },
+            }],
+        },
         hotel_details={
             "hotelId": 20, "hotelName": "Отель", "starRating": 4,
             "location": {"address": "Тверская улица", "lat": 55.75, "lon": 37.61},
             "facilitiesGroups": [{"name": "Общее", "facilities": [{"name": "Wi-Fi"}]}],
+        },
+        hotel_rates={
+            "searchId": "rates-search-1", "isExtraServicesShown": True,
+            "availableFilters": [{"filterId": "meal_types", "filterType": "array"}],
+            "rates": [{
+                "roomId": "room-1", "bookHash": "now-rate-1",
+                "shownPrice": {"amount": 15000, "currency": "RUB"},
+                "paymentPlace": "now", "mealName": "Завтрак",
+                "availableRoomsCount": 2,
+            }],
+            "otherRates": [],
+            "rooms": [{"roomId": "room-1", "roomName": "Делюкс", "roomSize": 28}],
+        },
+        hotel_reviews={
+            "reviews": [{
+                "masterHotelId": 20, "feedbackId": 501, "sourceType": "ostrovok",
+                "review": {
+                    "author": "Анна", "rating": 9.2,
+                    "bookingInfo": {
+                        "roomName": "Делюкс", "travelerType": "couple",
+                        "nights": 3, "createdDate": "2026-08-10T00:00:00Z",
+                    },
+                    "reviewTextPlus": "Очень чисто",
+                    "reviewTextMinus": "Шумно",
+                    "photos": [{
+                        "url": "https://cdn.tbank.ru/hotels/{size}/review.jpg",
+                        "categories": ["room"],
+                    }],
+                },
+                "likesCount": 4, "isLiked": False,
+            }],
+            "cursor": "reviews-next",
         },
     )
 
@@ -191,7 +261,38 @@ def test_travel_searches_have_stable_json_contracts():
     assert hotel["hotelId"] == "20" and hotel["latitude"] == 55.75
     assert hotel["imageUrl"] == "https://cdn.tbank.ru/hotels/1024x768/hotel.jpg"
     assert "imageUrl" not in hotels[1]
+    search_filters = call(
+        session, server.hotel_search_filters, 10, "2026-09-18", "2026-09-21",
+        adults=2, children_ages=[5],
+        filters=[{"filterId": "stars", "values": ["4"]}])
+    assert search_filters["filteredHotelsCount"] == 37
+    assert search_filters["selectedFilters"] == [
+        {"filterId": "stars", "value": ["4"]}]
+    assert search_filters["configurationParams"]["quickFilters"] == ["stars"]
+    latest = call(
+        session, server.hotel_latest_offers, [20, 21],
+        "2026-09-18", "2026-09-21", location_id=10, adults=2,
+        children_ages=[5])
+    assert latest["hotels"][0]["offerDetails"]["price"]["amount"] == 14900
+    assert latest["hotels"][1]["offerDetails"]["price"]["isFinalPrice"] is False
     assert call(session, server.hotel_details, "20")["facilities"] == ["Общее: Wi-Fi"]
+    rates = call(
+        session, server.hotel_rates, "20", "2026-09-18", "2026-09-21",
+        filters=[{
+            "$objectType": "boolean",
+            "filterId": "free_cancellation_allowed",
+            "value": True,
+        }])
+    assert rates["searchId"] == "rates-search-1"
+    assert rates["rates"][0]["bookHash"] == "now-rate-1"
+    assert rates["rooms"][0]["roomName"] == "Делюкс"
+    reviews = call(
+        session, server.hotel_reviews, "20", sort="rating", page_size=5)
+    assert reviews["cursor"] == "reviews-next"
+    assert reviews["reviews"][0]["reviewPlus"] == "Очень чисто"
+    assert reviews["reviews"][0]["likeCount"] == 4
+    assert reviews["reviews"][0]["photos"][0]["url"].endswith(
+        "/1024x768/review.jpg")
 
 
 def test_travel_search_tools_do_not_block_each_other():

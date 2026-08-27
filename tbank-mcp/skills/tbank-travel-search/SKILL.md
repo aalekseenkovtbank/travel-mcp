@@ -16,7 +16,8 @@ description: |
 
 - **Поезда** (`train_search`) — оплата уходит в браузерную форму, которой у MCP нет.
 - **Самолёты** (`flight_search`) — брони и оплаты в тулах нет вовсе.
-- **Отели** (`hotel_search`) — доступны поиск и карточка, брони и оплаты нет.
+- **Отели** (`hotel_search`) — доступны поиск, тарифы, отзывы и карточка, брони
+  и оплаты нет.
 - **Маркетплейс** (`shop_search`/`shop_cart`) — размещения заказа нет, только поиск
   и расчёт доставки.
 
@@ -36,9 +37,13 @@ description: |
 | `audience_profile()` | Безопасная возрастная группа и допустимость 18+ для фильтрации афиши, без даты рождения и пола | нет |
 | `hotel_autocomplete(query, limit)` | Локации и отели с id для следующего шага | нет |
 | `hotel_search(destination_id, checkin_date, checkout_date, adults, children_ages, limit)` | Доступные отели и цены | нет |
+| `hotel_search_filters(location_id, checkin_date, checkout_date, adults, children_ages, filters, ...)` | Доступные значения фильтров и число подходящих отелей для конкретного поиска | нет |
+| `hotel_latest_offers(hotel_ids, checkin_date, checkout_date, location_id, adults, children_ages, filters)` | Одним запросом перепроверить цены и условия шорт-листа | нет |
 | `compare_hotel_prices(destination_id, windows, ...)` | Сравнить полную цену/цену за ночь для нескольких окон | нет |
 | `compare_flight_hotel_prices(from_code, to_code, hotel_destination_id, windows, ...)` | Сложить два перелёта и отель для нескольких окон | нет |
 | `hotel_details(hotel_id, max_facilities)` | Адрес, описание, заезд/выезд, удобства | нет |
+| `hotel_rates(hotel_id, checkin_date, checkout_date, adults, children_ages, filters, limit)` | Комнаты и живые тарифы выбранного отеля | нет |
+| `hotel_reviews(hotel_id, source_code, sort, sort_type, cursor, page_size, search_text)` | Отзывы, фото, лайки и cursor-пагинация | нет |
 | `hotel_filters(max_chars)` | Текущая структура фильтров поиска | нет |
 | `nearby_search(city, anchor_name, address, latitude, longitude, include_poi, place_kinds, limit)` | Рестораны и POI OpenStreetMap в радиусе 1,8 км | нет |
 | `weather(city, latitude, longitude, date_from, date_to)` | Прогноз Open-Meteo или климат ERA5 | нет |
@@ -73,10 +78,28 @@ description: |
    символа; id по названию не угадывай.
 2. `hotel_search(destination_id, checkin_date, checkout_date)` → отели и цены.
    Даты — YYYY-MM-DD; возраста детей — строка `5,12` или JSON `[5,12]`.
-3. Для выбранного варианта вызови `hotel_details(hotel_id)`. Если нужны доступные
-   фильтры для интерфейса — `hotel_filters()`.
-4. Скажи пользователю: «Забронировать или оплатить отель через MCP нельзя —
-   здесь только поиск и карточка. Оформление — в приложении.»
+3. Если пользователь задаёт критерии или спрашивает, сколько вариантов им
+   соответствует, вызови `hotel_search_filters(..., response_format="json")` с
+   теми же локацией, датами и гостями. Передавай выбранные значения как
+   `{"filterId":"stars","value":["4","5"]}`; range — строки `min=...` /
+   `max=...`, boolean — `true`/`false`. Это availability-aware метод.
+   `hotel_filters()` — общий каталог для UI и фильтров `hotel_rates()`, он не
+   показывает доступность для конкретных дат и гостей.
+4. Перед сравнением текущей цены, наличия, питания, оплаты или отмены у нескольких
+   найденных вариантов вызови `hotel_latest_offers(hotel_ids, ...)`. Если
+   `price.isFinalPrice=false`, не делай выводов об остальных условиях этого
+   предложения: по контракту они не подтверждены. Отсутствующий hotel_id означает,
+   что актуальное предложение для него не вернулось.
+5. Для выбранного варианта вызови `hotel_details(hotel_id)`, затем
+   `hotel_rates(hotel_id, checkin_date, checkout_date, ...)`: цена из общей
+   выдачи — предварительная, а этот вызов даёт конкретные комнаты, питание,
+   оплату и правила отмены. Для допустимой структуры rate-фильтров сначала вызови
+   `hotel_filters()` и передай выбранные объекты в `filters`.
+6. Если пользователь спрашивает об опыте гостей, вызови `hotel_reviews(hotel_id)`.
+   Следующую страницу получай только с cursor из предыдущего ответа. Для отзывов
+   с фото передай `search_text="onlyPhotos"`.
+7. Скажи пользователю: «Забронировать или оплатить отель через MCP нельзя —
+   здесь только поиск, тарифы и отзывы. Оформление — в приложении.»
 
 Hotel-вызовы идут в публичный `hotels.tbank.ru` без банковского access token,
 sessionid и Cookie.

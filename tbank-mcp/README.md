@@ -4,7 +4,7 @@
 
 ## Features
 
-- **90 tools**: accounts, cards, documents, operations, grocery ordering, cinema and
+- **92 tools**: accounts, cards, documents, operations, grocery ordering, cinema and
   concert tickets, flight/rail/hotel search, orders, transfers (including payment by
   bank requisites, from a scanned invoice QR), messenger, investments
 - **11 skills**, entered through the `tbank` router skill: grocery order, tickets,
@@ -155,7 +155,7 @@ Read-only инструменты профиля и путешествий при
 `spending_categories`, `audience_profile`, `orders`, `order_details`,
 `travel_order_details`, `flight_history`, `flight_search`,
 `train_stations`, `train_search`, `hotel_autocomplete`, `hotel_search`,
-`hotel_details`, `afisha_catalog`,
+`hotel_details`, `hotel_rates`, `hotel_reviews`, `afisha_catalog`,
 `afisha_places`, `concert_schedule`, `nearby_search` и `weather`.
 
 JSON возвращается в едином конверте `ok`, `data`, `source`, `checkedAt`,
@@ -185,7 +185,7 @@ Russian and so is the person reading the answer.
 | **Afisha** | `afisha_catalog`, `afisha_places`, `place_schedule`, `place_info` |
 | **Tickets** | `cinema_search`, `cinema_schedule`, `cinema_seats`, `concert_schedule`, `concert_hall`, `cinema_book`, `ticket_pay`, `ticket_cancel`, `ticket_qr` |
 | **Search** | `search_app` |
-| **Travel search** | `train_stations`, `train_search`, `compare_train_prices`, `train_calendar`, `flight_search`, `compare_flight_prices`, `flight_history`, `hotel_autocomplete`, `hotel_search`, `compare_hotel_prices`, `compare_flight_hotel_prices`, `hotel_details`, `hotel_filters`, `nearby_search`, `weather` |
+| **Travel search** | `train_stations`, `train_search`, `compare_train_prices`, `train_calendar`, `flight_search`, `compare_flight_prices`, `flight_history`, `hotel_autocomplete`, `hotel_search`, `hotel_search_filters`, `hotel_latest_offers`, `compare_hotel_prices`, `compare_flight_hotel_prices`, `hotel_details`, `hotel_rates`, `hotel_reviews`, `hotel_filters`, `nearby_search`, `weather` |
 | **Marketplace** | `shop_search`, `shop_cart` |
 | **Messenger** | `messenger_conversations`, `messenger_messages`, `messenger_file`, `messenger_send`, `messenger_unread` |
 | **Money** | `transfer_sbp_resolve`, `transfer`, `payment_qr`, `transfer_requisites`, `payment_commission`, `pay_bill`, `payment_providers`, `confirm_payment`, `payment_status` |
@@ -331,7 +331,7 @@ present the tests additionally check the fixtures have not drifted from it.
   second pending payment.
 - **Tool annotations.** Every tool declares what it does, in one table —
   `TOOL_KINDS` in `src/server.py` — and a tool missing from it raises at import
-  rather than defaulting to anything. Three kinds: 72 are `readOnlyHint: true` and
+  rather than defaulting to anything. Three kinds: 74 are `readOnlyHint: true` and
   may run without a prompt; 12 write something that costs nothing (a cart, a
   booking, a message, an OTP, a token, a local file) and are marked
   `destructiveHint: false`; 6 debit an account — `transfer`, `transfer_requisites`,

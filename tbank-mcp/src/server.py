@@ -64,7 +64,9 @@ TRAVEL_TOOL_NAMES = frozenset({
     "orders", "order_details", "travel_order_details", "flight_history",
     # Live travel inventory.
     "flight_search", "hotel_autocomplete", "hotel_search", "hotel_details",
-    "hotel_filters", "compare_flight_prices", "compare_hotel_prices",
+    "hotel_rates", "hotel_reviews", "hotel_filters", "hotel_search_filters",
+    "hotel_latest_offers",
+    "compare_flight_prices", "compare_hotel_prices",
     "compare_flight_hotel_prices",
     # Rail search (public, no booking/payment).
     "train_stations", "train_search", "compare_train_prices",
@@ -186,7 +188,11 @@ TOOL_KINDS: dict[str, tuple[str, str]] = {
     "hotel_autocomplete": ("Поиск направления или отеля", READ),
     "hotel_search": ("Поиск доступных отелей", READ),
     "hotel_details": ("Карточка отеля", READ),
+    "hotel_rates": ("Номера и тарифы отеля", READ),
+    "hotel_reviews": ("Отзывы об отеле", READ),
     "hotel_filters": ("Фильтры поиска отелей", READ),
+    "hotel_search_filters": ("Доступные фильтры для поиска отелей", READ),
+    "hotel_latest_offers": ("Актуальные цены и условия отелей", READ),
     "compare_hotel_prices": ("Сравнение цен на отели", READ),
     "compare_flight_hotel_prices": ("Сравнение перелёта и отеля", READ),
     "nearby_search": ("Места рядом", READ),
@@ -5062,6 +5068,122 @@ def _hotel_date(value: str, field: str):
         raise TbankApiError("BAD_DATE", f"{field}: нужна дата YYYY-MM-DD, пришло {value!r}.")
 
 
+def _hotel_search_window(checkin_date: str, checkout_date: str) -> int:
+    """Validate the date window shared by Hotels Search API methods."""
+    start = _hotel_date(checkin_date, "checkin_date")
+    end = _hotel_date(checkout_date, "checkout_date")
+    today = datetime.now().date()
+    if start < today or start > today + timedelta(days=730):
+        raise TbankApiError(
+            "BAD_CHECKIN_DATE",
+            "checkin_date должен быть от сегодняшней даты до сегодня + 730 дней.")
+    nights = (end - start).days
+    if not 1 <= nights <= 30:
+        raise TbankApiError(
+            "BAD_CHECKOUT_DATE", "checkout_date должен быть через 1–30 ночей после заезда.")
+    return nights
+
+
+def _hotel_search_guests(adults: int, children_ages: list[int] | None) -> list[int]:
+    if isinstance(adults, bool) or not isinstance(adults, int) or not 1 <= adults <= 6:
+        raise TbankApiError("BAD_GUESTS", "adults должен быть целым числом от 1 до 6.")
+    ages = _hotel_children(children_ages or [])
+    if len(ages) > 4:
+        raise TbankApiError(
+            "BAD_CHILDREN_AGES", "children_ages должен содержать не больше 4 возрастов.")
+    return ages
+
+
+def _hotel_positive_ids(values, field: str, *, required: bool,
+                        max_count: int | None = None) -> list[int]:
+    if values is None:
+        values = []
+    if not isinstance(values, list):
+        raise TbankApiError("BAD_HOTEL_IDS", f"{field} должен быть JSON-массивом id.")
+    if required and not values:
+        raise TbankApiError("BAD_HOTEL_IDS", f"{field} должен содержать хотя бы один id.")
+    if max_count is not None and len(values) > max_count:
+        raise TbankApiError(
+            "BAD_HOTEL_IDS", f"{field} должен содержать не больше {max_count} id.")
+    normalized = []
+    seen = set()
+    for index, value in enumerate(values):
+        if isinstance(value, bool):
+            raise TbankApiError(
+                "BAD_HOTEL_IDS", f"{field}[{index}] должен быть положительным целым id.")
+        try:
+            hotel_id = int(value)
+        except (TypeError, ValueError):
+            raise TbankApiError(
+                "BAD_HOTEL_IDS", f"{field}[{index}] должен быть положительным целым id.")
+        if hotel_id <= 0 or str(value).strip() != str(hotel_id):
+            raise TbankApiError(
+                "BAD_HOTEL_IDS", f"{field}[{index}] должен быть положительным целым id.")
+        if hotel_id not in seen:
+            seen.add(hotel_id)
+            normalized.append(hotel_id)
+    return normalized
+
+
+def _hotel_search_filters_input(filters: list[dict] | None) -> list[dict]:
+    """Validate the simple filterId/value[] union used by Search API methods."""
+    if filters is None:
+        return []
+    if not isinstance(filters, list):
+        raise TbankApiError("BAD_FILTERS", "filters должен быть JSON-массивом.")
+    normalized = []
+    for index, item in enumerate(filters):
+        if not isinstance(item, dict):
+            raise TbankApiError("BAD_FILTER", f"filters[{index}] должен быть JSON-объектом.")
+        filter_id = str(item.get("filterId") or "").strip()
+        # The searchFilters_v3 example says `values`, while its field table and
+        # getLatestHotelOffer both say `value`. Accept the documented alias from
+        # MCP callers, but always put the canonical singular key on the wire.
+        values = item.get("value")
+        if values is None:
+            values = item.get("values")
+        if not filter_id or len(filter_id) > 100:
+            raise TbankApiError(
+                "BAD_FILTER", f"filters[{index}].filterId должен быть непустой строкой.")
+        if (not isinstance(values, list) or not values or
+                any(not isinstance(value, str) or not value.strip()
+                    for value in values)):
+            raise TbankApiError(
+                "BAD_FILTER", f"filters[{index}].value должен быть непустым массивом строк.")
+        normalized.append({
+            "filterId": filter_id,
+            "value": [value.strip() for value in values],
+        })
+    return normalized
+
+
+def _hotel_map_frame(value: dict | None) -> dict | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or not isinstance(value.get("viewPort"), dict):
+        raise TbankApiError(
+            "BAD_MAP_FRAME", "map_frame_input должен содержать объект viewPort.")
+    viewport = value["viewPort"]
+    normalized = {}
+    for corner in ("topLeft", "bottomRight"):
+        point = viewport.get(corner)
+        if not isinstance(point, dict):
+            raise TbankApiError(
+                "BAD_MAP_FRAME", f"map_frame_input.viewPort.{corner} обязателен.")
+        latitude, longitude = point.get("latitude"), point.get("longitude")
+        if (isinstance(latitude, bool) or isinstance(longitude, bool) or
+                not isinstance(latitude, (int, float)) or
+                not isinstance(longitude, (int, float)) or
+                not -90 <= latitude <= 90 or not -180 <= longitude <= 180):
+            raise TbankApiError(
+                "BAD_MAP_FRAME",
+                f"map_frame_input.viewPort.{corner}: нужны допустимые latitude/longitude.")
+        normalized[corner] = {
+            "latitude": float(latitude), "longitude": float(longitude),
+        }
+    return {"viewPort": normalized}
+
+
 def _hotel_address(hotel: dict) -> str:
     """Address across the search-card and hotel-detail response shapes."""
     loc = hotel.get("hotelLocation") or hotel.get("location") or {}
@@ -5099,6 +5221,143 @@ def _hotel_coordinates(hotel: dict) -> tuple[float | None, float | None]:
         except (TypeError, ValueError):
             continue
     return None, None
+
+
+_HOTEL_ARRAY_FILTERS = {
+    "accommodation_types", "chains", "meal_types", "payment_places", "stars",
+    "hotel_entertainments", "hotel_facilities", "room_facilities", "bed_types",
+}
+_HOTEL_BOOLEAN_FILTERS = {
+    "free_cancellation_allowed", "payment_card_not_required", "photos_available",
+}
+
+
+def _hotel_id(value: str) -> str:
+    hotel_id = str(value or "").strip()
+    if not hotel_id.isdigit() or int(hotel_id) <= 0:
+        raise TbankApiError(
+            "BAD_HOTEL_ID", "hotel_id должен быть положительным числовым id отеля.")
+    return hotel_id
+
+
+def _hotel_rate_filters(filters: list[dict] | None) -> list[dict]:
+    """Validate and copy the getRates_v3 discriminated filter union."""
+    if filters is None:
+        return []
+    if not isinstance(filters, list) or len(filters) > 30:
+        raise TbankApiError(
+            "BAD_FILTERS", "filters должен быть массивом максимум из 30 фильтров.")
+    normalized = []
+    for index, item in enumerate(filters):
+        if not isinstance(item, dict):
+            raise TbankApiError(
+                "BAD_FILTER", f"filters[{index}] должен быть JSON-объектом.")
+        kind = str(item.get("$objectType") or item.get("objectType") or "").strip()
+        filter_id = str(item.get("filterId") or "").strip()
+        prefix = f"filters[{index}]"
+        if kind == "array":
+            values = item.get("values")
+            if filter_id not in _HOTEL_ARRAY_FILTERS:
+                raise TbankApiError(
+                    "BAD_FILTER", f"{prefix}: filterId={filter_id!r} не поддерживает array.")
+            if (not isinstance(values, list) or not values or
+                    any(not isinstance(value, str) or not value.strip()
+                        for value in values)):
+                raise TbankApiError(
+                    "BAD_FILTER", f"{prefix}.values должен быть непустым массивом строк.")
+            normalized.append({
+                "$objectType": "array", "filterId": filter_id,
+                "values": [value.strip() for value in values],
+            })
+        elif kind == "range":
+            if filter_id != "price":
+                raise TbankApiError(
+                    "BAD_FILTER", f"{prefix}: range поддерживается только для price.")
+            minimum, maximum = item.get("min"), item.get("max")
+            if (isinstance(minimum, bool) or isinstance(maximum, bool) or
+                    not isinstance(minimum, (int, float)) or
+                    not isinstance(maximum, (int, float)) or minimum > maximum):
+                raise TbankApiError(
+                    "BAD_FILTER", f"{prefix}: нужны числовые min <= max.")
+            normalized.append({
+                "$objectType": "range", "filterId": "price",
+                "min": minimum, "max": maximum,
+            })
+        elif kind == "boolean":
+            value = item.get("value")
+            if filter_id not in _HOTEL_BOOLEAN_FILTERS or not isinstance(value, bool):
+                raise TbankApiError(
+                    "BAD_FILTER", f"{prefix}: нужен boolean value и допустимый filterId.")
+            normalized.append({
+                "$objectType": "boolean", "filterId": filter_id, "value": value,
+            })
+        elif kind == "radio":
+            value = item.get("value")
+            if (filter_id != "review_rating" or not isinstance(value, str)
+                    or not value.strip()):
+                raise TbankApiError(
+                    "BAD_FILTER", f"{prefix}: radio поддерживается только для review_rating.")
+            normalized.append({
+                "$objectType": "radio", "filterId": "review_rating",
+                "value": value.strip(),
+            })
+        else:
+            raise TbankApiError(
+                "BAD_FILTER",
+                f"{prefix}.$objectType должен быть array, range, boolean или radio.")
+    return normalized
+
+
+def _hotel_review_item(item: dict, fallback_hotel_id: str) -> dict:
+    review = item.get("review") or {}
+    if not isinstance(review, dict):
+        review = {}
+    booking = review.get("bookingInfo") or {}
+    if not isinstance(booking, dict):
+        booking = {}
+    photos = []
+    for photo in review.get("photos") or []:
+        if isinstance(photo, str):
+            url, categories = photo, []
+        elif isinstance(photo, dict):
+            url = photo.get("url") or photo.get("URL")
+            categories = photo.get("categories") or []
+        else:
+            continue
+        if not isinstance(categories, list):
+            categories = []
+        safe_url = _https_image_url(url, size="1024x768")
+        if safe_url:
+            photos.append({
+                "url": safe_url,
+                "categories": [str(value) for value in categories
+                               if isinstance(value, (str, int, float))],
+            })
+    like_count = item.get("likeCount")
+    if like_count is None:
+        like_count = item.get("likesCount", 0)
+    return {
+        "hotelId": str(item.get("hotelId") or item.get("masterHotelId")
+                       or fallback_hotel_id),
+        "feedbackId": str(item.get("feedbackId") or ""),
+        "sourceType": str(item.get("sourceType") or ""),
+        "author": _flat(review.get("author") or ""),
+        "rating": review.get("rating"),
+        "bookingInfo": {
+            "roomName": _flat(booking.get("roomName") or ""),
+            "travelerType": str(booking.get("travelerType") or ""),
+            "nights": str(booking.get("nights") or ""),
+            "createdDate": str(booking.get("createdDate") or ""),
+        },
+        # Both spellings exist: the attached contract says reviewPlus/reviewMinus,
+        # while the live v2 response uses reviewTextPlus/reviewTextMinus.
+        "reviewPlus": _flat(review.get("reviewPlus") or review.get("reviewTextPlus") or ""),
+        "reviewMinus": _flat(review.get("reviewMinus") or review.get("reviewTextMinus") or ""),
+        "photos": photos,
+        "likeCount": int(like_count or 0),
+        "isLiked": item.get("isLiked") is True,
+        "replyInfo": item.get("replyInfo"),
+    }
 
 
 @_threaded_tool
@@ -5170,7 +5429,9 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
     destination_id бери из hotel_autocomplete(); даты — YYYY-MM-DD; adults —
     1..6; children_ages — возраста через запятую (например ``5,12``) или JSON
     ``[5,12]``. Запрос read-only и уходит без банковских credentials. MCP не
-    бронирует и не оплачивает отель — здесь только поиск и сравнение.
+    бронирует и не оплачивает отель — здесь только поиск и сравнение. Перед
+    окончательным сравнением изменчивых условий шорт-листа вызови
+    hotel_latest_offers(); для availability-aware фильтров — hotel_search_filters().
     """
     try:
         fmt = _response_format(response_format)
@@ -5255,6 +5516,213 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
 
 
 @_threaded_tool
+def hotel_search_filters(
+        location_id: int, checkin_date: str, checkout_date: str,
+        adults: int = 1, children_ages: list[int] | None = None,
+        filters: list[dict] | None = None,
+        map_frame_input: dict | None = None,
+        favorite_hotel_ids: list[int] | None = None,
+        language: Literal["RU", "EN", "ZH", "KY", "TG", "TT", "UZ"] = "RU",
+        response_format: str = "text") -> str:
+    """Доступные фильтры и число отелей для конкретного поиска (searchFilters_v3).
+
+    ВЫЗЫВАЙ после hotel_autocomplete(), когда известны location_id, даты и гости,
+    если пользователь просит отфильтровать/сузить отели, узнать доступные значения
+    фильтров или количество результатов. Этот метод учитывает наличие предложений;
+    hotel_filters() возвращает лишь общий каталог и НЕ заменяет этот вызов.
+
+    filters — объекты ``{"filterId":"stars","value":["4","5"]}``; также
+    принимается документированный алиас ``values``. Диапазон передаётся как
+    ``["min=120","max=600"]``, boolean — ``["true"]``. map_frame_input нужен
+    только для поиска в видимой области карты. language управляет языком контента.
+    Метод не возвращает карточки отелей: после выбора фильтров вызови hotel_search().
+    Только чтение; бронь и оплата не создаются.
+    """
+    try:
+        fmt = _response_format(response_format)
+        if isinstance(location_id, bool) or not isinstance(location_id, int) or location_id <= 0:
+            raise TbankApiError("BAD_LOCATION", "location_id должен быть положительным целым id.")
+        nights = _hotel_search_window(checkin_date, checkout_date)
+        ages = _hotel_search_guests(adults, children_ages)
+        selected_filters = _hotel_search_filters_input(filters)
+        map_frame = _hotel_map_frame(map_frame_input)
+        favorite_ids = _hotel_positive_ids(
+            favorite_hotel_ids, "favorite_hotel_ids", required=False)
+        data = _require().hotel_search_filters(
+            location_id, checkin_date, checkout_date, adults=adults,
+            children_ages=ages, filters=selected_filters,
+            map_frame_input=map_frame, favorite_hotel_ids=favorite_ids,
+            language=language)
+        available_filters = data.get("filters") or {}
+        configuration = data.get("configurationParams") or {}
+        count = data.get("filteredHotelsCount")
+        loading_completed = data.get("isLoadingCompleted") is True
+        warnings = ([] if loading_completed else
+                    ["Поставщики ещё загружают предложения; фильтры и число отелей могут измениться."])
+        if fmt == "json":
+            return _json_envelope({
+                "locationId": location_id,
+                "checkinDate": checkin_date,
+                "checkoutDate": checkout_date,
+                "nights": nights,
+                "guests": {"adultsCount": adults, "childrenAge": ages},
+                "selectedFilters": selected_filters,
+                "filters": available_filters,
+                "configurationParams": configuration,
+                "filteredHotelsCount": count,
+                "isLoadingCompleted": loading_completed,
+            }, source="T-Bank Hotels", warnings=warnings,
+               meta={"complete": loading_completed})
+
+        rows = (list(available_filters.values())
+                if isinstance(available_filters, dict)
+                else available_filters if isinstance(available_filters, list) else [])
+        lines = [
+            f"Фильтры отелей {checkin_date}—{checkout_date} ({nights} ноч.): "
+            f"{count if count is not None else '?'} результатов.",
+        ]
+        for item in rows:
+            if not isinstance(item, dict):
+                continue
+            filter_id = str(item.get("filterId") or "?")
+            kind = str(item.get("filterType") or "?")
+            state = "доступен" if item.get("isAvailable") is not False else "недоступен"
+            if item.get("isSelected") is True:
+                state += ", выбран"
+            details = ""
+            array_value = item.get("arrayValue") or {}
+            range_value = item.get("rangeValue") or {}
+            boolean_value = item.get("booleanValue") or {}
+            if isinstance(array_value, dict) and array_value.get("value") is not None:
+                details = f" | value={array_value.get('value')}"
+            elif isinstance(range_value, dict) and range_value:
+                details = (f" | {range_value.get('min', '?')}—{range_value.get('max', '?')} "
+                           f"{range_value.get('unit', '')}".rstrip())
+            elif isinstance(boolean_value, dict) and boolean_value.get("value") is not None:
+                details = f" | value={boolean_value.get('value')}"
+            lines.append(f"- {filter_id} ({kind}): {state}{details}")
+        lines.extend(f"⚠️ {warning}" for warning in warnings)
+        lines.append("Для программного выбора значений запроси response_format=json.")
+        return "\n".join(lines)
+    except Exception as e:
+        return _formatted_error(e, response_format, source="T-Bank Hotels")
+
+
+@_threaded_tool
+def hotel_latest_offers(
+        hotel_ids: list[int], checkin_date: str, checkout_date: str,
+        location_id: int | None = None, adults: int = 1,
+        children_ages: list[int] | None = None,
+        filters: list[dict] | None = None,
+        response_format: str = "text") -> str:
+    """Перепроверить актуальные цены и условия выбранных отелей одним запросом.
+
+    ВЫЗЫВАЙ после hotel_search() для шорт-листа из 1–1000 hotel_id и прямо перед
+    ответом, где агент сравнивает или обещает текущую цену, наличие, питание,
+    способ оплаты либо бесплатную отмену. Это getLatestHotelOffer: он обновляет
+    изменчивые условия нескольких отелей; hotel_details() содержит статическую
+    карточку, а hotel_rates() нужен для подробных комнат/тарифов одного отеля.
+
+    filters имеют вид ``{"filterId":"stars","value":["5"]}``; range —
+    ``["min=120","max=600"]``, boolean — ``["true"]``. Если
+    ``price.isFinalPrice=false``, не делай выводов об отмене, оплате, питании или
+    количестве комнат: по контракту эти поля тогда отсутствуют. Только чтение;
+    вызов ничего не бронирует и не оплачивает.
+    """
+    try:
+        fmt = _response_format(response_format)
+        ids = _hotel_positive_ids(hotel_ids, "hotel_ids", required=True, max_count=1000)
+        if location_id is not None and (
+                isinstance(location_id, bool) or not isinstance(location_id, int)
+                or location_id <= 0):
+            raise TbankApiError(
+                "BAD_LOCATION", "location_id должен быть положительным целым id.")
+        nights = _hotel_search_window(checkin_date, checkout_date)
+        ages = _hotel_search_guests(adults, children_ages)
+        selected_filters = _hotel_search_filters_input(filters)
+        data = _require().hotel_latest_offers(
+            ids, checkin_date, checkout_date, location_id=location_id,
+            adults=adults, children_ages=ages, filters=selected_filters)
+        hotels = [row for row in (data.get("hotels") or []) if isinstance(row, dict)]
+        returned_ids = {
+            str(row.get("hotelId")) for row in hotels if row.get("hotelId") is not None
+        }
+        missing = [hotel_id for hotel_id in ids if str(hotel_id) not in returned_ids]
+        warnings = ([] if not missing else [
+            "API не вернул актуальное предложение для hotel_id: "
+            + ", ".join(str(value) for value in missing),
+        ])
+        non_final = []
+        for row in hotels:
+            offer = row.get("offerDetails") or {}
+            price = offer.get("price") or {}
+            is_final = price.get("isFinalPrice")
+            if is_final is None:
+                is_final = offer.get("isFinalPrice")
+            if is_final is False:
+                non_final.append(str(row.get("hotelId") or "?"))
+        if non_final:
+            warnings.append(
+                "Цена не финальная; условия нельзя считать подтверждёнными для hotel_id: "
+                + ", ".join(non_final))
+        if fmt == "json":
+            return _json_envelope({
+                "requestedHotelIds": ids,
+                "locationId": location_id,
+                "checkinDate": checkin_date,
+                "checkoutDate": checkout_date,
+                "nights": nights,
+                "guests": {"adultsCount": adults, "childrenAge": ages},
+                "selectedFilters": selected_filters,
+                "hotels": hotels,
+            }, source="T-Bank Hotels", warnings=warnings,
+               meta={"complete": not missing, "requested": len(ids),
+                     "returned": len(hotels)})
+
+        if not hotels:
+            return ("Актуальных предложений для запрошенных hotel_id не найдено.\n"
+                    + "\n".join(f"⚠️ {warning}" for warning in warnings))
+        lines = [
+            f"Актуальные предложения {checkin_date}—{checkout_date} ({nights} ноч.):",
+        ]
+        for row in hotels:
+            hotel_id = str(row.get("hotelId") or "?")
+            offer = row.get("offerDetails") or {}
+            price = offer.get("price") or {}
+            amount = _hotel_amount(price)
+            currency = str(price.get("currency") or "RUB") if isinstance(price, dict) else "RUB"
+            is_final = price.get("isFinalPrice") if isinstance(price, dict) else None
+            if is_final is None:
+                is_final = offer.get("isFinalPrice")
+            bits = [f"- hotel_id={hotel_id}"]
+            bits.append(f"{amount:.0f} {currency}" if amount else "цена не указана")
+            bits.append("финальная цена" if is_final is True else "цена НЕ финальная")
+            if is_final is not False:
+                rooms = offer.get("availableRoomsCount")
+                if rooms is not None:
+                    bits.append(f"номеров {rooms}")
+                free_until = offer.get("freeCancellationUntil")
+                if free_until:
+                    bits.append(f"бесплатная отмена до {str(free_until)[:10]}")
+                payment = offer.get("paymentPlace")
+                if payment:
+                    bits.append(f"оплата={payment}")
+                meal = offer.get("mealType") or {}
+                meal_name = (meal.get("name") or meal.get("code")
+                             if isinstance(meal, dict) else meal)
+                if meal_name:
+                    bits.append(_flat(meal_name))
+                if offer.get("cardRequired") is not None:
+                    bits.append("нужна карта" if offer.get("cardRequired") else "карта не нужна")
+            lines.append(" | ".join(bits))
+        lines.extend(f"⚠️ {warning}" for warning in warnings)
+        lines.append("Это проверка наличия; бронь и оплата через MCP не выполняются.")
+        return "\n".join(lines)
+    except Exception as e:
+        return _formatted_error(e, response_format, source="T-Bank Hotels")
+
+
+@_threaded_tool
 def hotel_details(hotel_id: str, max_facilities: int = 40,
                   response_format: str = "text") -> str:
     """Карточка отеля по hotel_id из hotel_search()/hotel_autocomplete().
@@ -5327,10 +5795,225 @@ def hotel_details(hotel_id: str, max_facilities: int = 40,
 
 
 @_threaded_tool
+def hotel_rates(hotel_id: str, checkin_date: str, checkout_date: str,
+                adults: int = 1, children_ages: list[int] | None = None,
+                filters: list[dict] | None = None, limit: int = 20,
+                response_format: str = "text") -> str:
+    """Доступные комнаты и тарифы конкретного отеля (Hotels API v3).
+
+    hotel_id бери из hotel_search()/hotel_autocomplete(); даты — YYYY-MM-DD:
+    заезд сегодня или в следующие 730 дней, проживание 1–30 ночей. Поддерживается
+    одна комната: adults=1..6 и до четырёх children_ages от 0 до 17.
+
+    filters — JSON-массив объектов из hotel_filters(). У каждого нужен
+    ``$objectType``: array (values), range (price: min/max), boolean (value) или
+    radio (review_rating: value), плюс ``filterId``. limit ограничивает отдельно
+    rates и otherRates (1..100). response_format=json сохраняет полные объекты
+    тарифов/комнат, включая цены, отмену, питание, удобства и bookHash.
+
+    Это read-only проверка наличия, хотя HTTP-метод POST: бронь не создаётся,
+    деньги не списываются, банковские access_token/sessionid/Cookie не отправляются.
+    """
+    try:
+        fmt = _response_format(response_format)
+        hotel_id = _hotel_id(hotel_id)
+        start = _hotel_date(checkin_date, "checkin_date")
+        end = _hotel_date(checkout_date, "checkout_date")
+        today = datetime.now().date()
+        if start < today or start > today + timedelta(days=730):
+            raise TbankApiError(
+                "BAD_CHECKIN_DATE",
+                "checkin_date должен быть от сегодняшней даты до сегодня + 730 дней.")
+        nights = (end - start).days
+        if not 1 <= nights <= 30:
+            raise TbankApiError(
+                "BAD_CHECKOUT_DATE", "checkout_date должен быть через 1–30 ночей после заезда.")
+        if not 1 <= int(adults) <= 6:
+            raise TbankApiError("BAD_GUESTS", "adults должен быть от 1 до 6.")
+        ages = list(children_ages or [])
+        if (len(ages) > 4 or any(isinstance(age, bool) or not isinstance(age, int)
+                                or not 0 <= age <= 17 for age in ages)):
+            raise TbankApiError(
+                "BAD_CHILDREN_AGES",
+                "children_ages: не больше четырёх целых возрастов от 0 до 17.")
+        if not 1 <= int(limit) <= 100:
+            raise TbankApiError("BAD_LIMIT", "limit должен быть от 1 до 100.")
+        selected_filters = _hotel_rate_filters(filters)
+        data = _require().hotel_rates(
+            hotel_id, checkin_date, checkout_date, adults=int(adults),
+            children_ages=ages, filters=selected_filters)
+        rates = [row for row in (data.get("rates") or []) if isinstance(row, dict)]
+        other_rates = [row for row in (data.get("otherRates") or [])
+                       if isinstance(row, dict)]
+        rooms = [row for row in (data.get("rooms") or []) if isinstance(row, dict)]
+        shown_rates = rates[:limit]
+        shown_other = other_rates[:limit]
+        warnings = []
+        if len(shown_rates) < len(rates):
+            warnings.append(f"Показано {len(shown_rates)} из {len(rates)} подходящих тарифов.")
+        if len(shown_other) < len(other_rates):
+            warnings.append(
+                f"Показано {len(shown_other)} из {len(other_rates)} тарифов вне фильтров.")
+        if fmt == "json":
+            return _json_envelope({
+                "hotelId": hotel_id,
+                "checkinDate": checkin_date,
+                "checkoutDate": checkout_date,
+                "nights": nights,
+                "searchId": str(data.get("searchId") or ""),
+                "isExtraServicesShown": data.get("isExtraServicesShown") is True,
+                "currentPrivilegeCode": data.get("currentPrivilegeCode"),
+                "plateSlugs": data.get("plateSlugs") or [],
+                "bannerSlugs": data.get("bannerSlugs") or [],
+                "availableFilters": data.get("availableFilters") or [],
+                "rates": shown_rates,
+                "otherRates": shown_other,
+                "rooms": rooms,
+            }, source="T-Bank Hotels", warnings=warnings,
+               meta={"complete": not warnings,
+                     "ratesTotal": len(rates),
+                     "otherRatesTotal": len(other_rates),
+                     "roomsTotal": len(rooms)})
+
+        if not rates and not other_rates:
+            return (f"Для hotel_id={hotel_id} на {checkin_date}—{checkout_date} "
+                    "доступных тарифов не найдено.")
+        room_names = {
+            str(room.get("roomId")): _flat(room.get("roomName") or "")
+            for room in rooms if room.get("roomId") is not None
+        }
+
+        def render_rate(rate, *, matched: bool):
+            shown = rate.get("shownPrice") or {}
+            price = _hotel_amount(shown)
+            currency = shown.get("currency") if isinstance(shown, dict) else ""
+            room_id = str(rate.get("roomId") or "")
+            room_name = room_names.get(room_id) or f"room_id={room_id or '?'}"
+            meal = _flat(rate.get("mealName") or rate.get("mealType") or "без питания")
+            payment = str(rate.get("paymentPlace") or "")
+            cancellation = rate.get("cancellationPolicyRules") or {}
+            free_until = (cancellation.get("freeCancellationUntil")
+                          if isinstance(cancellation, dict) else "")
+            bits = [f"- {'Подходит' if matched else 'Вне фильтров'}: {room_name}"]
+            bits.append(f"{price:.0f} {currency or '₽'}" if price else "цена не указана")
+            bits.append(meal)
+            if payment:
+                bits.append(f"оплата={payment}")
+            if free_until:
+                bits.append(f"бесплатная отмена до {str(free_until)[:16]}")
+            elif rate.get("isNonRefundable") is True:
+                bits.append("невозвратный")
+            available = rate.get("availableRoomsCount")
+            if available is not None:
+                bits.append(f"доступно номеров: {available}")
+            return " | ".join(bits)
+
+        lines = [
+            f"Тарифы hotel_id={hotel_id}, {checkin_date}—{checkout_date} ({nights} ноч.):",
+        ]
+        lines.extend(render_rate(rate, matched=True) for rate in shown_rates)
+        lines.extend(render_rate(rate, matched=False) for rate in shown_other)
+        if warnings:
+            lines.extend(f"⚠️ {warning}" for warning in warnings)
+        lines.append("Это проверка наличия; бронь и оплата через MCP не выполняются.")
+        return "\n".join(lines)
+    except Exception as e:
+        return _formatted_error(e, response_format, source="T-Bank Hotels")
+
+
+@_threaded_tool
+def hotel_reviews(hotel_id: str, source_code: str = "",
+                  sort: Literal["date", "rating"] = "date",
+                  sort_type: Literal["asc", "desc"] = "desc",
+                  cursor: str = "", page_size: int = 10,
+                  search_text: str = "", response_format: str = "text") -> str:
+    """Отзывы гостей об отеле с фильтрацией, сортировкой и cursor-пагинацией.
+
+    hotel_id бери из hotel_search()/hotel_autocomplete(). sort=date или rating;
+    sort_type=asc/desc. source_code ограничивает поставщика (например hotels,
+    ostrovok, sutochno_hotels, booking, trip_com). search_text ищет по тексту;
+    специальное значение ``onlyPhotos`` возвращает отзывы только с фото.
+
+    page_size — 1..50. Если в ответе есть cursor, передай его без изменений в
+    следующий вызов. Возвращаются автор, рейтинг, данные поездки, плюсы/минусы,
+    фото с категориями, лайки и официальный ответ. Публичный read-only запрос
+    не получает банковские access_token/sessionid/Cookie.
+    """
+    try:
+        fmt = _response_format(response_format)
+        hotel_id = _hotel_id(hotel_id)
+        if sort not in ("date", "rating"):
+            raise TbankApiError("BAD_SORT", "sort должен быть date или rating.")
+        if sort_type not in ("asc", "desc"):
+            raise TbankApiError("BAD_SORT_TYPE", "sort_type должен быть asc или desc.")
+        if not 1 <= int(page_size) <= 50:
+            raise TbankApiError("BAD_PAGE_SIZE", "page_size должен быть от 1 до 50.")
+        source_code = str(source_code or "").strip()
+        if source_code and not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", source_code):
+            raise TbankApiError(
+                "BAD_SOURCE_CODE", "source_code содержит недопустимые символы.")
+        cursor = str(cursor or "")
+        if len(cursor) > 4096:
+            raise TbankApiError("BAD_CURSOR", "cursor слишком длинный (максимум 4096).")
+        search_text = str(search_text or "").strip()
+        if len(search_text) > 300:
+            raise TbankApiError(
+                "BAD_SEARCH_TEXT", "search_text должен быть не длиннее 300 символов.")
+        data = _require().hotel_reviews(
+            hotel_id, source_code=source_code, sort=sort, sort_type=sort_type,
+            cursor=cursor, page_size=int(page_size), search_text=search_text)
+        reviews = [_hotel_review_item(item, hotel_id)
+                   for item in (data.get("reviews") or []) if isinstance(item, dict)]
+        next_cursor = str(data.get("cursor") or "")
+        if fmt == "json":
+            return _json_envelope({
+                "hotelId": hotel_id,
+                "sort": sort,
+                "sortType": sort_type,
+                "sourceCode": source_code,
+                "searchText": search_text,
+                "reviews": reviews,
+                "cursor": next_cursor,
+            }, source="T-Bank Hotels", meta={
+                "complete": not bool(next_cursor),
+                "pageSize": int(page_size),
+                "returned": len(reviews),
+                "hasNextPage": bool(next_cursor),
+            })
+        if not reviews:
+            return f"Отзывы для hotel_id={hotel_id} по заданным условиям не найдены."
+        lines = [f"Отзывы hotel_id={hotel_id} ({len(reviews)} на странице):"]
+        for review in reviews:
+            booking = review["bookingInfo"]
+            summary = review["reviewPlus"] or review["reviewMinus"]
+            bits = [
+                f"- {review['author'] or 'Гость'}",
+                f"оценка {review['rating']}" if review["rating"] is not None else "без оценки",
+            ]
+            if booking["createdDate"]:
+                bits.append(booking["createdDate"][:10])
+            if review["sourceType"]:
+                bits.append(review["sourceType"])
+            if summary:
+                bits.append(_cut(summary, 280))
+            if review["photos"]:
+                bits.append(f"фото: {len(review['photos'])}")
+            bits.append(f"feedback_id={review['feedbackId']}")
+            lines.append(" | ".join(bits))
+        if next_cursor:
+            lines.append("Есть следующая страница: передай cursor из JSON-ответа без изменений.")
+        return "\n".join(lines)
+    except Exception as e:
+        return _formatted_error(e, response_format, source="T-Bank Hotels")
+
+
+@_threaded_tool
 def hotel_filters(max_chars: int = 5000) -> str:
-    """Текущий каталог фильтров поиска отелей в исходной структуре API.
+    """Общий каталог фильтров отелей в исходной структуре API.
 
     Это публичный read-only запрос без банковского access_token/sessionid/Cookie.
+    Для доступных фильтров и числа результатов на конкретные даты/гостей вызывай
+    hotel_search_filters(), а этот метод используй для UI и фильтров hotel_rates().
     max_chars=0 возвращает весь ответ; при ограничении обрезка всегда помечается.
     """
     try:

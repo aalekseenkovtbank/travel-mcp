@@ -8,7 +8,7 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXPECTED_COUNT = 33
+EXPECTED_COUNT = 37
 
 
 def read_response(process, wanted_id, timeout=75):
@@ -66,7 +66,9 @@ def test_stdio_handshake_and_tools_list():
         listed = read_response(process, 2, timeout=timeout)["result"]["tools"]
         assert len(listed) == EXPECTED_COUNT
         assert {tool["name"] for tool in listed} >= {
-            "nearby_search", "weather", "hotel_search", "train_stations", "train_search",
+            "nearby_search", "weather", "hotel_search", "hotel_rates", "hotel_reviews",
+            "hotel_search_filters", "hotel_latest_offers",
+            "train_stations", "train_search",
             "compare_flight_prices", "compare_train_prices", "compare_hotel_prices",
             "compare_flight_hotel_prices"}
         assert not ({"login", "transfer", "train_calendar", "get_data"} &
@@ -74,6 +76,15 @@ def test_stdio_handshake_and_tools_list():
         for tool in listed:
             assert tool["annotations"]["readOnlyHint"] is True
             assert tool["annotations"]["destructiveHint"] is False
+        by_name = {tool["name"]: tool for tool in listed}
+        filters_tool = by_name["hotel_search_filters"]
+        latest_tool = by_name["hotel_latest_offers"]
+        assert "ВЫЗЫВАЙ" in filters_tool["description"]
+        assert "hotel_filters()" in filters_tool["description"]
+        assert "прямо перед" in latest_tool["description"]
+        assert "price.isFinalPrice=false" in latest_tool["description"]
+        assert set(latest_tool["inputSchema"]["required"]) >= {
+            "hotel_ids", "checkin_date", "checkout_date"}
     finally:
         process.terminate()
         try:

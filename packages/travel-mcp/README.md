@@ -29,7 +29,11 @@ npx -y @travel-growth-inspiration/mcp serve
 ЖД-станций и поиск поездов T-Bank, а также OpenStreetMap и Open-Meteo; API-ключи
 не нужны.
 
-Сервер публикует 33 read-only инструмента. Четыре сценарных метода
+Сервер публикует 37 read-only инструментов. `hotel_search_filters` возвращает
+доступные фильтры конкретного поиска, `hotel_latest_offers` перепроверяет цены и
+условия шорт-листа, `hotel_rates` возвращает комнаты и живые тарифы выбранного
+отеля, а `hotel_reviews` — отзывы с сортировкой, фильтрацией и cursor-пагинацией.
+Четыре сценарных метода
 `compare_flight_prices`, `compare_train_prices`, `compare_hotel_prices` и
 `compare_flight_hotel_prices` параллельно проверяют несколько дат, сортируют
 варианты и возвращают готовые RUB/%-дельты в `structuredContent` с JSON fallback.

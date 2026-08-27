@@ -738,7 +738,48 @@ def test_hotel_search_and_details_render_the_public_shapes():
               "2026-08-20", "2026-08-19")
     check("checkout_date должен быть позже" in bad,
           f"reversed dates must be refused locally: {bad!r}")
-    print("  hotels: autocomplete ids, prices, incomplete flag and details render")
+
+    available = {
+        "filters": {
+            "stars_5": {"filterId": "stars", "filterType": "array",
+                        "isAvailable": True, "isSelected": True,
+                        "arrayValue": {"value": "5"}},
+            "price": {"filterId": "price", "filterType": "range",
+                      "isAvailable": True, "isSelected": False,
+                      "rangeValue": {"min": 5000, "max": 25000, "unit": "RUB"}},
+        },
+        "filteredHotelsCount": 37, "isLoadingCompleted": True,
+    }
+    out = run(server.hotel_search_filters, Stub(hotel_search_filters=available),
+              17039, "2026-09-18", "2026-09-21", adults=2,
+              children_ages=[5], filters=[{"filterId": "stars", "values": ["5"]}])
+    check("37 результатов" in out and "stars (array)" in out,
+          f"availability-aware filters must render count and ids: {out!r}")
+
+    latest = {"hotels": [{
+        "hotelId": 1471735,
+        "offerDetails": {
+            "availableRoomsCount": 2, "freeCancellationUntil": "2026-09-16",
+            "paymentPlace": "now", "cardRequired": True,
+            "mealType": {"name": "Завтрак"},
+            "price": {"amount": 14900, "currency": "RUB", "isFinalPrice": True},
+        },
+    }, {
+        "hotelId": 1471736,
+        "offerDetails": {
+            "availableRoomsCount": 99, "freeCancellationUntil": "2099-01-01",
+            "paymentPlace": "hotel", "mealType": {"name": "Не подтверждено"},
+            "price": {"amount": 9000, "currency": "RUB", "isFinalPrice": False},
+        },
+    }]}
+    out = run(server.hotel_latest_offers, Stub(hotel_latest_offers=latest),
+              [1471735, 1471736], "2026-09-18", "2026-09-21", location_id=17039)
+    check("14900 RUB" in out and "бесплатная отмена до 2026-09-16" in out,
+          f"final latest offer must render its current conditions: {out!r}")
+    check("цена НЕ финальная" in out and "2099-01-01" not in out
+          and "Не подтверждено" not in out,
+          f"non-final offer must suppress unconfirmed conditions: {out!r}")
+    print("  hotels: search, availability filters and latest-offer finality render")
 
 
 def test_shop_search_and_cart_parse_ids_and_kopecks():
