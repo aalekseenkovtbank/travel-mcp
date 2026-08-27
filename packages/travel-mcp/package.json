@@ -1,6 +1,6 @@
 {
   "name": "@travel-growth-inspiration/mcp",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "POSIX bootstrap for the read-only T-Bank Travel MCP",
   "license": "MIT",
   "bin": {

@@ -23,6 +23,7 @@ import {
   type PlannerSession,
 } from "./planner-session";
 import { TripMap } from "./TripMap";
+import { WeekendMoscow } from "./WeekendMoscow";
 
 const interestOptions = ["гастрономия", "концерты", "театр", "музеи", "природа", "архитектура"];
 
@@ -1128,6 +1129,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<PlannerPage />} />
         <Route path="/trips/:tripId" element={<TripPage />} />
+        <Route path="/weekend-moscow" element={<WeekendMoscow />} />
       </Routes>
     </BrowserRouter>
   );

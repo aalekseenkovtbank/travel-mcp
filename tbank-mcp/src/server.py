@@ -20,6 +20,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
+from urllib.parse import urlencode
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ClientCapabilities, ElicitationCapability, ToolAnnotations
@@ -65,7 +66,7 @@ TRAVEL_TOOL_NAMES = frozenset({
     # Live travel inventory.
     "flight_search", "hotel_autocomplete", "hotel_search", "hotel_details",
     "hotel_rates", "hotel_reviews", "hotel_filters", "hotel_search_filters",
-    "hotel_latest_offers",
+    "hotel_latest_offers", "hotel_checkout_url",
     "compare_flight_prices", "compare_hotel_prices",
     "compare_flight_hotel_prices",
     # Rail search (public, no booking/payment).
@@ -79,6 +80,45 @@ TRAVEL_TOOL_NAMES = frozenset({
 })
 
 mcp = FastMCP("tbank-travel" if ACTIVE_TOOLSET == TOOLSET_TRAVEL else "tbank")
+
+
+@mcp.prompt(
+    name="personalized_weekend_landing",
+    title="Персональные выходные: афиша, отель и лендинг",
+    description=(
+        "Готовый безопасный сценарий: проанализировать траты и заказы Афиши, "
+        "подобрать события на выходные, проверить отель и подготовить лендинг "
+        "с постерами и ссылкой на оформление выбранного тарифа."
+    ),
+)
+def personalized_weekend_landing(
+    city: str,
+    date_from: str,
+    date_to: str,
+    hotel_query: str = "",
+    adults: int = 2,
+    spending_lookback_days: int = 60,
+) -> str:
+    """Build the agent prompt for a personalized event-and-hotel landing page."""
+    hotel_part = (
+        f"Пользователь назвал отель: {hotel_query}."
+        if hotel_query.strip()
+        else "Отель не задан: не подбирай его без отдельной просьбы пользователя."
+    )
+    return f"""Подготовь персональный лендинг для поездки в {city} с {date_from} по {date_to}.
+Гостей: {adults}. Период анализа трат: последние {spending_lookback_days} дней.
+{hotel_part}
+
+Работай по этому сценарию:
+1. Получи list_accounts(). Анализируй карточные счета в нужной валюте; переводы между своими счетами не считай расходами. Для релевантных счетов вызови spending_categories(days={spending_lookback_days}) и list_operations(days={spending_lookback_days}, limit=0, desc_len=0).
+2. Вызови orders(kind="афиша", limit=0). Выведи интересы только из наблюдаемых категорий трат и завершённых заказов. Отменённые заказы не считай положительным сигналом. Не раскрывай в лендинге имена, номера счетов, балансы, зарплату или отдельные операции.
+3. Для {date_from}–{date_to} вызови afisha_catalog отдельно для кино, концертов и театра в городе {city}. Если выдача неполная, явно пометь ограничение или дочитай страницы. Ранжируй события по объяснимому совпадению с историей пользователя, а не по выдуманному профилю.
+4. Для шорт-листа перепроверь расписание и цены: cinema_schedule для кино, concert_schedule для концертов и театра. Используй imageUrl из Афиши как постер. Не бронируй места и не вызывай ticket_pay.
+5. Если задан отель, найди точное совпадение через hotel_autocomplete, затем проверь hotel_details и hotel_rates на те же даты и {adults} гостей. Покажи доступные тарифы. hotel_checkout_url разрешён только после явного выбора пользователем конкретного тарифа; bookHash копируй без изменений. Ссылка не создаёт бронь и не списывает деньги.
+6. Собери адаптивный одностраничный лендинг. Обязательные блоки: заголовок поездки; краткое и приватное объяснение персонализации; 3–6 карточек событий с постером, описанием, датой, площадкой, ценой и причиной совпадения; карточка выбранного отеля с фото, номером, тарифом и checkout-ссылкой, если пользователь уже подтвердил тариф; время проверки данных и источник T-Bank.
+7. Не публикуй персональные финансовые суммы и сырые банковские данные. Не заявляй, что билет или отель забронирован. Перед оплатой или бронированием всегда остановись и запроси требуемое подтверждение.
+
+Если клиент умеет создавать файлы, реализуй лендинг в его текущем веб-проекте и проверь сборку/тесты. Иначе верни структурированную спецификацию лендинга с готовыми текстами, изображениями и ссылками."""
 
 # Every @mcp.tool() below is recorded. Done by replacing the decorator ONCE rather
 # than touching 57 functions: a per-tool opt-in is a list somebody has to remember to
@@ -189,6 +229,7 @@ TOOL_KINDS: dict[str, tuple[str, str]] = {
     "hotel_search": ("Поиск доступных отелей", READ),
     "hotel_details": ("Карточка отеля", READ),
     "hotel_rates": ("Номера и тарифы отеля", READ),
+    "hotel_checkout_url": ("Ссылка на оформление выбранного тарифа отеля", READ),
     "hotel_reviews": ("Отзывы об отеле", READ),
     "hotel_filters": ("Фильтры поиска отелей", READ),
     "hotel_search_filters": ("Доступные фильтры для поиска отелей", READ),
@@ -5919,6 +5960,59 @@ def hotel_rates(hotel_id: str, checkin_date: str, checkout_date: str,
         return "\n".join(lines)
     except Exception as e:
         return _formatted_error(e, response_format, source="T-Bank Hotels")
+
+
+@mcp.tool()
+def hotel_checkout_url(hotel_id: str, checkin_date: str, checkout_date: str,
+                       book_hash: str, guests: int = 1,
+                       rate_confirmed: bool = False) -> str:
+    """Создаёт ссылку T-Bank на оформление ВЫБРАННОГО тарифа отеля.
+
+    Сначала вызови hotel_rates() и покажи пользователю тарифы. НЕ ВЫЗЫВАЙ эту
+    команду, пока пользователь явно не выбрал конкретный тариф. После выбора
+    передай его bookHash без изменений в book_hash и поставь
+    rate_confirmed=true. hotel_id, даты и число гостей должны совпадать с
+    запросом hotel_rates().
+
+    Команда только локально формирует URL: не открывает страницу, не создаёт
+    бронь и не списывает деньги. Наличие и цена могли измениться после поиска;
+    итоговые условия пользователь проверяет на странице оформления.
+    """
+    try:
+        hotel_id = _hotel_id(hotel_id)
+        start = _hotel_date(checkin_date, "checkin_date")
+        end = _hotel_date(checkout_date, "checkout_date")
+        nights = (end - start).days
+        if not 1 <= nights <= 30:
+            raise TbankApiError(
+                "BAD_CHECKOUT_DATE",
+                "checkout_date должен быть через 1–30 ночей после заезда.")
+        if isinstance(guests, bool) or not isinstance(guests, int) or not 1 <= guests <= 10:
+            raise TbankApiError("BAD_GUESTS", "guests должен быть целым числом от 1 до 10.")
+        book_hash = str(book_hash or "").strip()
+        if not book_hash or len(book_hash) > 512 or any(ord(ch) < 32 for ch in book_hash):
+            raise TbankApiError(
+                "BAD_BOOK_HASH", "book_hash должен быть непустым bookHash из hotel_rates().")
+        if rate_confirmed is not True:
+            raise TbankApiError(
+                "RATE_NOT_CONFIRMED",
+                "Сначала покажи пользователю варианты из hotel_rates() и уточни, "
+                "какой тариф он выбирает. После явного выбора повтори вызов с "
+                "book_hash выбранного тарифа и rate_confirmed=true.")
+        query = urlencode({
+            "guests": guests,
+            "locationCode": "hotel",
+            "dateFrom": checkin_date,
+            "dateTo": checkout_date,
+            "destinationId": hotel_id,
+            "hotelId": hotel_id,
+            "bookHash": book_hash,
+        })
+        return (f"https://www.tbank.ru/travel/hotels/new/checkout/?{query}\n"
+                "Ссылка ведёт на оформление выбранного тарифа; бронь ещё не создана. "
+                "Проверь итоговую цену и условия на странице T-Bank.")
+    except Exception as e:
+        return _err(e)
 
 
 @_threaded_tool

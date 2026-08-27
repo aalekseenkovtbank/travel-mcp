@@ -43,6 +43,7 @@ description: |
 | `compare_flight_hotel_prices(from_code, to_code, hotel_destination_id, windows, ...)` | Сложить два перелёта и отель для нескольких окон | нет |
 | `hotel_details(hotel_id, max_facilities)` | Адрес, описание, заезд/выезд, удобства | нет |
 | `hotel_rates(hotel_id, checkin_date, checkout_date, adults, children_ages, filters, limit)` | Комнаты и живые тарифы выбранного отеля | нет |
+| `hotel_checkout_url(hotel_id, checkin_date, checkout_date, book_hash, guests, rate_confirmed)` | Ссылка на оформление явно выбранного тарифа | нет |
 | `hotel_reviews(hotel_id, source_code, sort, sort_type, cursor, page_size, search_text)` | Отзывы, фото, лайки и cursor-пагинация | нет |
 | `hotel_filters(max_chars)` | Текущая структура фильтров поиска | нет |
 | `nearby_search(city, anchor_name, address, latitude, longitude, include_poi, place_kinds, limit)` | Рестораны и POI OpenStreetMap в радиусе 1,8 км | нет |
@@ -98,8 +99,11 @@ description: |
 6. Если пользователь спрашивает об опыте гостей, вызови `hotel_reviews(hotel_id)`.
    Следующую страницу получай только с cursor из предыдущего ответа. Для отзывов
    с фото передай `search_text="onlyPhotos"`.
-7. Скажи пользователю: «Забронировать или оплатить отель через MCP нельзя —
-   здесь только поиск, тарифы и отзывы. Оформление — в приложении.»
+7. Если пользователь хочет перейти к оформлению, сначала покажи тарифы и уточни,
+   какой именно он выбирает. Только после явного выбора вызови
+   `hotel_checkout_url(...)` с `book_hash` выбранного тарифа из `hotel_rates()` и
+   `rate_confirmed=true`. Ссылка ничего не бронирует и не оплачивает; итоговые
+   цену и условия пользователь проверяет на странице T-Bank.
 
 Hotel-вызовы идут в публичный `hotels.tbank.ru` без банковского access token,
 sessionid и Cookie.

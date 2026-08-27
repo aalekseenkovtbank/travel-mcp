@@ -40,6 +40,18 @@ afterEach(() => {
 });
 
 describe("Travel Nova UI", () => {
+  it("renders the personalized Moscow weekend landing with real event posters", () => {
+    window.history.pushState({}, "", "/weekend-moscow");
+    render(<App />);
+
+    expect(screen.getByRole("heading", { name: /Ваши выходные в Москве/u })).toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { name: "Собачье сердце" })).toHaveLength(2);
+    expect(screen.getAllByRole("img")).toHaveLength(6);
+    expect(screen.getByText("98% совпадение")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Continental" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Перейти к оформлению/u })).toHaveAttribute("href", expect.stringContaining("bookHash="));
+  });
+
   it("migrates a saved v1 planner session without losing form data", () => {
     window.sessionStorage.setItem(PLANNER_SESSION_KEY, JSON.stringify({
       version: 1,

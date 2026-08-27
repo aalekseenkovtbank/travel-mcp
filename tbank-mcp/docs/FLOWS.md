@@ -7,7 +7,7 @@ don't call `refresh_session` manually unless a tool returns SESSION EXPIRED.
 Served section-by-section by the `flows(topic)` tool — call it with no argument
 for the list of topics. Reading the whole file is rarely what you want.
 
-> **Tool names:** the **92 MCP tools** and their docstrings are the authoritative
+> **Tool names:** the **95 MCP tools** and their docstrings are the authoritative
 > interface. Some sections below describe INTERNAL api steps — e.g. the web
 > checkout + HMAC signing run INSIDE `grocery_checkout` / `transfer`. Call the MCP
 > tools, not the internal methods named in the prose (`pay`, `payment_gate_pay`,
@@ -540,17 +540,21 @@ host and is not part of the travel allowlist; do not use it as a resolver.
    filters)` → комнаты и все актуальные тарифы выбранного отеля: полная цена,
    питание, способ оплаты, правила отмены и доступность. `filters` — массив из
    `hotel_filters()`; без него возвращаются все тарифы.
-7. `hotel_reviews(hotel_id, source_code, sort, sort_type, cursor, page_size,
+7. Покажи тарифы пользователю и уточни конкретный выбор. Только после явного
+   выбора вызови `hotel_checkout_url(..., book_hash, rate_confirmed=true)`, передав
+   `bookHash` выбранного тарифа из `hotel_rates()` без изменений. Тул локально
+   создаёт ссылку на страницу оформления, но не открывает её и не создаёт бронь.
+8. `hotel_reviews(hotel_id, source_code, sort, sort_type, cursor, page_size,
    search_text)` → страница отзывов. Для следующей страницы передай вернувшийся
    `cursor` без изменений; `search_text="onlyPhotos"` оставляет отзывы с фото.
-8. `hotel_filters()` → общий каталог фильтров для UI/rates; он не учитывает
+9. `hotel_filters()` → общий каталог фильтров для UI/rates; он не учитывает
    конкретные даты, гостей и доступность предложений.
 
 Все hotel-запросы идут через публичный production proxy
 `www.tbank.ru/api/hotels/` без `Authorization`, `Cookie`, `sessionid` и других
 банковских credentials. Транспортный тест закрепляет это как инвариант. MCP не
-создаёт гостиничную бронь и не вызывает оплату: поиск и карточки — только чтение,
-оформление остаётся в приложении.
+создаёт гостиничную бронь и не вызывает оплату: он может только построить ссылку,
+а оформление остаётся на странице T-Bank.
 
 ## Notes
 

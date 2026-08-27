@@ -5,6 +5,9 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
+from src import server
 
 EXPECTED = {
     "session_status", "list_accounts", "list_operations",
@@ -12,7 +15,7 @@ EXPECTED = {
     "orders", "order_details", "travel_order_details", "flight_history",
     "flight_search", "hotel_autocomplete", "hotel_search", "hotel_details",
     "hotel_rates", "hotel_reviews", "hotel_filters", "hotel_search_filters",
-    "hotel_latest_offers",
+    "hotel_latest_offers", "hotel_checkout_url",
     "compare_flight_prices", "compare_hotel_prices",
     "compare_flight_hotel_prices", "train_stations", "train_search",
     "compare_train_prices", "search_app",
@@ -66,7 +69,23 @@ def test_full_entrypoint_is_unchanged_and_still_strictly_larger():
     assert len(names) > len(EXPECTED)
 
 
+def test_hotel_checkout_url_requires_a_confirmed_rate_and_encodes_book_hash():
+    refused = server.hotel_checkout_url(
+        "1422275", "2026-08-30", "2026-08-31",
+        "now-multi-1cf267c7-8012-4b5b-97b6-267d6ba4a33c", guests=2)
+    assert "RATE_NOT_CONFIRMED" in refused
+
+    url = server.hotel_checkout_url(
+        "1422275", "2026-08-30", "2026-08-31",
+        "rate with/+symbols", guests=2, rate_confirmed=True).splitlines()[0]
+    assert url == (
+        "https://www.tbank.ru/travel/hotels/new/checkout/"
+        "?guests=2&locationCode=hotel&dateFrom=2026-08-30&dateTo=2026-08-31"
+        "&destinationId=1422275&hotelId=1422275&bookHash=rate+with%2F%2Bsymbols")
+
+
 if __name__ == "__main__":
     test_exact_travel_allowlist_and_annotations()
     test_full_entrypoint_is_unchanged_and_still_strictly_larger()
+    test_hotel_checkout_url_requires_a_confirmed_rate_and_encodes_book_hash()
     print(f"travel toolset: exact {len(EXPECTED)}-tool read-only registry; full registry preserved")

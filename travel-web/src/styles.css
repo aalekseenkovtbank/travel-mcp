@@ -304,3 +304,231 @@ footer { border-top: 1px solid var(--line); padding: 25px 0 40px; font-size: 11p
   .timeline-day-header { align-items: flex-start; flex-direction: column; gap: 8px; }
   .weather-summary { justify-content: flex-start; text-align: left; }
 }
+
+/* Personalized Moscow weekend landing */
+.weekend-page {
+  --weekend-ink: #151515;
+  --weekend-paper: #f2efe8;
+  --weekend-accent: #e13a25;
+  min-height: 100vh;
+  color: var(--weekend-ink);
+  background: var(--weekend-paper);
+  font-family: "DM Sans", sans-serif;
+}
+.weekend-nav,
+.weekend-hero,
+.weekend-toolbar,
+.weekend-grid,
+.weekend-choice,
+.weekend-footer {
+  width: min(1320px, calc(100% - 48px));
+  margin-inline: auto;
+}
+.weekend-nav {
+  min-height: 78px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(21, 21, 21, .22);
+}
+.weekend-brand { display: flex; align-items: center; gap: 11px; }
+.weekend-brand > span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--weekend-ink);
+  color: var(--weekend-paper);
+  font: 700 11px "Manrope", sans-serif;
+}
+.weekend-brand strong { font: 700 16px "Manrope", sans-serif; letter-spacing: -.5px; }
+.weekend-nav-meta { display: flex; gap: 25px; font-size: 12px; }
+.weekend-nav-meta span + span { color: #6e6b65; }
+.weekend-hero {
+  min-height: 570px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 70px;
+  align-items: end;
+  padding: 80px 0 64px;
+}
+.weekend-kicker {
+  margin: 0 0 24px;
+  color: var(--weekend-accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.8px;
+  text-transform: uppercase;
+}
+.weekend-hero h1 {
+  max-width: 970px;
+  font: 500 clamp(58px, 9vw, 126px)/.83 "Manrope", sans-serif;
+  letter-spacing: -.085em;
+}
+.weekend-hero h1 em {
+  color: var(--weekend-accent);
+  font-family: Georgia, serif;
+  font-weight: 400;
+}
+.weekend-lede { max-width: 650px; margin: 34px 0 0; color: #67635d; font-size: 18px; line-height: 1.55; }
+.weekend-profile { display: grid; grid-template-columns: 60px 1fr; align-items: baseline; padding-bottom: 8px; }
+.weekend-profile > span { grid-column: 1 / -1; margin-bottom: 24px; color: #77736d; font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px; }
+.weekend-profile strong { padding: 12px 0; border-top: 1px solid rgba(21,21,21,.18); font: 500 28px "Manrope", sans-serif; }
+.weekend-profile small { padding: 17px 0 12px; border-top: 1px solid rgba(21,21,21,.18); color: #67635d; }
+.weekend-hotel {
+  width: min(1320px, calc(100% - 48px));
+  margin: 0 auto 74px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(420px, .95fr);
+  min-height: 520px;
+  background: #171715;
+  color: #f4f0e8;
+}
+.weekend-hotel-photo-wrap { position: relative; min-height: 520px; overflow: hidden; }
+.weekend-hotel-photo { width: 100%; height: 100%; display: block; object-fit: cover; }
+.weekend-hotel-photo-wrap > span {
+  position: absolute;
+  top: 19px;
+  left: 19px;
+  padding: 8px 11px;
+  border-radius: 999px;
+  background: var(--weekend-paper);
+  color: var(--weekend-ink);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+}
+.weekend-hotel-copy { padding: clamp(32px, 5vw, 68px); display: flex; flex-direction: column; }
+.weekend-hotel-heading { display: flex; align-items: start; justify-content: space-between; gap: 24px; }
+.weekend-hotel-heading p { margin: 0 0 12px; color: #aaa69e; font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+.weekend-hotel-heading h2 { color: #f4f0e8; font-size: clamp(40px, 5vw, 72px); line-height: .92; }
+.weekend-hotel-heading > strong { color: #ff684f; font: 600 18px "Manrope", sans-serif; white-space: nowrap; }
+.weekend-hotel-description { max-width: 58ch; margin: 28px 0; color: #bdb8ae; font-size: 14px; line-height: 1.65; }
+.weekend-hotel-facts { margin-top: auto; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.weekend-hotel-facts > div { padding: 13px 12px 13px 0; border-top: 1px solid rgba(244,240,232,.18); }
+.weekend-hotel-facts span,
+.weekend-hotel-facts strong { display: block; }
+.weekend-hotel-facts span { margin-bottom: 5px; color: #88847d; font-size: 9px; text-transform: uppercase; letter-spacing: .8px; }
+.weekend-hotel-facts strong { font-size: 11px; line-height: 1.4; }
+.weekend-hotel-actions { margin-top: 24px; display: flex; align-items: center; gap: 18px; }
+.weekend-hotel-actions a {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 35px;
+  min-width: 245px;
+  padding: 15px 17px;
+  background: #ff5938;
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+}
+.weekend-hotel-actions a:hover { background: #e94b2d; }
+.weekend-hotel-actions small { max-width: 240px; color: #8e8a83; font-size: 9px; line-height: 1.45; }
+.weekend-toolbar {
+  padding: 22px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-top: 1px solid rgba(21,21,21,.22);
+}
+.weekend-toolbar p { margin: 0; color: #6d6963; font-size: 12px; }
+.weekend-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.weekend-filters button {
+  border: 1px solid rgba(21,21,21,.23);
+  border-radius: 999px;
+  padding: 8px 15px;
+  background: transparent;
+  color: #5c5852;
+  font-size: 12px;
+}
+.weekend-filters button.active { border-color: var(--weekend-ink); background: var(--weekend-ink); color: white; }
+.weekend-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); border-top: 1px solid rgba(21,21,21,.22); }
+.weekend-card {
+  grid-column: span 4;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  border-right: 1px solid rgba(21,21,21,.2);
+  border-bottom: 1px solid rgba(21,21,21,.2);
+}
+.weekend-card:nth-child(3n) { border-right: 0; }
+.weekend-card:nth-child(n + 4) { grid-column: span 6; }
+.weekend-card:nth-child(4) { border-left: 1px solid rgba(21,21,21,.2); }
+.weekend-poster-wrap { position: relative; aspect-ratio: 4 / 3; overflow: hidden; background: #d9d4ca; }
+.weekend-poster { width: 100%; height: 100%; display: block; object-fit: cover; filter: saturate(.85) contrast(1.04); transition: transform .45s ease; }
+.weekend-card:hover .weekend-poster { transform: scale(1.025); }
+.weekend-rank,
+.weekend-match { position: absolute; top: 15px; background: var(--weekend-paper); font-size: 10px; font-weight: 700; }
+.weekend-rank { left: 15px; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; }
+.weekend-match { right: 15px; padding: 9px 11px; border-radius: 99px; }
+.weekend-card-body { min-height: 430px; padding: 26px; display: flex; flex-direction: column; }
+.weekend-card-meta { display: flex; justify-content: space-between; color: var(--weekend-accent); font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+.weekend-card h2 { margin-top: 18px; font: 600 clamp(26px, 3vw, 42px)/1 "Manrope", sans-serif; letter-spacing: -.055em; }
+.weekend-card-body > p { max-width: 52ch; margin: 18px 0 24px; color: #69655f; font-size: 14px; line-height: 1.55; }
+.weekend-card dl { margin: auto 0 22px; }
+.weekend-card dl > div { display: grid; grid-template-columns: 70px 1fr; gap: 12px; padding: 9px 0; border-top: 1px solid rgba(21,21,21,.15); font-size: 12px; }
+.weekend-card dt { color: #858078; }
+.weekend-card dd { margin: 0; }
+.weekend-select {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--weekend-ink);
+  padding: 13px 15px;
+  background: transparent;
+  color: var(--weekend-ink);
+  font-weight: 700;
+}
+.weekend-card.selected .weekend-select { background: var(--weekend-accent); border-color: var(--weekend-accent); color: white; }
+.weekend-choice {
+  margin-top: 76px;
+  margin-bottom: 76px;
+  padding: 34px 0;
+  display: grid;
+  grid-template-columns: 150px minmax(260px, 1fr) minmax(260px, .8fr);
+  gap: 34px;
+  align-items: start;
+  border-top: 1px solid var(--weekend-ink);
+  border-bottom: 1px solid var(--weekend-ink);
+}
+.weekend-choice > p { margin: 5px 0 0; color: #747069; font-size: 12px; line-height: 1.55; }
+.weekend-choice h2 { font-size: clamp(28px, 4vw, 50px); }
+.weekend-choice div span { display: block; margin-top: 10px; color: var(--weekend-accent); font-size: 13px; }
+.weekend-footer { padding: 25px 0 40px; display: flex; justify-content: space-between; color: #77736d; font-size: 10px; text-transform: uppercase; letter-spacing: .7px; }
+@media (max-width: 900px) {
+  .weekend-hero { min-height: auto; grid-template-columns: 1fr; gap: 48px; }
+  .weekend-profile { max-width: 300px; }
+  .weekend-hotel { grid-template-columns: 1fr; }
+  .weekend-hotel-photo-wrap { min-height: 430px; }
+  .weekend-card, .weekend-card:nth-child(n + 4) { grid-column: span 6; }
+  .weekend-card:nth-child(3n) { border-right: 1px solid rgba(21,21,21,.2); }
+  .weekend-card:nth-child(2n) { border-right: 0; }
+  .weekend-card:nth-child(4) { border-left: 0; }
+  .weekend-choice { grid-template-columns: 1fr 2fr; }
+  .weekend-choice > p:last-child { grid-column: 2; }
+}
+@media (max-width: 620px) {
+  .weekend-nav, .weekend-hero, .weekend-hotel, .weekend-toolbar, .weekend-grid, .weekend-choice, .weekend-footer { width: min(100% - 24px, 1320px); }
+  .weekend-nav-meta span:first-child { display: none; }
+  .weekend-hero { padding: 54px 0 44px; }
+  .weekend-hero h1 { font-size: 55px; }
+  .weekend-lede { font-size: 15px; }
+  .weekend-hotel { margin-bottom: 50px; }
+  .weekend-hotel-photo-wrap { min-height: 310px; }
+  .weekend-hotel-copy { padding: 28px 20px; }
+  .weekend-hotel-heading { flex-direction: column; gap: 12px; }
+  .weekend-hotel-facts { grid-template-columns: 1fr; }
+  .weekend-hotel-actions { align-items: stretch; flex-direction: column; }
+  .weekend-hotel-actions a { min-width: 0; }
+  .weekend-toolbar { align-items: flex-start; flex-direction: column; }
+  .weekend-card, .weekend-card:nth-child(n + 4) { grid-column: 1 / -1; border-right: 0; }
+  .weekend-card-body { min-height: 390px; padding: 22px 18px; }
+  .weekend-choice { grid-template-columns: 1fr; gap: 18px; }
+  .weekend-choice > p:last-child { grid-column: 1; }
+  .weekend-footer { flex-direction: column; gap: 8px; }
+}

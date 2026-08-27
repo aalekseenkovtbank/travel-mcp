@@ -32,6 +32,23 @@ Node.js работает только как npm-bootstrap: создаёт/об�
 делает `exec`. После старта остаётся только Python FastMCP. Bootstrap пишет
 диагностику в stderr, поэтому stdout остаётся чистым stdio MCP.
 
+## Готовый prompt template: персональные выходные
+
+MCP публикует шаблон `personalized_weekend_landing`. Он собирает в один безопасный
+сценарий анализ трат за заданный период, историю заказов Афиши, живой подбор
+событий, проверку отеля и подготовку адаптивного лендинга с постерами.
+
+Аргументы шаблона:
+
+- `city`, `date_from`, `date_to` — город и диапазон поездки;
+- `hotel_query` — точное или частичное название отеля, необязательно;
+- `adults` — число взрослых, по умолчанию 2;
+- `spending_lookback_days` — глубина анализа расходов, по умолчанию 60 дней.
+
+Шаблон не бронирует и не оплачивает билеты. Для отеля он требует сначала
+показать тарифы и получить явный выбор конкретного тарифа; только после этого
+можно сформировать checkout-ссылку через `hotel_checkout_url`.
+
 ## Опубликованные инструменты
 
 - Контекст: `session_status`, `list_accounts`, `list_operations`,
@@ -41,7 +58,7 @@ Node.js работает только как npm-bootstrap: создаёт/об�
 - ЖД: `train_stations`, `train_search`, `compare_train_prices`.
 - Отели: `hotel_autocomplete`, `hotel_search`, `compare_hotel_prices`,
   `hotel_search_filters`, `hotel_latest_offers`, `hotel_details`, `hotel_rates`,
-  `hotel_reviews`, `hotel_filters`.
+  `hotel_checkout_url`, `hotel_reviews`, `hotel_filters`.
 - Составная цена: `compare_flight_hotel_prices`.
 - Афиша: `search_app`, `cinema_search`, `cinema_schedule`, `cinema_seats`,
   `afisha_catalog`, `afisha_places`, `place_schedule`, `place_info`,

@@ -8,7 +8,7 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXPECTED_COUNT = 37
+EXPECTED_COUNT = 38
 
 
 def read_response(process, wanted_id, timeout=75):
@@ -67,6 +67,7 @@ def test_stdio_handshake_and_tools_list():
         assert len(listed) == EXPECTED_COUNT
         assert {tool["name"] for tool in listed} >= {
             "nearby_search", "weather", "hotel_search", "hotel_rates", "hotel_reviews",
+            "hotel_checkout_url",
             "hotel_search_filters", "hotel_latest_offers",
             "train_stations", "train_search",
             "compare_flight_prices", "compare_train_prices", "compare_hotel_prices",
@@ -85,6 +86,34 @@ def test_stdio_handshake_and_tools_list():
         assert "price.isFinalPrice=false" in latest_tool["description"]
         assert set(latest_tool["inputSchema"]["required"]) >= {
             "hotel_ids", "checkin_date", "checkout_date"}
+
+        send(process, {"jsonrpc": "2.0", "id": 3, "method": "prompts/list", "params": {}})
+        prompts = read_response(process, 3, timeout=timeout)["result"]["prompts"]
+        by_prompt_name = {prompt["name"]: prompt for prompt in prompts}
+        assert "personalized_weekend_landing" in by_prompt_name
+        landing_prompt = by_prompt_name["personalized_weekend_landing"]
+        assert {arg["name"] for arg in landing_prompt["arguments"]} >= {
+            "city", "date_from", "date_to", "hotel_query", "adults",
+            "spending_lookback_days"}
+
+        send(process, {
+            "jsonrpc": "2.0", "id": 4, "method": "prompts/get",
+            "params": {
+                "name": "personalized_weekend_landing",
+                "arguments": {
+                    "city": "Москва", "date_from": "2026-08-29",
+                    "date_to": "2026-08-30", "hotel_query": "Continental",
+                    "adults": "2", "spending_lookback_days": "60",
+                },
+            },
+        })
+        rendered = read_response(process, 4, timeout=timeout)["result"]
+        prompt_text = "\n".join(
+            message["content"].get("text", "") for message in rendered["messages"])
+        assert "Москва" in prompt_text
+        assert "Continental" in prompt_text
+        assert "hotel_checkout_url разрешён только после явного выбора" in prompt_text
+        assert "Не раскрывай" in prompt_text
     finally:
         process.terminate()
         try:
@@ -96,4 +125,4 @@ def test_stdio_handshake_and_tools_list():
 
 if __name__ == "__main__":
     test_stdio_handshake_and_tools_list()
-    print("travel stdio: initialize + tools/list OK")
+    print("travel stdio: initialize + tools/list + prompts/list + prompts/get OK")
