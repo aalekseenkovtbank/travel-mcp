@@ -8,7 +8,7 @@ import sys
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXPECTED_COUNT = 38
+EXPECTED_COUNT = 41
 
 
 def read_response(process, wanted_id, timeout=75):
@@ -72,10 +72,16 @@ def test_stdio_handshake_and_tools_list():
             "train_stations", "train_search",
             "compare_flight_prices", "compare_train_prices", "compare_hotel_prices",
             "compare_flight_hotel_prices"}
+        assert {"trip_personalization_profile", "yandex_venue_search",
+                "render_trip_page"} <= {tool["name"] for tool in listed}
         assert not ({"login", "transfer", "train_calendar", "get_data"} &
                     {tool["name"] for tool in listed})
         for tool in listed:
-            assert tool["annotations"]["readOnlyHint"] is True
+            if tool["name"] == "render_trip_page":
+                assert tool["annotations"]["readOnlyHint"] is False
+                assert tool["annotations"]["openWorldHint"] is False
+            else:
+                assert tool["annotations"]["readOnlyHint"] is True
             assert tool["annotations"]["destructiveHint"] is False
         by_name = {tool["name"]: tool for tool in listed}
         filters_tool = by_name["hotel_search_filters"]
@@ -84,6 +90,8 @@ def test_stdio_handshake_and_tools_list():
         assert "hotel_filters()" in filters_tool["description"]
         assert "прямо перед" in latest_tool["description"]
         assert "price.isFinalPrice=false" in latest_tool["description"]
+        assert by_name["render_trip_page"]["outputSchema"]
+        assert "document" in by_name["render_trip_page"]["inputSchema"]["properties"]
         assert set(latest_tool["inputSchema"]["required"]) >= {
             "hotel_ids", "checkin_date", "checkout_date"}
 
@@ -114,6 +122,7 @@ def test_stdio_handshake_and_tools_list():
         assert "Continental" in prompt_text
         assert "hotel_checkout_url разрешён только после явного выбора" in prompt_text
         assert "Не раскрывай" in prompt_text
+        assert "render_trip_page(document)" in prompt_text
     finally:
         process.terminate()
         try:

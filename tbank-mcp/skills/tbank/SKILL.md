@@ -21,6 +21,7 @@ MCP работает с **настоящим банковским счётом �
 | Заказать продукты, собрать корзину, КБЖУ | `tbank-grocery-order` |
 | Билеты в кино, на концерт, афиша | `tbank-tickets` |
 | Поезда, самолёты, отели, маркетплейс — только поиск, без оформления | `tbank-travel-search` |
+| Готовая персональная страница поездки | `trip_personalization_profile()` → поиск → `yandex_venue_search()` → `render_trip_page()` |
 | Перевести деньги человеку, между своими счетами, юрлицу по реквизитам или по QR со счёта | `tbank-transfer-money` |
 | Оплатить счёт — ЖКХ, налог, штраф, интернет; пополнить телефон | `tbank-bill-pay` |
 | Анализ трат, подписки, экономия | `tbank-budget-analyzer` |
@@ -35,6 +36,10 @@ MCP работает с **настоящим банковским счётом �
 
 - **Счета и операции:** `list_accounts()` → `list_operations(account_id, days, limit)`,
   `spending_categories(account_id, days)`, `operations_histogram(...)`.
+- **Страница поездки:** `trip_personalization_profile()` возвращает только агрегаты
+  бюджета и предпочтений; после поиска дороги, отелей, Афиши и заведений через
+  `yandex_venue_search()` собери `trip-page/v1` и вызови `render_trip_page()`.
+  Результат — готовый HTML и JSON, без React/Vite и без бронирования.
 - **Заказы:** `orders(kind)` — продукты, кино, концерты, авиа, поезда, отели в одной
   выдаче; `order_details(order_id)` — места и код брони;
   `travel_order_details(order_id)` — детали по отелю; для авиа и ж/д отдаётся только

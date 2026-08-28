@@ -76,7 +76,7 @@ MAX_BYTES = int(os.environ.get("TBANK_TRACE_MAX_BYTES", 5 * 1024 * 1024))
 # argument the agent happened to use. `comment` is назначение платежа: an invoice
 # number, a contract, what was bought — the exact class `description` is opaque for.
 _OPAQUE_ARGS = {"text", "description", "password", "pin", "otp", "code", "body",
-                "save_to", "fields", "qr", "comment", "purpose"}
+                "save_to", "fields", "qr", "comment", "purpose", "document"}
 
 # Tools whose ANSWER contains text a person wrote — the message just sent, the chat
 # history, the preview of the last message in each conversation. Blanking the

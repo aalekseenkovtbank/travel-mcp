@@ -37,9 +37,11 @@ ACTION=${1:-help}
 case "$ACTION" in
   help|-h|--help|"")
     printf '%s\n' \
-      "Travel MCP offline bundle (read-only)" \
+      "Travel MCP offline bundle (read-only bank tools + local trip pages)" \
       "  travel-nova-mcp login" \
-      "  travel-nova-mcp serve"
+      "  travel-nova-mcp serve" \
+      "  travel-nova-mcp render-trip trip.json [-o trip.html] [--overwrite]" \
+      "  travel-nova-mcp trip-page-schema"
     ;;
   version|-V|--version)
     if [ -f "$BUNDLE_ROOT/VERSION" ]; then
@@ -63,5 +65,8 @@ case "$ACTION" in
     [ "$#" -eq 0 ] || die "serve не принимает аргументы"
     exec "$PYTHON_COMMAND" -m src.travel_server
     ;;
-  *) die "неизвестная команда '$ACTION'; доступны login и serve" ;;
+  render-trip|trip-page-schema)
+    exec "$PYTHON_COMMAND" -m src.trip_cli "$@"
+    ;;
+  *) die "неизвестная команда '$ACTION'; доступны login, serve, render-trip и trip-page-schema" ;;
 esac

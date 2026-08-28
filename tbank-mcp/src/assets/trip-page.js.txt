@@ -1,0 +1,58 @@
+(function () {
+  "use strict";
+
+  document.querySelectorAll("img.remote-image").forEach(function (image) {
+    image.addEventListener("error", function () {
+      image.closest(".image-frame").classList.add("failed");
+    });
+  });
+
+  var mapElement = document.getElementById("trip-map");
+  var dataElement = document.getElementById("trip-map-data");
+  if (!mapElement || !dataElement || typeof window.L === "undefined") return;
+
+  var points;
+  try {
+    points = JSON.parse(dataElement.textContent || "[]");
+  } catch (_) {
+    mapElement.classList.add("failed");
+    return;
+  }
+  if (!points.length) {
+    mapElement.classList.add("failed");
+    return;
+  }
+
+  var colors = {
+    hotel: "#111111",
+    event: "#7b61ff",
+    restaurant: "#ff7a00",
+    bar: "#ec2b67"
+  };
+  var map = window.L.map(mapElement, { scrollWheelZoom: false, zoomControl: true });
+  var tiles = window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors"
+  });
+  tiles.on("tileerror", function () { mapElement.classList.add("tiles-failed"); });
+  tiles.addTo(map);
+
+  var bounds = [];
+  points.forEach(function (point) {
+    var position = [point.lat, point.lon];
+    bounds.push(position);
+    var marker = window.L.circleMarker(position, {
+      radius: point.kind === "hotel" ? 11 : 8,
+      color: "#ffffff",
+      weight: 3,
+      fillColor: colors[point.kind] || "#111111",
+      fillOpacity: 1
+    }).addTo(map);
+    var popup = document.createElement("a");
+    popup.href = "#entity-" + point.id;
+    popup.textContent = point.label;
+    marker.bindPopup(popup);
+  });
+  map.fitBounds(bounds, { padding: [44, 44], maxZoom: 15 });
+  window.setTimeout(function () { map.invalidateSize(); }, 0);
+}());

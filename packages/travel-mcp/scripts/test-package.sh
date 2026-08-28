@@ -7,6 +7,8 @@ sh scripts/stage-vendor.sh
 
 test -x bin/travel-nova-mcp
 test -f vendor/tbank-mcp/src/travel_server.py
+test -f vendor/tbank-mcp/src/trip_page.py
+test -f vendor/tbank-mcp/src/assets/leaflet-1.9.4.js.txt
 test -f vendor/tbank-mcp/ca/roots/russian-trusted-root-ca.crt
 test ! -f vendor/tbank-mcp/ca/bundle.pem
 test ! -f vendor/tbank-mcp/ca/roots/tinkoffbank-root-ca.local.pem
@@ -27,9 +29,11 @@ ln -s "$PACKAGE_ROOT/bin/travel-nova-mcp" "$TEMP_ROOT/node_modules/.bin/travel-n
 HELP_OUTPUT=$("$TEMP_ROOT/node_modules/.bin/travel-nova-mcp" --help)
 find "$TEMP_ROOT" -mindepth 1 -delete
 rmdir "$TEMP_ROOT"
-printf '%s' "$HELP_OUTPUT" | grep 'Travel MCP (read-only)' >/dev/null
+printf '%s' "$HELP_OUTPUT" | grep 'local trip pages' >/dev/null
 python3 scripts/test-interactive-login.py "$PACKAGE_ROOT/bin/travel-nova-mcp"
 python3 scripts/test-login-cli-input.py "$PACKAGE_ROOT/vendor/tbank-mcp/login_cli.py"
+PYTHONPATH="$PACKAGE_ROOT/vendor/tbank-mcp" python3 -m src.trip_cli trip-page-schema |
+  grep 'trip-page/v1' >/dev/null
 
 if grep -R -i -E '2gis|2gis\.ru|api\.2gis|sqlite|openai|travel-api|travel-web' \
   vendor/tbank-mcp/src \

@@ -17,6 +17,7 @@ dependencies = [
 [project.scripts]
 tbank-mcp = "src.server:main"
 tbank-travel-mcp = "src.travel_server:main"
+tbank-trip-page = "src.trip_cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -38,3 +39,4 @@ packages = ["src", "ca.roots", "docs"]
 [tool.setuptools.package-data]
 "ca.roots" = ["*.pem", "*.crt"]
 "docs" = ["*.md"]
+"src" = ["assets/*"]

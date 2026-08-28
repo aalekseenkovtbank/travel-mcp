@@ -43,7 +43,12 @@ from .travel_compare import (
     normalize_hotel_inventory, normalize_train_inventory, price_delta, rub_number,
     sort_flights, sort_hotels, sort_trains,
 )
+from .trip_page import (RenderTripPageResult, TripPageDocumentV1,
+                        render_trip_page_files)
+from .trip_personalization import (TripPersonalizationProfile,
+                                   build_personalization_profile)
 from .weather import weather_report as _weather_report
+from .yandex_venues import VenueSearchResult, YandexVenueProvider
 
 TOOLSET_ALL = "all"
 TOOLSET_TRAVEL = "travel"
@@ -63,6 +68,7 @@ TRAVEL_TOOL_NAMES = frozenset({
     "spending_categories", "operations_histogram", "audience_profile",
     # Purchase and travel history.
     "orders", "order_details", "travel_order_details", "flight_history",
+    "trip_personalization_profile",
     # Live travel inventory.
     "flight_search", "hotel_autocomplete", "hotel_search", "hotel_details",
     "hotel_rates", "hotel_reviews", "hotel_filters", "hotel_search_filters",
@@ -76,7 +82,9 @@ TRAVEL_TOOL_NAMES = frozenset({
     "afisha_catalog", "afisha_places", "place_schedule", "place_info",
     "concert_schedule", "concert_hall",
     # Public no-key context sources.
-    "nearby_search", "weather",
+    "nearby_search", "yandex_venue_search", "weather",
+    # Local static artifact generation (the only write in the travel registry).
+    "render_trip_page",
 })
 
 mcp = FastMCP("tbank-travel" if ACTIVE_TOOLSET == TOOLSET_TRAVEL else "tbank")
@@ -84,11 +92,10 @@ mcp = FastMCP("tbank-travel" if ACTIVE_TOOLSET == TOOLSET_TRAVEL else "tbank")
 
 @mcp.prompt(
     name="personalized_weekend_landing",
-    title="Персональные выходные: афиша, отель и лендинг",
+    title="Персональная поездка: билеты, отель, места и готовая страница",
     description=(
-        "Готовый безопасный сценарий: проанализировать траты и заказы Афиши, "
-        "подобрать события на выходные, проверить отель и подготовить лендинг "
-        "с постерами и ссылкой на оформление выбранного тарифа."
+        "Готовый безопасный сценарий: получить агрегированный профиль, подобрать "
+        "дорогу, отели, события и заведения, затем создать статический HTML."
     ),
 )
 def personalized_weekend_landing(
@@ -103,22 +110,21 @@ def personalized_weekend_landing(
     hotel_part = (
         f"Пользователь назвал отель: {hotel_query}."
         if hotel_query.strip()
-        else "Отель не задан: не подбирай его без отдельной просьбы пользователя."
+        else "Отель не задан: подбери от одного до трёх вариантов и выбери рекомендуемый."
     )
     return f"""Подготовь персональный лендинг для поездки в {city} с {date_from} по {date_to}.
 Гостей: {adults}. Период анализа трат: последние {spending_lookback_days} дней.
 {hotel_part}
 
 Работай по этому сценарию:
-1. Получи list_accounts(). Анализируй карточные счета в нужной валюте; переводы между своими счетами не считай расходами. Для релевантных счетов вызови spending_categories(days={spending_lookback_days}) и list_operations(days={spending_lookback_days}, limit=0, desc_len=0).
-2. Вызови orders(kind="афиша", limit=0). Выведи интересы только из наблюдаемых категорий трат и завершённых заказов. Отменённые заказы не считай положительным сигналом. Не раскрывай в лендинге имена, номера счетов, балансы, зарплату или отдельные операции.
-3. Для {date_from}–{date_to} вызови afisha_catalog отдельно для кино, концертов и театра в городе {city}. Если выдача неполная, явно пометь ограничение или дочитай страницы. Ранжируй события по объяснимому совпадению с историей пользователя, а не по выдуманному профилю.
-4. Для шорт-листа перепроверь расписание и цены: cinema_schedule для кино, concert_schedule для концертов и театра. Используй imageUrl из Афиши как постер. Не бронируй места и не вызывай ticket_pay.
-5. Если задан отель, найди точное совпадение через hotel_autocomplete, затем проверь hotel_details и hotel_rates на те же даты и {adults} гостей. Покажи доступные тарифы. hotel_checkout_url разрешён только после явного выбора пользователем конкретного тарифа; bookHash копируй без изменений. Ссылка не создаёт бронь и не списывает деньги.
-6. Собери адаптивный одностраничный лендинг. Обязательные блоки: заголовок поездки; краткое и приватное объяснение персонализации; 3–6 карточек событий с постером, описанием, датой, площадкой, ценой и причиной совпадения; карточка выбранного отеля с фото, номером, тарифом и checkout-ссылкой, если пользователь уже подтвердил тариф; время проверки данных и источник T-Bank.
-7. Не публикуй персональные финансовые суммы и сырые банковские данные. Не заявляй, что билет или отель забронирован. Перед оплатой или бронированием всегда остановись и запроси требуемое подтверждение.
-
-Если клиент умеет создавать файлы, реализуй лендинг в его текущем веб-проекте и проверь сборку/тесты. Иначе верни структурированную спецификацию лендинга с готовыми текстами, изображениями и ссылками."""
+1. Вызови trip_personalization_profile() для агрегированного бюджета и интересов. Не вызывай list_operations и order_details самостоятельно ради профиля: новый инструмент уже исключает переводы, отмены и сырые персональные данные.
+2. Подбери транспорт туда и обратно через flight_search или train_search. Это только поиск: не утверждай, что билеты куплены. Передай найденные цены повторно в trip_personalization_profile(), если истории поездок недостаточно.
+3. Найди 1–3 отеля через hotel_autocomplete, hotel_search, hotel_details и актуальные hotel_rates/hotel_latest_offers. hotel_checkout_url разрешён только после явного выбора конкретного тарифа; ссылка не создаёт бронь и не списывает деньги.
+4. Для {date_from}–{date_to} получи Афишу и перепроверь расписание. Ранжируй события по scoringWeights и агрегатам eventPreferences из профиля. Не бронируй места и не вызывай ticket_pay.
+5. Вызови yandex_venue_search() для ресторанов и баров. Используй только полные карточки с HTTPS-фото, рейтингом, числом отзывов, координатами и ссылкой Яндекс Карт; собери 4–8 заведений, минимум два ресторана и один бар.
+6. Составь TripPageDocumentV1: карта должна ссылаться на выбранный отель, события и заведения по ID; добавь ровно три непротиворечивых плана balanced, culture и food_nightlife. Все остановки должны попадать в даты поездки и ссылаться на существующие ID.
+7. Вызови render_trip_page(document). Верни пользователю абсолютный htmlPath как готовый результат и jsonPath как воспроизводимый контракт. Не пытайся собирать React/Vite-проект.
+8. Не раскрывай имена, номера счетов, балансы, зарплату или отдельные операции. Не заявляй, что билет или отель забронирован. Цены всегда снабжай временем проверки."""
 
 # Every @mcp.tool() below is recorded. Done by replacing the decorator ONCE rather
 # than touching 57 functions: a per-tool opt-in is a list somebody has to remember to
@@ -189,6 +195,7 @@ TOOL_KINDS: dict[str, tuple[str, str]] = {
     "orders": ("Заказы", READ),
     "order_details": ("Детали заказа", READ),
     "travel_order_details": ("Детали поездки", READ),
+    "trip_personalization_profile": ("Агрегированный профиль поездки", READ),
     # grocery
     "grocery_stores": ("Магазины и доставка", READ),
     "grocery_search": ("Поиск товара", READ),
@@ -237,6 +244,7 @@ TOOL_KINDS: dict[str, tuple[str, str]] = {
     "compare_hotel_prices": ("Сравнение цен на отели", READ),
     "compare_flight_hotel_prices": ("Сравнение перелёта и отеля", READ),
     "nearby_search": ("Места рядом", READ),
+    "yandex_venue_search": ("Рестораны и бары Яндекс Карт", READ),
     "weather": ("Погода и климат", READ),
     "shop_search": ("Поиск товаров в маркетплейсе", READ),
     "shop_cart": ("Корзины маркетплейса", READ),
@@ -267,6 +275,7 @@ TOOL_KINDS: dict[str, tuple[str, str]] = {
     "flows": ("Порядок вызовов по теме", READ),
     "diagnostics": ("События последних оплат", READ),
     "debug_report": ("Как использовали этот MCP", READ),
+    "render_trip_page": ("Создание HTML-страницы поездки", WRITE),
 }
 
 
@@ -277,8 +286,9 @@ def _annotations_for(name: str) -> ToolAnnotations:
             f"(nothing changes), WRITE (changes something, costs nothing) or "
             f"MONEY (debits an account) — see the note above the table.")
     title, kind = TOOL_KINDS[name]
-    # openWorldHint everywhere: every one of these talks to the bank.
-    ann = {"title": title, "openWorldHint": True}
+    # The renderer only writes a local, explicitly named artifact. Every other
+    # tool either talks to the bank or to a public/commercial context provider.
+    ann = {"title": title, "openWorldHint": name != "render_trip_page"}
     if kind == READ:
         ann.update(readOnlyHint=True, destructiveHint=False, idempotentHint=True)
     elif kind == WRITE:
@@ -303,6 +313,74 @@ def _traced_tool(*a, **kw):
 
 
 mcp.tool = _traced_tool
+
+
+@mcp.tool()
+def trip_personalization_profile(
+    transport_mode: Literal["flight", "train"] = "flight",
+    trip_nights: int = 2,
+    is_weekend: bool = False,
+    travel_lookback_months: int = 24,
+    spending_lookback_days: int = 90,
+    transport_offer_prices_rub: list[float] | None = None,
+    hotel_nightly_offer_prices_rub: list[float] | None = None,
+    explicit_transport_budget_rub: float | None = None,
+    explicit_hotel_budget_per_night_rub: float | None = None,
+    explicit_onsite_budget_rub: float | None = None,
+) -> TripPersonalizationProfile:
+    """Агрегированный профиль для планирования поездки — без сырых операций.
+
+    Считает бюджет дороги и отеля по завершённым поездкам за 24 месяца. Для
+    поездки на выходные добавляет типичные дискреционные траты за полные выходные
+    последних 90 дней. Отменённые/возвращённые заказы, переводы и обязательные
+    платежи исключаются. Если исторических наблюдений меньше двух, передай цены
+    актуальных предложений в *_offer_prices_rub: они будут честно помечены как
+    fallback, а не как прошлые траты. Явные бюджеты пользователя имеют приоритет.
+
+    eventPreferences содержит только агрегированные жанры, типы, время, медианный
+    чек и публичные веса ранжирования 40/25/15/10/10. Счета, балансы, отдельные
+    операции и отдельные заказы в ответ не попадают.
+    """
+    return build_personalization_profile(
+        _require(), transport_mode=transport_mode, trip_nights=trip_nights,
+        is_weekend=is_weekend, travel_lookback_months=travel_lookback_months,
+        spending_lookback_days=spending_lookback_days,
+        transport_offer_prices_rub=transport_offer_prices_rub,
+        hotel_nightly_offer_prices_rub=hotel_nightly_offer_prices_rub,
+        explicit_transport_budget_rub=explicit_transport_budget_rub,
+        explicit_hotel_budget_per_night_rub=explicit_hotel_budget_per_night_rub,
+        explicit_onsite_budget_rub=explicit_onsite_budget_rub,
+    )
+
+
+@mcp.tool()
+def yandex_venue_search(city: str, query: str, limit: int = 8) -> VenueSearchResult:
+    """Рестораны и бары из договорного API Яндекс Карт.
+
+    Возвращает только карточки, где есть координаты, HTTPS-фото с атрибуцией,
+    рейтинг, число отзывов и ссылка Яндекс Карт. Неполные ответы отбрасываются, а
+    их число возвращается в rejectedCount. Требует YANDEX_MAPS_API_KEY и явное
+    подтверждение договорного права сохранения YANDEX_VENUE_STORAGE_ALLOWED=1.
+    """
+    return YandexVenueProvider().search(city, query, limit)
+
+
+@mcp.tool()
+def render_trip_page(
+    document: TripPageDocumentV1,
+    output_dir: str = "",
+    basename: str = "",
+    overwrite: bool = False,
+) -> RenderTripPageResult:
+    """Создать готовые HTML и JSON страницы поездки на локальном диске.
+
+    По умолчанию пишет в ~/.local/share/tbank-mcp/trip-pages. Существующие файлы
+    не заменяет; overwrite=true — единственный явный способ перезаписи. Шаблон,
+    стили и Leaflet встроены в HTML; удалёнными остаются только фотографии и
+    тайлы OpenStreetMap. Инструмент не бронирует и не оплачивает ничего.
+    """
+    return render_trip_page_files(
+        document, output_dir=output_dir, basename=basename, overwrite=overwrite)
 
 
 def _threaded_tool(fn):

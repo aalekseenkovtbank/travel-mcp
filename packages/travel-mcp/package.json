@@ -1,7 +1,7 @@
 {
   "name": "@travel-growth-inspiration/mcp",
   "version": "0.2.2",
-  "description": "POSIX bootstrap for the read-only T-Bank Travel MCP",
+  "description": "POSIX bootstrap for T-Bank Travel MCP and static trip pages",
   "license": "MIT",
   "bin": {
     "travel-nova-mcp": "bin/travel-nova-mcp"

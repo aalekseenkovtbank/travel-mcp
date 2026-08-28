@@ -4,7 +4,7 @@
 
 ## Features
 
-- **95 tools**: accounts, cards, documents, operations, grocery ordering, cinema and
+- **98 tools**: accounts, cards, documents, operations, grocery ordering, cinema and
   concert tickets, flight/rail/hotel search, orders, transfers (including payment by
   bank requisites, from a scanned invoice QR), messenger, investments
 - **11 skills**, entered through the `tbank` router skill: grocery order, tickets,
@@ -31,11 +31,11 @@ npx -y @travel-growth-inspiration/mcp login
 npx -y @travel-growth-inspiration/mcp serve
 ```
 
-The `serve` command exposes a fixed 38-tool, read-only travel surface. Login,
+The `serve` command exposes 40 read-only travel tools and one local HTML renderer. Login,
 payments, transfers, bookings, carts, messages, credentials, documents, generic
 bank reads and rail booking/payment tools are physically absent from `tools/list`.
-Public context comes from T-Bank Railways, OpenStreetMap/Nominatim and Open-Meteo;
-no API keys are required.
+Public context comes from T-Bank Railways, OpenStreetMap/Nominatim and Open-Meteo.
+The Yandex commercial venue adapter is the only optional keyed context source.
 See [docs/TRAVEL_MCP.md](docs/TRAVEL_MCP.md).
 
 ### As a Claude Code plugin (server + all 11 skills in one step)
@@ -176,7 +176,7 @@ Russian and so is the person reading the answer.
 |---|---|
 | **Login** | `login`, `confirm_otp`, `confirm_password`, `confirm_pin` |
 | **Session** | `refresh_session`, `session_status`, `keepalive`, `push_unread_count` |
-| **Reads** | `list_accounts`, `list_operations`, `spending_categories`, `operations_histogram`, `audience_profile`, `get_data` |
+| **Reads** | `list_accounts`, `list_operations`, `spending_categories`, `operations_histogram`, `audience_profile`, `trip_personalization_profile`, `get_data` |
 | **Cards & accounts** | `list_cards`, `card_limits`, `card_requisites`, `card_operations`, `account_requisites` |
 | **Documents** | `documents`, `bank_documents`, `insurance_policies`, `payment_receipt` |
 | **Grocery** | `grocery_stores`, `grocery_search`, `grocery_plan_order`, `grocery_add_to_cart`, `grocery_set_cart`, `grocery_cart`, `grocery_checkout`, `grocery_attempts`, `grocery_order_status`, `grocery_order_cancel` |
@@ -185,7 +185,7 @@ Russian and so is the person reading the answer.
 | **Afisha** | `afisha_catalog`, `afisha_places`, `place_schedule`, `place_info` |
 | **Tickets** | `cinema_search`, `cinema_schedule`, `cinema_seats`, `concert_schedule`, `concert_hall`, `cinema_book`, `ticket_pay`, `ticket_cancel`, `ticket_qr` |
 | **Search** | `search_app` |
-| **Travel search** | `train_stations`, `train_search`, `compare_train_prices`, `train_calendar`, `flight_search`, `compare_flight_prices`, `flight_history`, `hotel_autocomplete`, `hotel_search`, `hotel_search_filters`, `hotel_latest_offers`, `compare_hotel_prices`, `compare_flight_hotel_prices`, `hotel_details`, `hotel_rates`, `hotel_checkout_url`, `hotel_reviews`, `hotel_filters`, `nearby_search`, `weather` |
+| **Travel search** | `train_stations`, `train_search`, `compare_train_prices`, `train_calendar`, `flight_search`, `compare_flight_prices`, `flight_history`, `hotel_autocomplete`, `hotel_search`, `hotel_search_filters`, `hotel_latest_offers`, `compare_hotel_prices`, `compare_flight_hotel_prices`, `hotel_details`, `hotel_rates`, `hotel_checkout_url`, `hotel_reviews`, `hotel_filters`, `nearby_search`, `yandex_venue_search`, `weather`, `render_trip_page` |
 | **Marketplace** | `shop_search`, `shop_cart` |
 | **Messenger** | `messenger_conversations`, `messenger_messages`, `messenger_file`, `messenger_send`, `messenger_unread` |
 | **Money** | `transfer_sbp_resolve`, `transfer`, `payment_qr`, `transfer_requisites`, `payment_commission`, `pay_bill`, `payment_providers`, `confirm_payment`, `payment_status` |
@@ -331,8 +331,8 @@ present the tests additionally check the fixtures have not drifted from it.
   second pending payment.
 - **Tool annotations.** Every tool declares what it does, in one table —
   `TOOL_KINDS` in `src/server.py` — and a tool missing from it raises at import
-  rather than defaulting to anything. Three kinds: 77 are `readOnlyHint: true` and
-  may run without a prompt; 12 write something that costs nothing (a cart, a
+  rather than defaulting to anything. Three kinds: 79 are `readOnlyHint: true` and
+  may run without a prompt; 13 write something that costs nothing (a cart, a
   booking, a message, an OTP, a token, a local file) and are marked
   `destructiveHint: false`; 6 debit an account — `transfer`, `transfer_requisites`,
   `grocery_checkout`, `ticket_pay`, `pay_bill`, `confirm_payment` — and are the only
@@ -340,7 +340,7 @@ present the tests additionally check the fixtures have not drifted from it.
   is what forces a confirmation dialog. The line is drawn at money on purpose: a
   booking expires by itself and a cart line is a rewrite away, so confirming those is
   friction that teaches people to click through the one dialog that matters.
-  The 12 writers are not marked read-only, because they do modify things and that
+  The 13 writers are not marked read-only, because they do modify things and that
   flag states the opposite — if your client still prompts on them, allow them once
   in the client rather than changing what the server claims.
 

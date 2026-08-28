@@ -1,4 +1,4 @@
-"""The travel entrypoint must expose a small, physically read-only registry."""
+"""The travel entrypoint exposes read-only discovery plus one local renderer."""
 import json
 import os
 import subprocess
@@ -13,6 +13,7 @@ EXPECTED = {
     "session_status", "list_accounts", "list_operations",
     "spending_categories", "operations_histogram", "audience_profile",
     "orders", "order_details", "travel_order_details", "flight_history",
+    "trip_personalization_profile",
     "flight_search", "hotel_autocomplete", "hotel_search", "hotel_details",
     "hotel_rates", "hotel_reviews", "hotel_filters", "hotel_search_filters",
     "hotel_latest_offers", "hotel_checkout_url",
@@ -22,7 +23,7 @@ EXPECTED = {
     "cinema_search", "cinema_schedule",
     "cinema_seats", "afisha_catalog", "afisha_places", "place_schedule",
     "place_info", "concert_schedule", "concert_hall", "nearby_search",
-    "weather",
+    "yandex_venue_search", "weather", "render_trip_page",
 }
 
 
@@ -58,7 +59,10 @@ print("TRAVEL_REGISTRY=" + json.dumps(rows, sort_keys=True))
 def test_exact_travel_allowlist_and_annotations():
     rows = registry("travel")
     assert {row["name"] for row in rows} == EXPECTED
-    assert all(row["readOnly"] is True for row in rows)
+    by_name = {row["name"]: row for row in rows}
+    assert by_name["render_trip_page"]["readOnly"] is False
+    assert all(row["readOnly"] is True for row in rows
+               if row["name"] != "render_trip_page")
     assert all(row["destructive"] is False for row in rows)
 
 
@@ -88,4 +92,4 @@ if __name__ == "__main__":
     test_exact_travel_allowlist_and_annotations()
     test_full_entrypoint_is_unchanged_and_still_strictly_larger()
     test_hotel_checkout_url_requires_a_confirmed_rate_and_encodes_book_hash()
-    print(f"travel toolset: exact {len(EXPECTED)}-tool read-only registry; full registry preserved")
+    print(f"travel toolset: exact {len(EXPECTED)} tools; one local writer; full registry preserved")

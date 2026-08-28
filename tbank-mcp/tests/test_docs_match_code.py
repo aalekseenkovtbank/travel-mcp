@@ -219,6 +219,7 @@ def test_every_tool_declares_what_it_does_to_the_world():
         "login", "confirm_otp", "confirm_password",          # sends an SMS / auth state
         "confirm_pin", "refresh_session",                    # rotates a live credential
         "payment_receipt",                                   # writes a local file
+        "render_trip_page",                                  # writes local HTML + JSON
     }
 
     for name, tool in sorted(tools.items()):
@@ -228,8 +229,9 @@ def test_every_tool_declares_what_it_does_to_the_world():
             continue
         check(bool(ann.title), f"{name}: no title (review criteria require one)")
         check(len(name) <= 64, f"{name}: tool names must be 64 characters or fewer")
-        check(ann.openWorldHint is True,
-              f"{name}: every tool here talks to the bank — openWorldHint must be set")
+        expected_open_world = name != "render_trip_page"
+        check(ann.openWorldHint is expected_open_world,
+              f"{name}: openWorldHint must distinguish local rendering from provider calls")
         if name in MONEY:
             check(ann.readOnlyHint is not True,
                   f"{name} moves money and is marked read-only — it may run WITHOUT asking")
