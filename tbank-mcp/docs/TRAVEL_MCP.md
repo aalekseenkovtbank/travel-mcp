@@ -99,7 +99,9 @@ T-Bank и возвращает числовой `searchCode`. Этот код н
 ## Статическая страница поездки
 
 Публичный контракт — `TripPageDocumentV1` со значением
-`schemaVersion="trip-page/v1"`. JSON Schema печатает команда:
+`schemaVersion="trip-page/v1"`. Документ всегда содержит ровно три отеля,
+упорядоченных по строго возрастающей полной цене: выгодный, сбалансированный и
+более комфортный. JSON Schema печатает команда:
 
 ```bash
 travel-nova-mcp trip-page-schema

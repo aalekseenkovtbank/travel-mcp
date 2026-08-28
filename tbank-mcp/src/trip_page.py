@@ -283,7 +283,7 @@ class TripPageDocumentV1(ContractModel):
     schema_version: Literal["trip-page/v1"] = "trip-page/v1"
     trip: TripSummary
     transport: list[TransportLeg] = Field(min_length=2, max_length=8)
-    hotels: list[HotelOption] = Field(min_length=1, max_length=3)
+    hotels: list[HotelOption] = Field(min_length=3, max_length=3)
     selected_hotel_id: NonEmpty
     budget: list[BudgetRecommendation] = Field(min_length=4, max_length=4)
     personalization: PersonalizationSummary
@@ -308,6 +308,9 @@ class TripPageDocumentV1(ContractModel):
         hotels = {item.id for item in self.hotels}
         if self.selected_hotel_id not in hotels:
             raise ValueError("selectedHotelId must reference a hotel")
+        hotel_prices = [item.total_price_rub for item in self.hotels]
+        if any(right <= left for left, right in zip(hotel_prices, hotel_prices[1:])):
+            raise ValueError("hotels must be ordered by strictly increasing totalPriceRub")
         if sum(item.kind == "restaurant" for item in self.venues) < 2:
             raise ValueError("at least two restaurants are required")
         if sum(item.kind == "bar" for item in self.venues) < 1:
@@ -458,30 +461,38 @@ def _render_transport(document: TripPageDocumentV1) -> str:
 
 def _render_budget(document: TripPageDocumentV1) -> str:
     names = {"transport": "Дорога", "hotel": "Отель", "onsite": "На месте", "total": "Итого"}
+    confidence = {"high": "Высокая точность", "medium": "Средняя точность",
+                  "low": "Ориентир", "none": "Недостаточно данных"}
+    basis = {
+        "explicit": "Ваш бюджет", "comparable_trips": "Похожие поездки",
+        "weekend_spend": "Расходы за выходные", "live_offers": "Актуальные цены",
+        "mixed": "Несколько источников", "insufficient_data": "Мало данных",
+    }
     return "".join(f"""
       <article class="budget-card">
-        <div class="eyebrow">{_e(item.confidence)} confidence · n={item.sample_size}</div>
+        <div class="eyebrow">{_e(confidence[item.confidence])} · {item.sample_size} набл.</div>
         <h3>{_e(names[item.component])}</h3>
         <div class="price">{_rub(item.recommended_rub)}</div>
         <p class="range">{_rub(item.range_min_rub)} — {_rub(item.range_max_rub)}</p>
         <p>{_e(item.explanation)}</p>
-        <span class="pill">{_e(item.basis)}</span>
+        <span class="pill">{_e(basis[item.basis])}</span>
       </article>""" for item in document.budget)
 
 
 def _render_hotels(document: TripPageDocumentV1) -> str:
     cards = []
-    for hotel in document.hotels:
+    tier_labels = ("Выгодный", "Сбалансированный", "Больше комфорта")
+    for index, hotel in enumerate(document.hotels):
         selected = hotel.id == document.selected_hotel_id
         cards.append(f"""
         <article class="hotel-card {'selected' if selected else ''}" id="entity-{_e(hotel.id)}">
-          {_image(hotel.image_url, hotel.name)}
+          <div class="card-media">{_image(hotel.image_url, hotel.name)}<span class="card-rank">0{index + 1}</span><span class="hotel-tier">{_e(tier_labels[index])}</span></div>
           <div class="card-body">
-            <div class="eyebrow">{'Выбранный отель' if selected else 'Альтернатива'} · {'★' * hotel.stars}</div>
+            <div class="eyebrow">{'Рекомендуем · ' if selected else ''}{'★' * hotel.stars}</div>
             <h3>{_e(hotel.name)}</h3><p>{_e(hotel.address)}</p>
-            <p>{('Рейтинг ' + _e(hotel.rating)) if hotel.rating is not None else 'Рейтинг не указан'}{(' · ' + _e(hotel.review_count) + ' отзывов') if hotel.review_count is not None else ''}</p>
+            <div class="hotel-metrics"><span>{('Рейтинг ' + _e(hotel.rating)) if hotel.rating is not None else 'Рейтинг не указан'}{(' · ' + _e(hotel.review_count) + ' отзывов') if hotel.review_count is not None else ''}</span><span>{_rub(hotel.nightly_price_rub)} за ночь</span></div>
+            <p>{_e(hotel.room or 'Категория номера уточняется')}{(' · ' + _e(hotel.meal)) if hotel.meal else ''}</p>
             <div class="price">{_rub(hotel.total_price_rub)}</div>
-            <small>{_rub(hotel.nightly_price_rub)} за ночь{(' · ' + _e(hotel.meal)) if hotel.meal else ''}</small>
             {_link(hotel.booking_url, 'Проверить тариф')}
           </div>
         </article>""")
@@ -493,27 +504,26 @@ def _render_events(document: TripPageDocumentV1) -> str:
         return '<p class="empty">Подходящих мероприятий на эти даты пока нет.</p>'
     return "".join(f"""
       <article class="event-card" id="entity-{_e(item.id)}">
-        {_image(item.image_url, item.name)}
+        <div class="card-media">{_image(item.image_url, item.name)}<span class="card-rank">{index:02d}</span><span class="card-match">{item.personalization_score:.0f}% совпадение</span></div>
         <div class="card-body">
-          <div class="eyebrow">{_e(item.kind)} · совпадение {item.personalization_score:.0f}%</div>
+          <div class="eyebrow">{_e(item.kind)}</div>
           <h3>{_e(item.name)}</h3>
           <p><strong>{_e(_dt(item.starts_at))}</strong> · {_e(item.venue)}</p>
           <p>{_e(item.match_reason)}</p>
           <div class="price">от {_rub(item.price_from_rub)}</div>
           {_link(item.source_url, 'Открыть в Афише')}
         </div>
-      </article>""" for item in sorted(document.events,
-                                         key=lambda event: -event.personalization_score))
+      </article>""" for index, item in enumerate(sorted(document.events,
+                                         key=lambda event: -event.personalization_score), 1))
 
 
 def _render_venues(document: TripPageDocumentV1) -> str:
     return "".join(f"""
       <article class="venue-card" id="entity-{_e(item.id)}">
-        {_image(item.photos[0].url, item.name, item.photos[0].attribution)}
+        <div class="card-media">{_image(item.photos[0].url, item.name, item.photos[0].attribution)}<span class="card-match">★ {item.rating:g} · {item.review_count:n}</span></div>
         <div class="card-body">
           <div class="eyebrow">{'Ресторан' if item.kind == 'restaurant' else 'Бар'} · {_e(item.price_level)}</div>
           <h3>{_e(item.name)}</h3><p>{_e(item.address)}</p>
-          <div class="rating"><b>{item.rating:g}</b><span>/ {item.rating_scale:g}</span><span>· {item.review_count:n} отзывов</span></div>
           <p>{_e(', '.join(item.categories))}</p>
           {f'<small>{_e(item.opening_hours)}</small>' if item.opening_hours else ''}
           {_link(item.yandex_maps_url, 'Открыть в Яндекс Картах')}
@@ -563,25 +573,25 @@ def render_html(document: TripPageDocumentV1) -> str:
     # Transport is valid for a plan reference too, even though it is not mapped.
     entity_labels.update({leg.id: {"label": f"{leg.origin} → {leg.destination}"}
                           for leg in document.transport})
+    total_budget = next(item for item in document.budget if item.component == "total")
     return f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="{_e(csp)}">
 <title>{_e(document.trip.title)}</title>
 <style>{leaflet_css}</style><style>{_asset('trip-page.css.txt')}</style></head>
-<body><header class="hero"><nav><span class="brand">Т‑Путешествия</span><span>Персональный план</span></nav>
-<div class="hero-grid"><div><div class="eyebrow">{_e(document.trip.date_from.strftime('%d.%m'))} — {_e(document.trip.date_to.strftime('%d.%m.%Y'))} · {document.trip.travelers} чел.</div>
-<h1>{_e(document.trip.title)}</h1><p>{_e(document.trip.subtitle)}</p></div>
-<aside><span>Направление</span><strong>{_e(document.trip.destination)}</strong><small>Проверено {_e(_dt(document.checked_at))}</small></aside></div></header>
+<body><header class="site-header"><div class="brand"><span class="logo-mark">TN</span><strong>travel nova</strong></div><div class="header-meta"><span>{_e(document.trip.destination)}</span><span>{_e(document.trip.date_from.strftime('%d.%m'))}–{_e(document.trip.date_to.strftime('%d.%m.%Y'))}</span></div></header>
 <main>
-<section><div class="section-head"><div><span>01</span><h2>Бюджет поездки</h2></div><p>{_e(document.personalization.explanation)}</p></div><div class="budget-grid">{_render_budget(document)}</div></section>
-<section><div class="section-head"><div><span>02</span><h2>Дорога туда и обратно</h2></div></div><div class="transport-grid">{_render_transport(document)}</div></section>
-<section><div class="section-head"><div><span>03</span><h2>Где остановиться</h2></div></div><div class="card-grid hotels">{_render_hotels(document)}</div></section>
-<section><div class="section-head"><div><span>04</span><h2>Что посмотреть</h2></div><p>Рекомендации учитывают завершённые заказы Афиши, но не раскрывают историю покупок.</p></div><div class="card-grid">{_render_events(document)}</div></section>
-<section><div class="section-head"><div><span>05</span><h2>Рестораны и бары</h2></div><p>Рейтинг и количество отзывов получены из Яндекс Карт.</p></div><div class="card-grid venues">{_render_venues(document)}</div></section>
-<section><div class="section-head"><div><span>06</span><h2>Всё на карте</h2></div><p>Выбранный отель, мероприятия и заведения. Нажмите маркер, чтобы перейти к карточке.</p></div><div id="trip-map" aria-label="Карта поездки"><div class="map-fallback">Карта появится при подключении к интернету.</div></div><div class="map-legend"><span class="hotel">Отель</span><span class="event">События</span><span class="restaurant">Рестораны</span><span class="bar">Бары</span></div></section>
-<section><div class="section-head"><div><span>07</span><h2>Три сценария поездки</h2></div></div><div class="plans">{_render_plans(document, entity_labels)}</div></section>
-<section class="fine-print"><div><h2>Источники</h2><ul class="sources">{sources}</ul></div><div><h2>Важно</h2><ul>{warnings or '<li>Цены и доступность могут измениться до оформления.</li>'}</ul></div></section>
-</main><footer><b>Т‑Путешествия</b><span>Страница не является подтверждением бронирования или оплаты.</span></footer>
+<section class="hero"><div class="hero-copy"><p class="hero-kicker">Персональный план поездки</p><h1>{_e(document.trip.title)}</h1><p class="hero-lede">{_e(document.trip.subtitle)}</p><div class="hero-meta"><span>{_e(document.trip.date_from.strftime('%d.%m'))} — {_e(document.trip.date_to.strftime('%d.%m.%Y'))}</span><span>{document.trip.travelers} чел.</span><span>Проверено {_e(_dt(document.checked_at))}</span></div></div>
+<aside class="trip-profile"><span>Ориентир на поездку</span><strong>{_rub(total_budget.recommended_rub)}</strong><small>{_rub(total_budget.range_min_rub)} — {_rub(total_budget.range_max_rub)}</small><div><b>{document.personalization.travel_sample_size}</b><small>поездок в основе</small></div><div><b>{document.personalization.event_sample_size}</b><small>заказов Афиши</small></div></aside></section>
+<section class="budget-section"><div class="section-head"><div><span>01</span><h2>Бюджет поездки</h2></div><p>{_e(document.personalization.explanation)}</p></div><div class="budget-grid">{_render_budget(document)}</div></section>
+<section class="route-section"><div class="section-head"><div><span>02</span><h2>Дорога туда и обратно</h2></div></div><div class="transport-grid">{_render_transport(document)}</div></section>
+<section class="hotels-section"><div class="section-head"><div><span>03</span><h2>Где остановиться</h2></div><p>Выбранный отель становится точкой отсчёта для маршрутов и рекомендаций рядом.</p></div><div class="hotels">{_render_hotels(document)}</div></section>
+<section class="events-section"><div class="section-head"><div><span>04</span><h2>Что посмотреть</h2></div><p>Рекомендации учитывают завершённые заказы Афиши, но не раскрывают историю покупок.</p></div><div class="card-grid events">{_render_events(document)}</div></section>
+<section class="venues-section"><div class="section-head"><div><span>05</span><h2>Рестораны и бары</h2></div><p>Рейтинг и количество отзывов получены из Яндекс Карт.</p></div><div class="card-grid venues">{_render_venues(document)}</div></section>
+<section class="map-section"><div class="section-head"><div><span>06</span><h2>Всё на карте</h2></div><p>Выбранный отель, мероприятия и заведения. Нажмите маркер, чтобы перейти к карточке.</p></div><div id="trip-map" aria-label="Карта поездки"><div class="map-fallback">Карта появится при подключении к интернету.</div></div><div class="map-legend"><span class="hotel">Отель</span><span class="event">События</span><span class="restaurant">Рестораны</span><span class="bar">Бары</span></div></section>
+<section class="plans-section"><div class="section-head"><div><span>07</span><h2>Три сценария поездки</h2></div><p>Выберите темп: сбалансированный, культурный или с акцентом на еду и вечернюю жизнь.</p></div><div class="plans">{_render_plans(document, entity_labels)}</div></section>
+<section class="fine-print"><div><h2>Источники</h2><ul class="sources">{sources}</ul></div><div><h2>Важно знать</h2><ul>{warnings or '<li>Цены и доступность могут измениться до оформления.</li>'}</ul></div></section>
+</main><footer><b>travel nova</b><span>Страница не является подтверждением бронирования или оплаты.</span></footer>
 <script id="trip-map-data" type="application/json">{map_json}</script>
 <script>{leaflet_js}</script><script>{app_js}</script></body></html>"""
 

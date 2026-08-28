@@ -22,6 +22,23 @@ from tests.trip_page_fixtures import trip_document
 def test_contract_cross_references_and_required_sections():
     document = TripPageDocumentV1.model_validate(trip_document())
     assert document.schema_version == "trip-page/v1"
+    assert len(document.hotels) == 3
+    assert [hotel.total_price_rub for hotel in document.hotels] == [14000, 18000, 24000]
+    too_few_hotels = trip_document()
+    too_few_hotels["hotels"] = too_few_hotels["hotels"][:2]
+    try:
+        TripPageDocumentV1.model_validate(too_few_hotels)
+        assert False, "fewer than three hotels were accepted"
+    except Exception as exc:
+        assert "at least 3" in str(exc) or "at least" in str(exc)
+    unordered_hotels = trip_document()
+    unordered_hotels["hotels"][0], unordered_hotels["hotels"][1] = (
+        unordered_hotels["hotels"][1], unordered_hotels["hotels"][0])
+    try:
+        TripPageDocumentV1.model_validate(unordered_hotels)
+        assert False, "unordered hotel prices were accepted"
+    except Exception as exc:
+        assert "strictly increasing" in str(exc)
     broken = trip_document()
     broken["venues"] = broken["venues"][:2]
     try:
@@ -52,6 +69,9 @@ def test_renderer_writes_atomic_owner_only_pair_and_escapes_html():
             assert "must-never-appear" not in html + sidecar
             assert "tile.openstreetmap.org" in html and "window.L" in html
             assert "Рестораны и бары" in html and "Три сценария поездки" in html
+            assert "travel nova" in html and html.count('class="hotel-card') == 3
+            assert "Выгодный" in html and "Сбалансированный" in html and "Больше комфорта" in html
+            assert "--cream: #f5f1e8" in html and "--orange: #ff5938" in html
             assert stat.S_IMODE(Path(result.html_path).stat().st_mode) == 0o600
             assert stat.S_IMODE(Path(result.json_path).stat().st_mode) == 0o600
             try:
