@@ -1,0 +1,13 @@
+---
+description: Download hotel photos locally before displaying them in chat
+alwaysApply: true
+---
+
+# Hotel Photos
+
+When finding, comparing, or recommending hotels:
+
+- Download representative hotel photos with `curl` into a writable local directory.
+- Display the downloaded local image files in the chat using absolute filesystem paths.
+- Do not embed remote hotel image URLs directly in the response.
+- If a photo cannot be downloaded, say so rather than presenting the remote URL as though it were uploaded locally.
