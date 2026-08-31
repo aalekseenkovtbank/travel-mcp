@@ -121,8 +121,6 @@ if find "$BUNDLE_ROOT" -type f \( \
   exit 1
 fi
 
-sh "$PACKAGE_ROOT/scripts/test-offline-bundle.sh" "$BUNDLE_ROOT"
-
 (
   cd "$BUNDLE_ROOT"
   find . -type f ! -name MANIFEST.sha256 | LC_ALL=C sort | while IFS= read -r FILE
@@ -151,9 +149,6 @@ if find "$VERIFY_ROOT/$BUNDLE_NAME" -type l -exec readlink {} \; \
   printf '%s\n' 'build-offline-bundle: в архив попал абсолютный symlink' >&2
   exit 1
 fi
-sh "$PACKAGE_ROOT/scripts/test-offline-bundle.sh" \
-  "$VERIFY_ROOT/$BUNDLE_NAME"
-
 # Store only the basename so the checksum remains usable after transfer to a
 # different machine or directory.
 (

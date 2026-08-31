@@ -31,11 +31,10 @@ npx -y @travel-growth-inspiration/mcp login
 npx -y @travel-growth-inspiration/mcp serve
 ```
 
-The `serve` command exposes 40 read-only travel tools and one local HTML renderer. Login,
+The `serve` command exposes 39 read-only travel tools and one local HTML renderer. Login,
 payments, transfers, bookings, carts, messages, credentials, documents, generic
 bank reads and rail booking/payment tools are physically absent from `tools/list`.
 Public context comes from T-Bank Railways, OpenStreetMap/Nominatim and Open-Meteo.
-The Yandex commercial venue adapter is the only optional keyed context source.
 See [docs/TRAVEL_MCP.md](docs/TRAVEL_MCP.md).
 
 ### As a Claude Code plugin (server + all 11 skills in one step)
@@ -185,7 +184,7 @@ Russian and so is the person reading the answer.
 | **Afisha** | `afisha_catalog`, `afisha_places`, `place_schedule`, `place_info` |
 | **Tickets** | `cinema_search`, `cinema_schedule`, `cinema_seats`, `concert_schedule`, `concert_hall`, `cinema_book`, `ticket_pay`, `ticket_cancel`, `ticket_qr` |
 | **Search** | `search_app` |
-| **Travel search** | `train_stations`, `train_search`, `compare_train_prices`, `train_calendar`, `flight_search`, `compare_flight_prices`, `flight_history`, `hotel_autocomplete`, `hotel_search`, `hotel_search_filters`, `hotel_latest_offers`, `compare_hotel_prices`, `compare_flight_hotel_prices`, `hotel_details`, `hotel_rates`, `hotel_checkout_url`, `hotel_reviews`, `hotel_filters`, `nearby_search`, `yandex_venue_search`, `weather`, `render_trip_page` |
+| **Travel search** | `train_stations`, `train_search`, `compare_train_prices`, `train_calendar`, `flight_search`, `compare_flight_prices`, `flight_history`, `hotel_autocomplete`, `hotel_search`, `hotel_search_filters`, `hotel_latest_offers`, `compare_hotel_prices`, `compare_flight_hotel_prices`, `hotel_details`, `hotel_rates`, `hotel_checkout_url`, `hotel_reviews`, `hotel_filters`, `nearby_search`, `weather`, `render_trip_page` |
 | **Marketplace** | `shop_search`, `shop_cart` |
 | **Messenger** | `messenger_conversations`, `messenger_messages`, `messenger_file`, `messenger_send`, `messenger_unread` |
 | **Money** | `transfer_sbp_resolve`, `transfer`, `payment_qr`, `transfer_requisites`, `payment_commission`, `pay_bill`, `payment_providers`, `confirm_payment`, `payment_status` |
@@ -250,23 +249,6 @@ live bank.
 Когда истекает мой загранпаспорт?
 ```
 
-## Tests
-
-No pytest — the tests are standalone scripts. Run them all:
-
-```bash
-.venv/bin/python tests/run_all.py            # every file, ~35 s, offline
-.venv/bin/python tests/run_all.py transfer   # only files matching "transfer"
-```
-
-Each runs in its own process, and the runner redirects the attempt/event journals to
-a temp directory so a test run never writes to `~/.local/share/tbank-mcp/`.
-
-Everything needed is in the repo: request contracts are pinned against scrubbed
-fixtures in `tests/fixtures/` (real structure and protocol values, synthetic personal
-data), so the suite is meaningful on a clean clone. Where the original Burp capture is
-present the tests additionally check the fixtures have not drifted from it.
-
 ## Security
 
 - **`session.json`** — canonical path `~/.local/share/tbank-mcp/session.json`
@@ -276,12 +258,9 @@ present the tests additionally check the fixtures have not drifted from it.
   token or a cookie.
 - **Password / PIN** — not in git, not in the code, and not in the LLM context if you
   use `login_cli.py`.
-- **No secrets in the repo.** Two kinds of committed material look secret-adjacent and
-  are not: `ca/roots/*.crt` are public CA root certificates, shipped on purpose and
-  pinned by SHA-256 in `src/tls.py`; `tests/fixtures/*.json` are request contracts
-  scrubbed from a real capture — real structure and protocol values, synthetic
-  account, phone, address and device ids. The captures themselves are gitignored and
-  never leave the machine.
+- **No secrets in the repo.** Files under `ca/roots/*.crt` are public CA root
+  certificates, shipped on purpose and pinned by SHA-256 in `src/tls.py`. Captures
+  are gitignored and never leave the machine.
 - **`events.jsonl` + `attempts.jsonl`** — redacted diagnostics in
   `~/.local/share/tbank-mcp/`. They carry step, http_status, blame, amount and order
   id, and never tokens, cookies, addresses, phone numbers, emails or account numbers.

@@ -78,6 +78,7 @@ description: |
 1. `hotel_autocomplete(query)` → возьми id локации. Запрос требует минимум три
    символа; id по названию не угадывай.
 2. `hotel_search(destination_id, checkin_date, checkout_date)` → отели и цены.
+   По умолчанию запрашивает до 100 отелей; для меньшей выдачи передай `limit`.
    Даты — YYYY-MM-DD; возраста детей — строка `5,12` или JSON `[5,12]`.
 3. Если пользователь задаёт критерии или спрашивает, сколько вариантов им
    соответствует, вызови `hotel_search_filters(..., response_format="json")` с
@@ -105,8 +106,8 @@ description: |
    `rate_confirmed=true`. Ссылка ничего не бронирует и не оплачивает; итоговые
    цену и условия пользователь проверяет на странице T-Bank.
 
-Hotel-вызовы идут в публичный `hotels.tbank.ru` без банковского access token,
-sessionid и Cookie.
+Hotel-вызовы идут в публичный `hotels.tbank.ru` без банковского access token и
+sessionid. Если в SSO-сессии доступен `ssoId`, передаётся только этот cookie.
 
 ## Сравнение дат и цен
 

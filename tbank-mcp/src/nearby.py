@@ -9,11 +9,12 @@ from typing import Any
 
 import requests
 
+from . import tls
 from .client import TbankApiError
 
 RADIUS_METERS = 1_800
 OVERPASS_URL = os.environ.get(
-    "OVERPASS_URL", "https://overpass-api.de/api/interpreter")
+    "OVERPASS_URL", "https://maps.mail.ru/osm/tools/overpass/api/interpreter")
 NOMINATIM_URL = os.environ.get(
     "NOMINATIM_URL", "https://nominatim.openstreetmap.org")
 TIMEOUT_SECONDS = max(1.0, float(os.environ.get("TRAVEL_PROVIDER_TIMEOUT_SECONDS", "15")))
@@ -22,6 +23,15 @@ USER_AGENT = os.environ.get(
 
 _geocode_lock = threading.Lock()
 _last_geocode_at = 0.0
+
+
+def _trusted_requester() -> requests.Session:
+    """Create a credential-free session using the project's explicit CA bundle."""
+    tls.rebuild_bundle()
+    session = requests.Session()
+    session.mount("https://", tls.RobustTLSAdapter())
+    session.verify = tls.BUNDLE
+    return session
 
 
 def _coordinates(latitude: float | None, longitude: float | None) -> tuple[float, float] | None:
@@ -116,7 +126,7 @@ def search_nearby(
     include_poi: bool = False,
     place_kinds: str = "culture",
     limit: int = 20,
-    requester: Any = requests,
+    requester: Any | None = None,
 ) -> dict[str, Any]:
     city = str(city or "").strip()
     anchor_name = str(anchor_name or "").strip()
@@ -125,6 +135,7 @@ def search_nearby(
         raise TbankApiError("BAD_CITY", "Передай city.")
     if limit < 0 or limit > 100:
         raise TbankApiError("BAD_LIMIT", "limit должен быть от 0 до 100.")
+    requester = requester or _trusted_requester()
 
     resolved = _coordinates(latitude, longitude)
     geocoded = False

@@ -48,7 +48,6 @@ from .trip_page import (RenderTripPageResult, TripPageDocumentV1,
 from .trip_personalization import (TripPersonalizationProfile,
                                    build_personalization_profile)
 from .weather import weather_report as _weather_report
-from .yandex_venues import VenueSearchResult, YandexVenueProvider
 
 TOOLSET_ALL = "all"
 TOOLSET_TRAVEL = "travel"
@@ -82,7 +81,7 @@ TRAVEL_TOOL_NAMES = frozenset({
     "afisha_catalog", "afisha_places", "place_schedule", "place_info",
     "concert_schedule", "concert_hall",
     # Public no-key context sources.
-    "nearby_search", "yandex_venue_search", "weather",
+    "nearby_search", "weather",
     # Local static artifact generation (the only write in the travel registry).
     "render_trip_page",
 })
@@ -113,25 +112,27 @@ def personalized_weekend_landing(
         else "Отель не задан: подбери ровно три варианта и выбери средний по цене как рекомендуемый."
     )
     return f"""Подготовь персональный лендинг для поездки в {city} с {date_from} по {date_to}.
-Гостей: {adults}. Период анализа трат: последние {spending_lookback_days} дней.
+Состав карточки поездки: {adults} взрослых. Поисковые квоты фиксированы и не зависят
+от этого поля: билеты всегда ищи на 1 взрослого, отели всегда ищи на 2 взрослых.
+Не переиспользуй один параметр adults между транспортом и отелями.
+Период анализа трат: последние {spending_lookback_days} дней.
 {hotel_part}
 
 Работай по этому сценарию:
 1. Вызови trip_personalization_profile() для агрегированного бюджета и интересов. Не вызывай list_operations и order_details самостоятельно ради профиля: новый инструмент уже исключает переводы, отмены и сырые персональные данные.
-2. Подбери транспорт туда и обратно через flight_search или train_search. Это только поиск: не утверждай, что билеты куплены. Передай найденные цены повторно в trip_personalization_profile(), если истории поездок недостаточно.
-3. Найди ровно три отеля через hotel_autocomplete, hotel_search, hotel_details и актуальные hotel_rates/hotel_latest_offers. Расположи их по строго возрастающей полной цене: выгодный, сбалансированный и более комфортный. Уровень звёзд, рейтинг, расположение и условия не должны становиться хуже при росте цены; разница между соседними вариантами должна быть разумной, без резкого скачка класса. hotel_checkout_url разрешён только после явного выбора конкретного тарифа; ссылка не создаёт бронь и не списывает деньги.
-4. Для {date_from}–{date_to} получи Афишу и перепроверь расписание. Ранжируй события по scoringWeights и агрегатам eventPreferences из профиля. Не бронируй места и не вызывай ticket_pay.
-5. Вызови yandex_venue_search() для ресторанов и баров. Используй только полные карточки с HTTPS-фото, рейтингом, числом отзывов, координатами и ссылкой Яндекс Карт; собери 4–8 заведений, минимум два ресторана и один бар.
-6. Составь TripPageDocumentV1: карта должна ссылаться на выбранный отель, события и заведения по ID; добавь ровно три непротиворечивых плана balanced, culture и food_nightlife. Все остановки должны попадать в даты поездки и ссылаться на существующие ID.
+2. Подбери транспорт туда и обратно через flight_search или train_search, всегда явно передавая adults=1. Для сравнения дат в compare_flight_prices и compare_train_prices также всегда передавай adults=1. Это только поиск: не утверждай, что билеты куплены. Для пятничного вылета на выходные выбирай отправление не раньше 18:00 по местному времени, если пользователь явно не сказал, что пятница свободна. Передай найденные цены повторно в trip_personalization_profile(), если истории поездок недостаточно. Сохрани продавца в seller, а единый checkout маршрута — в transportBookingUrl, только если их вернул источник.
+3. Найди ровно три отеля через hotel_autocomplete, hotel_search, hotel_details и актуальные hotel_rates/hotel_latest_offers, всегда явно передавая adults=2 во все hotel-вызовы и сравнения. Не используй compare_flight_hotel_prices в этом шаблоне: у него один общий adults, поэтому он не может одновременно искать билет на одного и отель на двоих. Расположи отели по строго возрастающей полной цене: выгодный, сбалансированный и более комфортный. Уровень звёзд, рейтинг, расположение и условия не должны становиться хуже при росте цены; разница между соседними вариантами должна быть разумной, без резкого скачка класса. Заполни room, meal, cancellation, payment, reviewSummary и bookingUrl фактическими данными тарифа. hotel_checkout_url используй только с подтверждённым book_hash; ссылка не создаёт бронь и не списывает деньги.
+4. Для {date_from}–{date_to} получи Афишу и перепроверь расписание. Ранжируй события по scoringWeights и агрегатам eventPreferences из профиля; сохраняй genres и ageRestriction. Не бронируй места и не вызывай ticket_pay.
+5. Вызови nearby_search() для ресторанов, баров и прогулочных точек. Используй карточки OpenStreetMap с координатами и sourceUrl; собери 4–8 заведений, минимум два ресторана и один бар. Не выдумывай отсутствующие фотографии, рейтинги, отзывы или часы работы.
+6. Составь TripPageDocumentV1: mapPoints должны ссылаться на выбранный отель, события и заведения по ID; renderer автоматически покажет на карте и два альтернативных отеля. Добавь ровно три непротиворечивых плана balanced, culture и food_nightlife. Все остановки должны попадать в даты поездки и ссылаться на существующие ID.
 7. Вызови render_trip_page(document). Верни пользователю абсолютный htmlPath как готовый результат и jsonPath как воспроизводимый контракт. Не пытайся собирать React/Vite-проект.
-8. Не раскрывай имена, номера счетов, балансы, зарплату или отдельные операции. Не заявляй, что билет или отель забронирован. Цены всегда снабжай временем проверки."""
+8. Не раскрывай имена, номера счетов, балансы, зарплату или отдельные операции. Не заявляй, что билет или отель забронирован. В бюджете и карточках явно подпиши, что цена транспорта получена для 1 взрослого, а цена отеля — для 2 взрослых. Не умножай цену билета на число гостей карточки. Цены всегда снабжай временем проверки."""
 
 # Every @mcp.tool() below is recorded. Done by replacing the decorator ONCE rather
 # than touching 57 functions: a per-tool opt-in is a list somebody has to remember to
 # extend, and the tool that gets forgotten is the one whose behaviour is a mystery.
 # trace.wrap keeps __wrapped__, so FastMCP still builds its schema and description
-# from the real signature — pinned by tests/test_trace.py, because a schema that
-# changed here would change what every agent sees.
+# from the real signature; changing it would change what every agent sees.
 _untraced_tool = mcp.tool
 
 # ── What each tool DOES, as the host needs to know it ───────────────────────
@@ -244,7 +245,6 @@ TOOL_KINDS: dict[str, tuple[str, str]] = {
     "compare_hotel_prices": ("Сравнение цен на отели", READ),
     "compare_flight_hotel_prices": ("Сравнение перелёта и отеля", READ),
     "nearby_search": ("Места рядом", READ),
-    "yandex_venue_search": ("Рестораны и бары Яндекс Карт", READ),
     "weather": ("Погода и климат", READ),
     "shop_search": ("Поиск товаров в маркетплейсе", READ),
     "shop_cart": ("Корзины маркетплейса", READ),
@@ -351,18 +351,6 @@ def trip_personalization_profile(
         explicit_hotel_budget_per_night_rub=explicit_hotel_budget_per_night_rub,
         explicit_onsite_budget_rub=explicit_onsite_budget_rub,
     )
-
-
-@mcp.tool()
-def yandex_venue_search(city: str, query: str, limit: int = 8) -> VenueSearchResult:
-    """Рестораны и бары из договорного API Яндекс Карт.
-
-    Возвращает только карточки, где есть координаты, HTTPS-фото с атрибуцией,
-    рейтинг, число отзывов и ссылка Яндекс Карт. Неполные ответы отбрасываются, а
-    их число возвращается в rejectedCount. Требует YANDEX_MAPS_API_KEY и явное
-    подтверждение договорного права сохранения YANDEX_VENUE_STORAGE_ALLOWED=1.
-    """
-    return YandexVenueProvider().search(city, query, limit)
 
 
 @mcp.tool()
@@ -5485,8 +5473,9 @@ def hotel_autocomplete(query: str, limit: int = 10,
     """Найти destination_id для hotel_search() по названию города/места.
 
     Возвращает отдельно локации и конкретные отели. Запрос идёт в публичный
-    hotels.tbank.ru без банковского access_token, sessionid и Cookie. Только
-    чтение; бронирования и оплаты здесь нет. query — минимум 3 символа.
+    hotels.tbank.ru без банковского access_token и sessionid. Если в SSO-сессии
+    доступен ssoId, передаётся только этот cookie. Запрос только для чтения;
+    бронирования и оплаты здесь нет. query — минимум 3 символа.
     """
     try:
         fmt = _response_format(response_format)
@@ -5541,14 +5530,15 @@ def hotel_autocomplete(query: str, limit: int = 10,
 
 @_threaded_tool
 def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
-                 adults: int = 1, children_ages: str = "", limit: int = 15,
+                 adults: int = 1, children_ages: str = "", limit: int = 100,
                  response_format: str = "text") -> str:
     """Поиск доступных отелей и цен.
 
     destination_id бери из hotel_autocomplete(); даты — YYYY-MM-DD; adults —
     1..6; children_ages — возраста через запятую (например ``5,12``) или JSON
-    ``[5,12]``. Запрос read-only и уходит без банковских credentials. MCP не
-    бронирует и не оплачивает отель — здесь только поиск и сравнение. Перед
+    ``[5,12]``. По умолчанию поиск возвращает до 100 отелей; меньшее значение
+    можно задать через limit. Запрос read-only и уходит без банковских credentials.
+    MCP не бронирует и не оплачивает отель — здесь только поиск и сравнение. Перед
     окончательным сравнением изменчивых условий шорт-листа вызови
     hotel_latest_offers(); для availability-aware фильтров — hotel_search_filters().
     """
@@ -5931,7 +5921,8 @@ def hotel_rates(hotel_id: str, checkin_date: str, checkout_date: str,
     тарифов/комнат, включая цены, отмену, питание, удобства и bookHash.
 
     Это read-only проверка наличия, хотя HTTP-метод POST: бронь не создаётся,
-    деньги не списываются, банковские access_token/sessionid/Cookie не отправляются.
+    деньги не списываются, банковские access_token/sessionid не отправляются;
+    из cookie при наличии передаётся только ssoId.
     """
     try:
         fmt = _response_format(response_format)
@@ -6109,7 +6100,8 @@ def hotel_reviews(hotel_id: str, source_code: str = "",
     page_size — 1..50. Если в ответе есть cursor, передай его без изменений в
     следующий вызов. Возвращаются автор, рейтинг, данные поездки, плюсы/минусы,
     фото с категориями, лайки и официальный ответ. Публичный read-only запрос
-    не получает банковские access_token/sessionid/Cookie.
+    не получает банковские access_token/sessionid; из cookie при наличии
+    передаётся только ssoId.
     """
     try:
         fmt = _response_format(response_format)
@@ -6183,7 +6175,8 @@ def hotel_reviews(hotel_id: str, source_code: str = "",
 def hotel_filters(max_chars: int = 5000) -> str:
     """Общий каталог фильтров отелей в исходной структуре API.
 
-    Это публичный read-only запрос без банковского access_token/sessionid/Cookie.
+    Это публичный read-only запрос без банковского access_token/sessionid;
+    из cookie при наличии передаётся только ssoId.
     Для доступных фильтров и числа результатов на конкретные даты/гостей вызывай
     hotel_search_filters(), а этот метод используй для UI и фильтров hotel_rates().
     max_chars=0 возвращает весь ответ; при ограничении обрезка всегда помечается.

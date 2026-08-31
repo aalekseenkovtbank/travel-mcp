@@ -81,6 +81,7 @@ class TransportLeg(ContractModel):
     arrival_at: datetime
     carrier: NonEmpty
     service_number: str = ""
+    seller: str = ""
     price_rub: float = Field(ge=0)
     booking_url: HttpsUrl | None = None
     notes: list[str] = Field(default_factory=list, max_length=8)
@@ -112,6 +113,9 @@ class HotelOption(ContractModel):
     total_price_rub: float = Field(ge=0)
     meal: str = ""
     room: str = ""
+    cancellation: str = ""
+    payment: str = ""
+    review_summary: str = ""
     booking_url: HttpsUrl | None = None
 
     @field_validator("image_url", "booking_url")
@@ -163,8 +167,9 @@ class EventOption(ContractModel):
     ends_at: datetime | None = None
     price_from_rub: float | None = Field(default=None, ge=0)
     image_url: HttpsUrl | None = None
-    source_url: HttpsUrl
+    source_url: HttpsUrl | None = None
     genres: list[str] = Field(default_factory=list, max_length=12)
+    age_restriction: str = ""
     personalization_score: float = Field(default=50, ge=0, le=100)
     match_reason: NonEmpty
     personalization_basis: Literal["order_history", "no_history"]
@@ -200,28 +205,35 @@ class DiningVenue(ContractModel):
     id: NonEmpty
     kind: Literal["restaurant", "bar"]
     name: NonEmpty
-    address: NonEmpty
+    address: str = ""
     coordinates: Coordinates
-    photos: list[VenuePhoto] = Field(min_length=1, max_length=8)
-    rating: float = Field(ge=0)
-    rating_scale: float = Field(default=5, gt=0)
-    review_count: int = Field(ge=0)
-    yandex_maps_url: HttpsUrl
+    photos: list[VenuePhoto] = Field(default_factory=list, max_length=8)
+    rating: float | None = Field(default=None, ge=0)
+    rating_scale: float | None = Field(default=None, gt=0)
+    review_count: int | None = Field(default=None, ge=0)
+    openstreetmap_url: HttpsUrl
+    source: Literal["OpenStreetMap"] = "OpenStreetMap"
     categories: list[str] = Field(default_factory=list, max_length=12)
     opening_hours: str = ""
     price_level: str = ""
 
-    @field_validator("yandex_maps_url")
+    @field_validator("openstreetmap_url")
     @classmethod
-    def _yandex_https_url(cls, value):
+    def _openstreetmap_https_url(cls, value):
         host = str(value.host or "").lower()
-        if value.scheme != "https" or not (host == "yandex.ru" or host.endswith(".yandex.ru")):
-            raise ValueError("yandexMapsUrl must be an HTTPS yandex.ru URL")
+        if value.scheme != "https" or not (
+            host == "openstreetmap.org" or host.endswith(".openstreetmap.org")
+        ):
+            raise ValueError(
+                "openstreetmapUrl must be an HTTPS openstreetmap.org URL")
         return value
 
     @model_validator(mode="after")
     def _rating_fits_scale(self):
-        if self.rating > self.rating_scale:
+        if (self.rating is None) != (self.rating_scale is None):
+            raise ValueError("rating and ratingScale must be provided together")
+        if (self.rating is not None and self.rating_scale is not None
+                and self.rating > self.rating_scale):
             raise ValueError("rating must not exceed ratingScale")
         return self
 
@@ -283,6 +295,7 @@ class TripPageDocumentV1(ContractModel):
     schema_version: Literal["trip-page/v1"] = "trip-page/v1"
     trip: TripSummary
     transport: list[TransportLeg] = Field(min_length=2, max_length=8)
+    transport_booking_url: HttpsUrl | None = None
     hotels: list[HotelOption] = Field(min_length=3, max_length=3)
     selected_hotel_id: NonEmpty
     budget: list[BudgetRecommendation] = Field(min_length=4, max_length=4)
@@ -294,6 +307,13 @@ class TripPageDocumentV1(ContractModel):
     sources: list[SourceReference] = Field(min_length=1, max_length=24)
     warnings: list[str] = Field(default_factory=list, max_length=24)
     checked_at: datetime
+
+    @field_validator("transport_booking_url")
+    @classmethod
+    def _https_transport_booking_url(cls, value):
+        if value is not None and value.scheme != "https":
+            raise ValueError("transportBookingUrl must use HTTPS")
+        return value
 
     @model_validator(mode="after")
     def _cross_references_are_valid(self):
@@ -421,14 +441,29 @@ def _link(url, label: str, css: str = "button") -> str:
             f'rel="noopener noreferrer">{_e(label)}</a>')
 
 
+def _checkout_action(url, label: str, unavailable: str) -> str:
+    if url:
+        return _link(url, label, "button button-primary")
+    return (f'<span class="button is-disabled" aria-disabled="true" '
+            f'title="{_e(unavailable)}">{_e(unavailable)}</span>')
+
+
+def _transport_checkout_url(document: TripPageDocumentV1):
+    if document.transport_booking_url:
+        return document.transport_booking_url
+    leg_urls = {str(leg.booking_url) for leg in document.transport if leg.booking_url}
+    return next(iter(leg_urls)) if len(leg_urls) == 1 else None
+
+
 def _entity_index(document: TripPageDocumentV1) -> dict[str, dict]:
     index: dict[str, dict] = {}
-    selected = next(item for item in document.hotels
-                    if item.id == document.selected_hotel_id)
-    index[selected.id] = {
-        "id": selected.id, "kind": "hotel", "label": selected.name,
-        "lat": selected.coordinates.latitude, "lon": selected.coordinates.longitude,
-    }
+    for hotel in document.hotels:
+        selected = hotel.id == document.selected_hotel_id
+        index[hotel.id] = {
+            "id": hotel.id, "kind": "hotel", "label": hotel.name,
+            "lat": hotel.coordinates.latitude, "lon": hotel.coordinates.longitude,
+            "selected": selected,
+        }
     for event in document.events:
         index[event.id] = {
             "id": event.id, "kind": "event", "label": event.name,
@@ -446,17 +481,47 @@ def _render_transport(document: TripPageDocumentV1) -> str:
     cards = []
     labels = {"outbound": "Туда", "return": "Обратно"}
     icons = {"flight": "✈", "train": "▰"}
+    route_checkout = _transport_checkout_url(document)
     for leg in sorted(document.transport, key=lambda item: item.departure_at):
+        notes = "".join(f'<span>{_e(note)}</span>' for note in leg.notes)
+        seller = f'<small>Продавец: {_e(leg.seller)}</small>' if leg.seller else ""
+        leg_action = "" if route_checkout else _link(
+            leg.booking_url,
+            "Оформить билет туда" if leg.direction == "outbound" else "Оформить билет обратно",
+            "button button-primary",
+        )
         cards.append(f"""
         <article class="transport-card" id="entity-{_e(leg.id)}">
           <div class="eyebrow">{_e(labels[leg.direction])} · {_e(leg.mode)}</div>
           <div class="route"><span>{_e(leg.origin)}</span><b>{icons[leg.mode]}</b><span>{_e(leg.destination)}</span></div>
           <div class="times"><strong>{_e(_dt(leg.departure_at))}</strong><span>→</span><strong>{_e(_dt(leg.arrival_at))}</strong></div>
           <p>{_e(leg.carrier)}{(' · ' + _e(leg.service_number)) if leg.service_number else ''}</p>
+          {seller}
+          {f'<div class="transport-notes">{notes}</div>' if notes else ''}
           <div class="price">{_rub(leg.price_rub)}</div>
-          {_link(leg.booking_url, 'Открыть предложение')}
+          {leg_action}
         </article>""")
     return "".join(cards)
+
+
+def _render_transport_overview(document: TripPageDocumentV1) -> str:
+    checkout = _transport_checkout_url(document)
+    total = sum(leg.price_rub for leg in document.transport)
+    has_separate_links = any(leg.booking_url for leg in document.transport)
+    if checkout:
+        action = _checkout_action(
+            checkout, "Оформить перелёт", "Checkout перелёта не получен")
+    elif has_separate_links:
+        action = '<span class="checkout-note">Оформление — в карточках рейсов</span>'
+    else:
+        action = _checkout_action(
+            None, "Оформить перелёт", "Checkout перелёта пока недоступен")
+    return f"""
+      <aside class="transport-overview">
+        <div><span>Выбранный маршрут</span><strong>{len(document.transport)} сегм.</strong></div>
+        <div><span>Полная цена</span><strong>{_rub(total)}</strong></div>
+        {action}
+      </aside>"""
 
 
 def _render_budget(document: TripPageDocumentV1) -> str:
@@ -484,16 +549,32 @@ def _render_hotels(document: TripPageDocumentV1) -> str:
     tier_labels = ("Выгодный", "Сбалансированный", "Больше комфорта")
     for index, hotel in enumerate(document.hotels):
         selected = hotel.id == document.selected_hotel_id
+        facts = [
+            ("Номер", hotel.room),
+            ("Питание", hotel.meal),
+            ("Отмена", hotel.cancellation),
+            ("Оплата", hotel.payment),
+        ]
+        conditions = "".join(
+            f'<li><span>{_e(label)}</span><strong>{_e(value)}</strong></li>'
+            for label, value in facts if value
+        )
+        rating = (
+            f'Рейтинг {_e(hotel.rating)}'
+            f'{(" · " + _e(hotel.review_count) + " отзывов") if hotel.review_count is not None else ""}'
+            if hotel.rating is not None else "Рейтинг не указан"
+        )
         cards.append(f"""
         <article class="hotel-card {'selected' if selected else ''}" id="entity-{_e(hotel.id)}">
           <div class="card-media">{_image(hotel.image_url, hotel.name)}<span class="card-rank">0{index + 1}</span><span class="hotel-tier">{_e(tier_labels[index])}</span></div>
           <div class="card-body">
             <div class="eyebrow">{'Рекомендуем · ' if selected else ''}{'★' * hotel.stars}</div>
             <h3>{_e(hotel.name)}</h3><p>{_e(hotel.address)}</p>
-            <div class="hotel-metrics"><span>{('Рейтинг ' + _e(hotel.rating)) if hotel.rating is not None else 'Рейтинг не указан'}{(' · ' + _e(hotel.review_count) + ' отзывов') if hotel.review_count is not None else ''}</span><span>{_rub(hotel.nightly_price_rub)} за ночь</span></div>
-            <p>{_e(hotel.room or 'Категория номера уточняется')}{(' · ' + _e(hotel.meal)) if hotel.meal else ''}</p>
-            <div class="price">{_rub(hotel.total_price_rub)}</div>
-            {_link(hotel.booking_url, 'Проверить тариф')}
+            <div class="hotel-metrics"><span>{rating}</span><span>{_rub(hotel.nightly_price_rub)} за ночь</span></div>
+            {f'<ul class="hotel-conditions">{conditions}</ul>' if conditions else '<p class="muted-note">Условия тарифа нужно уточнить перед оформлением.</p>'}
+            {f'<blockquote class="hotel-review">{_e(hotel.review_summary)}</blockquote>' if hotel.review_summary else ''}
+            <div class="price">{_rub(hotel.total_price_rub)} <small>за всю поездку</small></div>
+            {_checkout_action(hotel.booking_url, 'Оформить отель', 'Checkout отеля пока недоступен')}
           </div>
         </article>""")
     return "".join(cards)
@@ -506,29 +587,40 @@ def _render_events(document: TripPageDocumentV1) -> str:
       <article class="event-card" id="entity-{_e(item.id)}">
         <div class="card-media">{_image(item.image_url, item.name)}<span class="card-rank">{index:02d}</span><span class="card-match">{item.personalization_score:.0f}% совпадение</span></div>
         <div class="card-body">
-          <div class="eyebrow">{_e(item.kind)}</div>
+          <div class="eyebrow">{_e(item.kind)}{(' · ' + _e(item.age_restriction)) if item.age_restriction else ''}</div>
           <h3>{_e(item.name)}</h3>
           <p><strong>{_e(_dt(item.starts_at))}</strong> · {_e(item.venue)}</p>
+          <p class="event-address">{_e(item.address)}</p>
+          {f'<div class="card-tags">{"".join(f"<span>{_e(genre)}</span>" for genre in item.genres)}</div>' if item.genres else ''}
           <p>{_e(item.match_reason)}</p>
-          <div class="price">от {_rub(item.price_from_rub)}</div>
-          {_link(item.source_url, 'Открыть в Афише')}
+          <div class="price">{('от ' + _rub(item.price_from_rub)) if item.price_from_rub is not None else 'Цена уточняется'}</div>
+          {_checkout_action(item.source_url, 'Открыть в Афише', 'Ссылка Афиши не опубликована')}
         </div>
       </article>""" for index, item in enumerate(sorted(document.events,
                                          key=lambda event: -event.personalization_score), 1))
 
 
 def _render_venues(document: TripPageDocumentV1) -> str:
-    return "".join(f"""
-      <article class="venue-card" id="entity-{_e(item.id)}">
-        <div class="card-media">{_image(item.photos[0].url, item.name, item.photos[0].attribution)}<span class="card-match">★ {item.rating:g} · {item.review_count:n}</span></div>
-        <div class="card-body">
-          <div class="eyebrow">{'Ресторан' if item.kind == 'restaurant' else 'Бар'} · {_e(item.price_level)}</div>
-          <h3>{_e(item.name)}</h3><p>{_e(item.address)}</p>
-          <p>{_e(', '.join(item.categories))}</p>
-          {f'<small>{_e(item.opening_hours)}</small>' if item.opening_hours else ''}
-          {_link(item.yandex_maps_url, 'Открыть в Яндекс Картах')}
-        </div>
-      </article>""" for item in document.venues)
+    cards = []
+    for item in document.venues:
+        photo = item.photos[0] if item.photos else None
+        if item.rating is not None:
+            reviews = (f" · {item.review_count:n}" if item.review_count is not None else "")
+            metric = f'<span class="card-match">★ {item.rating:g}{reviews}</span>'
+        else:
+            metric = '<span class="card-match">OpenStreetMap</span>'
+        cards.append(f"""
+          <article class="venue-card" id="entity-{_e(item.id)}">
+            <div class="card-media">{_image(photo.url if photo else None, item.name, photo.attribution if photo else '')}{metric}</div>
+            <div class="card-body">
+              <div class="eyebrow">{'Ресторан' if item.kind == 'restaurant' else 'Бар'}{(' · ' + _e(item.price_level)) if item.price_level else ''}</div>
+              <h3>{_e(item.name)}</h3><p>{_e(item.address)}</p>
+              <p>{_e(', '.join(item.categories))}</p>
+              {f'<small>{_e(item.opening_hours)}</small>' if item.opening_hours else ''}
+              {_link(item.openstreetmap_url, 'Открыть в OpenStreetMap')}
+            </div>
+          </article>""")
+    return "".join(cards)
 
 
 def _render_plans(document: TripPageDocumentV1, entities: dict[str, dict]) -> str:
@@ -555,7 +647,11 @@ def render_html(document: TripPageDocumentV1) -> str:
     leaflet_js = _asset("leaflet-1.9.4.js.txt")
     app_js = _asset("trip-page.js.txt")
     entities = _entity_index(document)
-    map_rows = [entities[point.ref_id] for point in document.map_points]
+    map_ids = list(dict.fromkeys(
+        [hotel.id for hotel in document.hotels]
+        + [point.ref_id for point in document.map_points]
+    ))
+    map_rows = [entities[entity_id] for entity_id in map_ids]
     map_json = json.dumps(map_rows, ensure_ascii=False, separators=(",", ":"))
     map_json = map_json.replace("<", "\\u003c").replace(">", "\\u003e")
     script_hashes = []
@@ -574,22 +670,26 @@ def render_html(document: TripPageDocumentV1) -> str:
     entity_labels.update({leg.id: {"label": f"{leg.origin} → {leg.destination}"}
                           for leg in document.transport})
     total_budget = next(item for item in document.budget if item.component == "total")
+    outbound = min(
+        (leg for leg in document.transport if leg.direction == "outbound"),
+        key=lambda leg: leg.departure_at,
+    )
     return f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="{_e(csp)}">
 <title>{_e(document.trip.title)}</title>
 <style>{leaflet_css}</style><style>{_asset('trip-page.css.txt')}</style></head>
-<body><header class="site-header"><div class="brand"><span class="logo-mark">TN</span><strong>travel nova</strong></div><div class="header-meta"><span>{_e(document.trip.destination)}</span><span>{_e(document.trip.date_from.strftime('%d.%m'))}–{_e(document.trip.date_to.strftime('%d.%m.%Y'))}</span></div></header>
+<body><header class="site-header"><a class="brand" href="#top"><span class="logo-mark">TN</span><strong>travel nova</strong></a><nav class="site-nav" aria-label="Разделы поездки"><a href="#route">Дорога</a><a href="#hotels">Отели</a><a href="#events">Афиша</a><a href="#places">Места</a><a href="#plans">Планы</a></nav><div class="header-meta"><span>{_e(document.trip.destination)}</span><span>{_e(document.trip.date_from.strftime('%d.%m'))}–{_e(document.trip.date_to.strftime('%d.%m.%Y'))}</span></div></header>
 <main>
-<section class="hero"><div class="hero-copy"><p class="hero-kicker">Персональный план поездки</p><h1>{_e(document.trip.title)}</h1><p class="hero-lede">{_e(document.trip.subtitle)}</p><div class="hero-meta"><span>{_e(document.trip.date_from.strftime('%d.%m'))} — {_e(document.trip.date_to.strftime('%d.%m.%Y'))}</span><span>{document.trip.travelers} чел.</span><span>Проверено {_e(_dt(document.checked_at))}</span></div></div>
-<aside class="trip-profile"><span>Ориентир на поездку</span><strong>{_rub(total_budget.recommended_rub)}</strong><small>{_rub(total_budget.range_min_rub)} — {_rub(total_budget.range_max_rub)}</small><div><b>{document.personalization.travel_sample_size}</b><small>поездок в основе</small></div><div><b>{document.personalization.event_sample_size}</b><small>заказов Афиши</small></div></aside></section>
-<section class="budget-section"><div class="section-head"><div><span>01</span><h2>Бюджет поездки</h2></div><p>{_e(document.personalization.explanation)}</p></div><div class="budget-grid">{_render_budget(document)}</div></section>
-<section class="route-section"><div class="section-head"><div><span>02</span><h2>Дорога туда и обратно</h2></div></div><div class="transport-grid">{_render_transport(document)}</div></section>
-<section class="hotels-section"><div class="section-head"><div><span>03</span><h2>Где остановиться</h2></div><p>Выбранный отель становится точкой отсчёта для маршрутов и рекомендаций рядом.</p></div><div class="hotels">{_render_hotels(document)}</div></section>
-<section class="events-section"><div class="section-head"><div><span>04</span><h2>Что посмотреть</h2></div><p>Рекомендации учитывают завершённые заказы Афиши, но не раскрывают историю покупок.</p></div><div class="card-grid events">{_render_events(document)}</div></section>
-<section class="venues-section"><div class="section-head"><div><span>05</span><h2>Рестораны и бары</h2></div><p>Рейтинг и количество отзывов получены из Яндекс Карт.</p></div><div class="card-grid venues">{_render_venues(document)}</div></section>
-<section class="map-section"><div class="section-head"><div><span>06</span><h2>Всё на карте</h2></div><p>Выбранный отель, мероприятия и заведения. Нажмите маркер, чтобы перейти к карточке.</p></div><div id="trip-map" aria-label="Карта поездки"><div class="map-fallback">Карта появится при подключении к интернету.</div></div><div class="map-legend"><span class="hotel">Отель</span><span class="event">События</span><span class="restaurant">Рестораны</span><span class="bar">Бары</span></div></section>
-<section class="plans-section"><div class="section-head"><div><span>07</span><h2>Три сценария поездки</h2></div><p>Выберите темп: сбалансированный, культурный или с акцентом на еду и вечернюю жизнь.</p></div><div class="plans">{_render_plans(document, entity_labels)}</div></section>
+<section class="hero" id="top"><div class="hero-copy"><p class="hero-kicker">Персональный план поездки</p><h1>{_e(document.trip.title)}</h1><p class="hero-lede">{_e(document.trip.subtitle)}</p><div class="hero-meta"><span>{_e(outbound.origin)} → {_e(outbound.destination)}</span><span>{_e(document.trip.date_from.strftime('%d.%m'))} — {_e(document.trip.date_to.strftime('%d.%m.%Y'))}</span><span>{document.trip.travelers} чел.</span><span>Проверено {_e(_dt(document.checked_at))}</span></div></div>
+<aside class="trip-profile"><span>Комфортный ориентир</span><strong>{_rub(total_budget.recommended_rub)}</strong><small>{_rub(total_budget.range_min_rub)} — {_rub(total_budget.range_max_rub)}</small><div><b>{document.personalization.travel_sample_size}</b><small>поездок в основе</small></div><div><b>{document.personalization.event_sample_size}</b><small>заказов Афиши</small></div></aside></section>
+<section class="budget-section" id="budget"><div class="section-head"><div><span>01</span><h2>Бюджет поездки</h2></div><p>{_e(document.personalization.explanation)}</p></div><div class="budget-grid">{_render_budget(document)}</div></section>
+<section class="route-section" id="route"><div class="section-head"><div><span>02</span><h2>Дорога туда и обратно</h2></div><p>Выбранные сегменты собраны в один маршрут. Checkout открывается отдельно и не означает покупку.</p></div>{_render_transport_overview(document)}<div class="transport-grid">{_render_transport(document)}</div></section>
+<section class="hotels-section" id="hotels"><div class="section-head"><div><span>03</span><h2>Где остановиться</h2></div><p>Три уровня цены с конкретным номером, условиями тарифа, отзывами и ссылкой на оформление.</p></div><div class="hotels">{_render_hotels(document)}</div></section>
+<section class="events-section" id="events"><div class="section-head"><div><span>04</span><h2>Что посмотреть</h2></div><p>События ранжируются по безопасному профилю интересов без раскрытия истории покупок.</p></div><div class="card-grid events">{_render_events(document)}</div></section>
+<section class="venues-section" id="places"><div class="section-head"><div><span>05</span><h2>Рестораны и бары</h2></div><p>Заведения, категории и часы работы получены из OpenStreetMap через Travel MCP.</p></div><div class="card-grid venues">{_render_venues(document)}</div></section>
+<section class="map-section" id="map"><div class="section-head"><div><span>06</span><h2>Всё на карте</h2></div><p>Все три отеля, мероприятия и заведения. Нажмите маркер, чтобы перейти к карточке.</p></div><div id="trip-map" aria-label="Карта поездки OpenStreetMap"><div class="map-fallback">Карта появится при подключении к интернету.</div></div><div class="map-legend"><span class="hotel">Отели</span><span class="event">События</span><span class="restaurant">Рестораны</span><span class="bar">Бары</span></div></section>
+<section class="plans-section" id="plans"><div class="section-head"><div><span>07</span><h2>Три сценария поездки</h2></div><p>Выберите темп: сбалансированный, культурный или с акцентом на еду и вечернюю жизнь.</p></div><div class="plans">{_render_plans(document, entity_labels)}</div></section>
 <section class="fine-print"><div><h2>Источники</h2><ul class="sources">{sources}</ul></div><div><h2>Важно знать</h2><ul>{warnings or '<li>Цены и доступность могут измениться до оформления.</li>'}</ul></div></section>
 </main><footer><b>travel nova</b><span>Страница не является подтверждением бронирования или оплаты.</span></footer>
 <script id="trip-map-data" type="application/json">{map_json}</script>
@@ -628,11 +728,6 @@ def render_trip_page_files(document: TripPageDocumentV1, *, output_dir: str = ""
                            basename: str = "", overwrite: bool = False,
                            explicit_html_path: str = "") -> RenderTripPageResult:
     """Validate, render and atomically write the HTML/JSON pair."""
-    storage_ack = os.environ.get("YANDEX_VENUE_STORAGE_ALLOWED", "").lower()
-    if storage_ack not in {"1", "true", "yes"}:
-        raise PermissionError(
-            "YANDEX_VENUE_STORAGE_ALLOWED=1 is required: the operator must confirm "
-            "that the Yandex contract permits storing venue data in the HTML")
     if explicit_html_path:
         html_path = Path(explicit_html_path).expanduser().resolve()
         if html_path.suffix.lower() != ".html":
@@ -648,9 +743,7 @@ def render_trip_page_files(document: TripPageDocumentV1, *, output_dir: str = ""
         raise FileExistsError(f"file already exists: {json_path}")
     payload = document.model_dump_json(by_alias=True, indent=2)
     rendered = render_html(document)
-    secret = os.environ.get("YANDEX_MAPS_API_KEY", "")
-    forbidden = ["apikey="] + ([secret] if secret else [])
-    if any(value and (value in payload or value in rendered) for value in forbidden):
+    if "apikey=" in payload.lower() or "apikey=" in rendered.lower():
         raise ValueError("generated artifacts contain an API credential")
     _atomic_write(json_path, payload + "\n", overwrite)
     try:

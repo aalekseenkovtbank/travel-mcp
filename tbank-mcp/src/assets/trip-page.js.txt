@@ -42,15 +42,15 @@
     var position = [point.lat, point.lon];
     bounds.push(position);
     var marker = window.L.circleMarker(position, {
-      radius: point.kind === "hotel" ? 11 : 8,
+      radius: point.kind === "hotel" && point.selected ? 12 : 8,
       color: "#ffffff",
       weight: 3,
       fillColor: colors[point.kind] || "#111111",
-      fillOpacity: 1
+      fillOpacity: point.kind === "hotel" && !point.selected ? 0.62 : 1
     }).addTo(map);
     var popup = document.createElement("a");
     popup.href = "#entity-" + point.id;
-    popup.textContent = point.label;
+    popup.textContent = point.label + (point.kind === "hotel" && point.selected ? " · рекомендуем" : "");
     marker.bindPopup(popup);
   });
   map.fitBounds(bounds, { padding: [44, 44], maxZoom: 15 });

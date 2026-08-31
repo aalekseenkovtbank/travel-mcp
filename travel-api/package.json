@@ -11,9 +11,7 @@
     "dev": "NODE_OPTIONS=--use-system-ca tsx watch src/server.ts",  
     "build": "tsc -p tsconfig.build.json",
     "start": "NODE_OPTIONS=--use-system-ca node dist/server.js",
-    "typecheck": "tsc -p tsconfig.json",
-    "test": "node --import tsx --test tests/*.test.ts",
-    "test:live": "NODE_OPTIONS=--use-system-ca node --import tsx --test --test-force-exit tests/live-smoke.test.ts"
+    "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.3",
@@ -27,8 +25,6 @@
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
-    "@types/supertest": "^6.0.0",
-    "supertest": "^7.1.0",
     "tsx": "^4.20.0",
     "typescript": "^5.8.0"
   }

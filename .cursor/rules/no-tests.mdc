@@ -1,0 +1,11 @@
+---
+description: Prohibit tests in this project
+alwaysApply: true
+---
+
+# No tests
+
+- Never create, generate, restore, or modify automated tests.
+- Do not add test files, test fixtures, snapshots, test runners, test scripts, or test-only dependencies.
+- Do not add test-related configuration or CI steps.
+- Validate changes only with non-test checks such as compilation, type checking, linting, or manual inspection.

@@ -86,6 +86,16 @@ def wide_cookies(cookie_str: str) -> str:
     return "; ".join(out)
 
 
+def selected_cookies(cookie_str: str, names: tuple[str, ...]) -> str:
+    """Return only explicitly allowed cookies, preserving allowlist order."""
+    values = {}
+    for part in (cookie_str or "").split(";"):
+        key, sep, value = part.strip().partition("=")
+        if sep and key in names and key not in values:
+            values[key] = value
+    return "; ".join(f"{name}={values[name]}" for name in names if name in values)
+
+
 SBP_PHONE_POINTER_TYPE = "8276"
 
 
@@ -840,6 +850,7 @@ class MobileSession:
     inache: str = "drivetransitt"  # app routing/feature flag (constant) — sent on every request
     cookie_str: str = ""            # the cookie header to replay on reads/refresh
     sso_login_cookie: str = ""      # the LOGIN (auth_code) cookie set incl. SSO_SESSION (long-lived) — for silent re-login
+    sso_id: str = ""                # public web ssoId, learned from session_status and used only by allowlisted facades
     auth_step_fingerprint: str = "" # the static fingerprint blob sent at auth/step (silent re-login)
     tmsg_session_id: str = ""       # messenger JWT cookie (tm.t-bank-app.ru)
     trains_cookie: str = ""         # rail host cookie (trains.t-bank-app.ru)
@@ -1210,12 +1221,15 @@ class MobileSession:
         # them at all; carrying one there is another silent divergence.
         if not tpl.get("no_bearer"):
             headers["Authorization"] = "Bearer " + self.access_token
-        # Public facades (currently hotels.tbank.ru) need no bank credential at
-        # all.  Do not even call _cookie_for(): on some hosts that helper mints a
-        # service cookie, and on an unknown host it deliberately falls back to the
-        # wide SSO cookie.  `no_cookie` therefore means "make no credential-bearing
-        # decision", not merely "drop a header after building it".
-        cookie = "" if tpl.get("no_cookie") else self._cookie_for(host)
+        # Public facades must never inherit the normal bank/session cookie set.
+        # A template may explicitly allow a small optional subset (Hotels uses
+        # only ssoId for personalized search when the SSO login already supplied
+        # it). No other credential is forwarded.
+        if tpl.get("no_cookie"):
+            allowed = tuple(tpl.get("optional_cookie_names") or ())
+            cookie = self._optional_cookies(allowed) if allowed else ""
+        else:
+            cookie = self._cookie_for(host)
         if cookie:
             headers["Cookie"] = cookie
         # `no_cookie` uses a physically separate cookie jar. The getattr fallback
@@ -1223,6 +1237,11 @@ class MobileSession:
         # every normally constructed/loaded session has _public_http above.
         http = (getattr(self, "_public_http", self._http)
                 if tpl.get("no_cookie") else self._http)
+        if tpl.get("no_cookie"):
+            # Public responses may set analytics/sticky cookies. Drop them before
+            # every request so the explicit allowlisted Cookie header above is the
+            # only cookie that can go back over the wire.
+            http.cookies.clear()
         url = f"{host.rstrip('/')}/{path.lstrip('/')}"
         method = (tpl.get("method") or "GET").upper()
         if method == "POST":
@@ -1457,6 +1476,23 @@ class MobileSession:
         session.json written before this existed still holds the whole login jar,
         and it is loaded straight into the field."""
         return wide_cookies(self.cookie_str)
+
+    def _optional_cookies(self, names: tuple[str, ...]) -> str:
+        """Read an explicit cookie allowlist from saved SSO state, if present."""
+        if self.sso_id and "ssoId" in names:
+            return selected_cookies(f"ssoId={self.sso_id}", names)
+        found = selected_cookies(self.sso_login_cookie, names)
+        if found:
+            return found
+        found = selected_cookies(self.cookie_str, names)
+        if found:
+            return found
+        jar = getattr(getattr(self, "_http", None), "cookies", None)
+        if jar is None:
+            return ""
+        values = jar.get_dict()
+        return "; ".join(
+            f"{name}={values[name]}" for name in names if values.get(name))
 
     def _cookie_for(self, host: str) -> str:
         """The Cookie header this host expects, or "".
@@ -1713,6 +1749,10 @@ class MobileSession:
         self.sso_login_cookie = "; ".join(
             f"{c.name}={c.value}" for c in self._http.cookies
             if c.domain and "t-bank-app.ru" in c.domain)
+        # A full login may switch to another user. Never carry the previous
+        # public web identity into the new session; session_status() will learn
+        # and persist the matching ssoId on its next call.
+        self.sso_id = ""
         # NOT the whole jar. sso_login_cookie keeps every cookie because
         # silent_relogin replays it against id.t-bank-app.ru, which is the one host
         # that issued SSO_SESSION and the one host that should ever see it again.
@@ -2060,7 +2100,13 @@ class MobileSession:
         # with the mobile session: the SSO cookie in cookie_str authenticates it.
         # (Audit flagged www.tbank.ru as a 'different realm', but live use proves it
         # returns accessLevel/SSO TTL/userId — do NOT reroute or 'fix'.)
-        return self._call_read("session_status")
+        data = self._call_read("session_status")
+        sso_id = data.get("ssoId") if isinstance(data, dict) else None
+        if (isinstance(sso_id, str) and sso_id and ";" not in sso_id
+                and sso_id != self.sso_id):
+            self.sso_id = sso_id
+            self._persist()
+        return data
 
     def _call_userinfo(self) -> dict:
         """GET /userinfo/userinfo (id.t-bank-app.ru) — the gorod-app SSO IdP OIDC
@@ -3960,9 +4006,9 @@ class MobileSession:
                 # Look up the display name only — never let this overwrite the choice.
                 #
                 # This lookup IS load-bearing, contrary to a first reading of it: the
-                # value goes into pf["maskedFIO"], i.e. into the SIGNED body, which is
-                # what tests/test_transfer.py pins. What it does NOT reach is the
-                # confirmation line the user reads — server.transfer builds that from
+                # value goes into pf["maskedFIO"], i.e. into the SIGNED body. What it
+                # does NOT reach is the confirmation line the user reads —
+                # server.transfer builds that from
                 # its own masked_fio argument, so a name resolved here at the cost of
                 # a request is still absent from the sentence a person checks before
                 # the money moves.
@@ -4381,7 +4427,7 @@ class MobileSession:
             path_override=f"/api/v1/hotels/bookings/{booking_id}")
         return data if isinstance(data, dict) else {}
 
-    # ---- public hotel search (no bank session/token/cookie on the wire) ---
+    # ---- public hotel search (no bank session/token; optional ssoId only) ---
 
     def hotel_autocomplete(self, query: str) -> dict:
         """Locations and hotels matching a name on the public hotel facade."""
@@ -4391,16 +4437,21 @@ class MobileSession:
     def hotel_search(self, destination_id: int, checkin_date: str,
                      checkout_date: str, *, adults: int = 1,
                      children_ages: list[int] | None = None,
-                     limit: int = 50) -> dict:
-        """Current public v2 hotel availability batch plus static hotel cards.
+                     limit: int = 100) -> dict:
+        """Current public v2 hotel availability plus static hotel cards.
 
         The former ``/api/v1/hotels/search`` route can wait indefinitely. The
         production web app now starts a search through ``searchHotelPoints`` and
-        joins its priced hotel ids with ``getHotelStaticInfo``. Both calls go
-        through www.tbank.ru/api/hotels without bank credentials.
+        loads list pages through ``listParameters.offset`` in the same 50-item
+        steps as the production web app. Offers
+        whose search price is not final are refreshed through
+        ``getLatestHotelOffer`` before they are joined with ``getHotelStaticInfo``.
+        All calls go through www.tbank.ru/api/hotels without bank tokens or
+        session cookies. If the SSO login supplied ssoId, that single cookie is
+        forwarded so the Hotels API can personalize the response.
         """
         search_tag = f"mcp-{time.time_ns()}"
-        search = self._call_read("hotel_search_points", body={
+        base_body = {
             "searchTag": search_tag,
             "locationId": int(destination_id),
             "checkinDate": checkin_date,
@@ -4409,39 +4460,108 @@ class MobileSession:
                 "adultsCount": adults,
                 "childrenAge": list(children_ages or []),
             },
-        })
-        search = search if isinstance(search, dict) else {}
-        offer_rows = [row for row in (search.get("hotelDetails") or [])
-                      if isinstance(row, dict)]
-        hotel_order = [row.get("hotelId") for row in
-                       ((search.get("hotelList") or {}).get("hotels") or [])
-                       if isinstance(row, dict) and row.get("hotelId")]
-        if not hotel_order:
-            hotel_order = [row.get("hotelId") for row in offer_rows
-                           if row.get("hotelId")]
-        if limit > 0:
-            hotel_order = hotel_order[:min(limit, 50)]
-        else:
-            hotel_order = hotel_order[:50]
+            "filters": [],
+            # There is no map in the MCP response. pinLimit=0 makes list
+            # pagination available even while suppliers are still streaming.
+            "mapFrameInput": {"mapParameters": {"pinLimit": 0}},
+        }
+        sticky_headers = {
+            "x-sticky-id": self._hotel_sticky_id(
+                destination_id, checkin_date, checkout_date, adults, children_ages),
+        }
+        offer_rows_by_id: dict[str, dict] = {}
+        hotel_order: list[int] = []
+        seen_hotel_ids: set[str] = set()
+        # The web client paginates the hotel list by catalog positions: its
+        # follow-up request contains only listParameters.offset=50, then 100,
+        # and so on. hotelList.nextOffset is not a reliable cursor here: the
+        # backend can repeat a partial offset (for example 18) while suppliers
+        # are streaming, which used to make an all-results search fail.
+        page_step = 50
+        offset = 0
+        last_search: dict = {}
+        total_count: int | None = None
+
+        while True:
+            body = dict(base_body)
+            body["listParameters"] = {"offset": offset}
+            search = self._call_read(
+                "hotel_search_points", body=body, headers_override=sticky_headers)
+            search = search if isinstance(search, dict) else {}
+            last_search = search
+
+            offer_rows = [row for row in (search.get("hotelDetails") or [])
+                          if isinstance(row, dict)]
+            for row in offer_rows:
+                hotel_id = row.get("hotelId")
+                if hotel_id is not None:
+                    offer_rows_by_id[str(hotel_id)] = row
+
+            hotel_list = search.get("hotelList") or {}
+            if isinstance(hotel_list.get("filteredHotelsCount"), int):
+                reported_total = hotel_list["filteredHotelsCount"]
+                total_count = max(total_count or 0, reported_total)
+            page_ids = [row.get("hotelId") for row in (hotel_list.get("hotels") or [])
+                        if isinstance(row, dict) and row.get("hotelId") is not None]
+            if not page_ids:
+                page_ids = [row.get("hotelId") for row in offer_rows
+                            if row.get("hotelId") is not None]
+            for hotel_id in page_ids:
+                key = str(hotel_id)
+                if key not in seen_hotel_ids:
+                    seen_hotel_ids.add(key)
+                    hotel_order.append(hotel_id)
+
+            if limit > 0 and len(hotel_order) >= limit:
+                break
+            offset += page_step
+            if total_count is not None and offset >= total_count:
+                break
+            if total_count is None and not page_ids:
+                break
+
         if not hotel_order:
             return {
                 "hotels": [],
-                "filteredHotelsCount": 0,
-                "isLoadingCompleted": search.get("isLoadingCompleted") is True,
+                "filteredHotelsCount": total_count or 0,
+                "isLoadingCompleted": last_search.get("isLoadingCompleted") is True,
             }
-        static = self._call_read("hotel_static_info", body={
-            "hotelIds": hotel_order,
-            "searchTag": search_tag,
-        })
-        static = static if isinstance(static, dict) else {}
+
+        non_final_ids = []
+        for hotel_id in hotel_order:
+            offer = (offer_rows_by_id.get(str(hotel_id)) or {}).get("offerDetails") or {}
+            price = offer.get("price") or {}
+            is_final = price.get("isFinalPrice")
+            if is_final is None:
+                is_final = offer.get("isFinalPrice")
+            if is_final is False:
+                non_final_ids.append(int(hotel_id))
+        for start in range(0, len(non_final_ids), 1000):
+            latest = self.hotel_latest_offers(
+                non_final_ids[start:start + 1000], checkin_date, checkout_date,
+                location_id=destination_id, adults=adults,
+                children_ages=children_ages)
+            for row in (latest.get("hotels") or []):
+                if isinstance(row, dict) and row.get("hotelId") is not None:
+                    offer_rows_by_id[str(row["hotelId"])] = row
+
+        static_rows = []
+        for start in range(0, len(hotel_order), 50):
+            static = self._call_read("hotel_static_info", body={
+                "hotelIds": hotel_order[start:start + 50],
+                "searchTag": search_tag,
+            })
+            if isinstance(static, dict):
+                static_rows.extend(row for row in (static.get("hotels") or [])
+                                   if isinstance(row, dict))
         static_by_id = {
             str(row.get("hotelId")): row
-            for row in (static.get("hotels") or [])
+            for row in static_rows
             if isinstance(row, dict) and row.get("hotelId") is not None
         }
         offers_by_id = {
             str(row.get("hotelId")): row.get("offerDetails") or {}
-            for row in offer_rows if row.get("hotelId") is not None
+            for row in offer_rows_by_id.values() if row.get("hotelId") is not None
         }
         hotels = []
         for hotel_id in hotel_order:
@@ -4462,19 +4582,24 @@ class MobileSession:
                     "amount": price.get("amount"),
                     "currency": price.get("currency") or "RUB",
                 },
-                "isFinalPrice": offer.get("isFinalPrice") is True,
+                "isFinalPrice": (price.get("isFinalPrice") is True
+                                 or offer.get("isFinalPrice") is True),
             }
+            meal = offer.get("mealType")
+            if isinstance(meal, dict):
+                meal = meal.get("name")
+            if meal:
+                card["rateForHotelsFeed"]["mealName"] = meal
+            if offer.get("availableRoomsCount") is not None:
+                card["rateForHotelsFeed"]["availableRoomsCount"] = offer[
+                    "availableRoomsCount"]
             hotels.append(card)
-        hotel_list = search.get("hotelList") or {}
         return {
             "hotels": hotels,
-            "filteredHotelsCount": hotel_list.get("filteredHotelsCount", len(hotels)),
-            # The first v2 response already contains priced, available offers.
-            # Suppliers may continue enriching the list, but callers do not need
-            # to restart the search just because that background work continues.
-            "isLoadingCompleted": True,
-            "searchId": search.get("searchId"),
-            "upstreamLoadingCompleted": search.get("isLoadingCompleted") is True,
+            "filteredHotelsCount": (total_count if total_count is not None else len(hotels)),
+            "isLoadingCompleted": last_search.get("isLoadingCompleted") is True,
+            "searchId": last_search.get("searchId"),
+            "upstreamLoadingCompleted": last_search.get("isLoadingCompleted") is True,
         }
 
     @staticmethod
@@ -4583,8 +4708,9 @@ class MobileSession:
         """Available v3 rooms and rates for one hotel and one room.
 
         This is an availability lookup, despite being an HTTP POST: it creates no
-        booking and moves no money.  Like the other public hotel calls, it uses an
-        isolated cookie jar and sends no bank session, Bearer or Cookie.
+        booking and moves no money. Like the other public hotel calls, it uses an
+        isolated cookie jar and sends no bank session or Bearer; only an available
+        ssoId cookie is forwarded.
         """
         data = self._call_read(
             "hotel_rates",

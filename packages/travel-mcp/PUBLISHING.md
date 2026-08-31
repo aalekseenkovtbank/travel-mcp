@@ -39,7 +39,6 @@ sed -n 's/^version = "\([^"]*\)"/\1/p' tbank-mcp/pyproject.toml
 Из корня Travel Nova выполните:
 
 ```bash
-npm test -w @travel-growth-inspiration/mcp
 npm pack --dry-run -w @travel-growth-inspiration/mcp
 ```
 

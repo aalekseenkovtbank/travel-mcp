@@ -14,7 +14,6 @@
   ],
   "scripts": {
     "prepack": "sh scripts/stage-vendor.sh",
-    "test": "sh scripts/test-package.sh",
     "build:offline": "sh scripts/build-offline-bundle.sh"
   },
   "engines": {

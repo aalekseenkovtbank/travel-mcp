@@ -1479,11 +1479,17 @@ BUILTIN_ENDPOINTS.update({
 })
 
 # Public hotels facade used by the production web app. The www.tbank.ru prefix
-# proxies to the hotel backend and was verified live without Authorization,
-# Cookie or native mobile query parameters.
-# Keeping all three opt-outs explicit is deliberate: unknown hosts otherwise get
-# the saved SSO cookie via MobileSession._cookie_for().
-_HOTELS_PUBLIC = {"no_base_params": True, "no_bearer": True, "no_cookie": True}
+# proxies to the hotel backend. It needs no Authorization, session cookie or
+# native mobile query parameters, but the production web client sends ssoId when
+# one is available. Keep the normal cookie path disabled and allow only that
+# optional cookie: unknown hosts must not inherit the saved SSO cookie set via
+# MobileSession._cookie_for().
+_HOTELS_PUBLIC = {
+    "no_base_params": True,
+    "no_bearer": True,
+    "no_cookie": True,
+    "optional_cookie_names": ("ssoId",),
+}
 
 BUILTIN_ENDPOINTS.update({
     "hotel_autocomplete": {

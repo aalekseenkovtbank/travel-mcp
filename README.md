@@ -92,7 +92,6 @@ Open-Meteo и не зависит от `travel-api`, SQLite, SSE или LLM Prox
 ```bash
 npm run dev        # API и веб-интерфейс
 npm run typecheck  # проверка TypeScript
-npm test           # backend и UI-тесты
 npm run build      # production-сборка всех workspace
 ```
 

@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from . import tls
 from .client import TbankApiError
 
 FORECAST_DAYS = 16
@@ -20,6 +21,14 @@ FORECAST_URL = os.environ.get(
 ARCHIVE_URL = os.environ.get(
     "OPEN_METEO_ARCHIVE_URL", "https://archive-api.open-meteo.com/v1/archive")
 TIMEOUT_SECONDS = max(1.0, float(os.environ.get("TRAVEL_PROVIDER_TIMEOUT_SECONDS", "15")))
+
+
+def _trusted_requester() -> requests.Session:
+    tls.rebuild_bundle()
+    session = requests.Session()
+    session.mount("https://", tls.RobustTLSAdapter())
+    session.verify = tls.BUNDLE
+    return session
 
 
 def _iso(value: str, field: str) -> date:
@@ -162,12 +171,13 @@ def weather_report(
     longitude: float,
     date_from: str,
     date_to: str,
-    requester: Any = requests,
+    requester: Any | None = None,
     today: date | None = None,
 ) -> dict[str, Any]:
     city = str(city or "").strip()
     if not city:
         raise TbankApiError("BAD_CITY", "Передай city.")
+    requester = requester or _trusted_requester()
     lat, lon = _coordinates(latitude, longitude)
     start, end = _iso(date_from, "date_from"), _iso(date_to, "date_to")
     if end < start:

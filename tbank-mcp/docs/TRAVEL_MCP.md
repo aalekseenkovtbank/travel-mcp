@@ -43,8 +43,15 @@ MCP публикует шаблон `personalized_weekend_landing`. Он соб�
 
 - `city`, `date_from`, `date_to` — город и диапазон поездки;
 - `hotel_query` — точное или частичное название отеля, необязательно;
-- `adults` — число взрослых, по умолчанию 2;
+- `adults` — число взрослых в сводке поездки, по умолчанию 2; поисковые квоты
+  от него не зависят;
 - `spending_lookback_days` — глубина анализа расходов, по умолчанию 60 дней.
+
+Внутри шаблона состав поиска фиксирован: авиа- и ЖД-билеты ищутся на одного
+взрослого (`adults=1`), а отели — на двух взрослых (`adults=2`). Один общий
+`adults` между вертикалями не переиспользуется. Составной
+`compare_flight_hotel_prices` в этом шаблоне не применяется, потому что не умеет
+принять разные значения для перелёта и отеля.
 
 Шаблон не бронирует и не оплачивает билеты. Для отеля он требует сначала
 показать тарифы и получить явный выбор конкретного тарифа; только после этого
@@ -66,7 +73,7 @@ MCP публикует шаблон `personalized_weekend_landing`. Он соб�
 - Афиша: `search_app`, `cinema_search`, `cinema_schedule`, `cinema_seats`,
   `afisha_catalog`, `afisha_places`, `place_schedule`, `place_info`,
   `concert_schedule`, `concert_hall`.
-- Внешний контекст: `nearby_search`, `yandex_venue_search`, `weather`.
+- Внешний контекст: `nearby_search`, `weather`.
 - Артефакт: `render_trip_page`.
 
 У поисковых и банковских инструментов `readOnlyHint=true`; у локального
@@ -110,7 +117,7 @@ travel-nova-mcp trip-page-schema
 Готовую пару файлов можно создать как MCP-инструментом `render_trip_page` или CLI:
 
 ```bash
-YANDEX_VENUE_STORAGE_ALLOWED=1 travel-nova-mcp render-trip trip.json -o trip.html
+travel-nova-mcp render-trip trip.json -o trip.html
 ```
 
 Без `-o` HTML создаётся рядом с входным JSON; MCP по умолчанию пишет в
@@ -118,6 +125,13 @@ YANDEX_VENUE_STORAGE_ALLOWED=1 travel-nova-mcp render-trip trip.json -o trip.htm
 HTML содержит встроенные CSS, Leaflet и минимальный JS, но загружает фотографии
 и тайлы OpenStreetMap по HTTPS.
 
-`yandex_venue_search` требует коммерческий ключ в `YANDEX_MAPS_API_KEY` и договор,
-разрешающий сохранять обязательные поля карточки. Публичный ответ без фото,
-рейтинга или числа отзывов отклоняется, а не дополняется выдуманными данными.
+Шаблон поддерживает единый `transportBookingUrl`, продавца транспортного сегмента
+в `seller`, а у отеля — `cancellation`, `payment`, `reviewSummary` и checkout в
+`bookingUrl`. События могут содержать `ageRestriction` и `genres`. Если checkout
+не получен от источника, карточка показывает недоступное действие, а не
+сконструированную ссылку. На карте отображаются все три отеля; рекомендуемый
+вариант выделен, два альтернативных добавляются renderer автоматически.
+
+Заведения и прогулочные точки берутся через `nearby_search` из OpenStreetMap.
+Фотографии, рейтинги, отзывы и часы работы не выдумываются, если источник их не
+вернул. Ключи карт для генерации страницы не требуются.

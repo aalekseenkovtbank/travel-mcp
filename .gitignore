@@ -16,3 +16,4 @@ travel-web/vite.config.d.ts
 # Local agent configuration and generated visual experiments.
 .nessy/
 output/
+artifacts/

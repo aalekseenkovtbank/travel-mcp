@@ -34,7 +34,6 @@ npm run dev -w travel-nova-api
 ```bash
 npm run dev        # разработка с автоматическим перезапуском
 npm run typecheck  # проверка TypeScript
-npm test           # тесты API
 npm run build      # сборка в dist/
 npm start          # запуск собранного приложения
 ```
@@ -59,16 +58,3 @@ src/
 задаются через `MCP_FLIGHT_MAX_CONCURRENCY` (по умолчанию 6) и
 `MCP_HOTEL_MAX_CONCURRENCY` (по умолчанию 3); таймауты отдельных запросов при
 этом остаются `FLIGHT_PROVIDER_TIMEOUT_MS` и `HOTEL_PROVIDER_TIMEOUT_MS`.
-
-## Живой smoke-тест
-
-Единственный opt-in тест новой read-only цепочки:
-
-```bash
-RUN_LIVE_SMOKE=1 \
-LIVE_SMOKE_START_DATE=2026-09-18 \
-LIVE_SMOKE_END_DATE=2026-09-21 \
-npm run test:live -w travel-nova-api
-```
-
-Тест не вызывает бронирование, оплату или переводы.
