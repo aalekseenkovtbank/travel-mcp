@@ -31,9 +31,13 @@ description: |
 | `train_stations(search_text, limit)` | Название города/станции → числовой `searchCode` для поиска | нет |
 | `train_search(origin, destination, date, adults, children, limit)` | Поиск поездов. `origin`/`destination` — ЧИСЛОВЫЕ коды станций | нет |
 | `compare_train_prices(origin, destination, dates, ...)` | Сравнить поезда для нескольких дат и получить готовые дельты | нет |
-| `flight_search(from_code, to_code, date, adults, children, infants, only_bookable, limit, max_batches)` | Поиск авиабилетов. `from_code`/`to_code` — коды IATA | нет |
+| `flight_search(from_code, to_code, date, adults, children, infants, only_bookable, limit)` | Поиск авиабилетов. `from_code`/`to_code` — коды IATA | нет |
 | `compare_flight_prices(from_code, to_code, dates, ...)` | Сравнить авиабилеты для нескольких дат с фильтрами и дельтами | нет |
 | `flight_history()` | История авиапоисков — единственный источник кодов IATA с названиями городов | нет |
+| `flight_price_calendar(from_code, to_code, departure_from, departure_to, from_kind, to_kind, ...)` | Календарь минимальных цен по датам вылета (кэш банка, не живой поиск) | нет |
+| `flight_price_forecast(search_id)` | Вырастет ли цена по уже выполненному `flight_search` до вылета | нет |
+| `flight_schedule(from_code, to_code, date, limit)` | Расписание рейсов направления (какие рейсы вообще летают и по каким дням), не живой поиск цен | нет |
+| `geodata_by_code(codes, limit)` | Имена и координаты города/аэропорта по коду IATA — единственный публичный «код → название» | нет |
 | `audience_profile()` | Безопасная возрастная группа и допустимость 18+ для фильтрации афиши, без даты рождения и пола | нет |
 | `hotel_autocomplete(query, limit)` | Локации и отели с id для следующего шага | нет |
 | `hotel_search(destination_id, checkin_date, checkout_date, adults, children_ages, limit)` | Доступные отели и цены | нет |
@@ -63,14 +67,32 @@ description: |
 
 ## Самолёты
 
-1. Резолвера «город → код IATA» тоже нет. Если пользователь называет город
-   словами — возьми код из `flight_history()` (там коды приходят вместе с
-   названиями), не подставляй по памяти.
-2. `flight_search(from_code, to_code, date)` → предложения, отсортированные
+`flight_search`, `flight_price_calendar`, `flight_price_forecast`,
+`flight_schedule` и `geodata_by_code` — публичные (подтверждено на проде:
+ни Bearer, ни sessionid не уходят), в отличие от `flight_history`,
+который читает историю поисков ЭТОЙ сессии и без входа не работает.
+Так что `flight_search` и `geodata_by_code` доступны даже без
+предварительного `login()`.
+
+1. Резолвера «город → код IATA» нет, но обратное направление «код →
+   название, координаты, timezone» есть — это `geodata_by_code(codes)`. Если
+   пользователь называет город словами и нужны только названия/координаты,
+   возьми код из `flight_history()` (там коды приходят вместе с названиями)
+   или попроси пользователя назвать его сам. Не подставляй по памяти.
+2. Если пользователь не назвал конкретную дату («когда дешевле слетать»),
+   сначала вызови `flight_price_calendar(from_code, to_code)` — это чтение
+   кэша банка, а не поиск, поэтому быстрее и не требует одной точной даты;
+   пустой ответ значит «даты нет в кэше», а не «рейсов нет». Если нужно узнать
+   не цену, а КАКИЕ рейсы вообще летают по направлению и по каким дням —
+   `flight_schedule(from_code, to_code)`.
+3. `flight_search(from_code, to_code, date)` → предложения, отсортированные
    по цене. `only_bookable=True` (по умолчанию) — только то, что банк в
    принципе продаёт сам; `False` — весь поток партнёров, дольше и почти
    бесполезно (уводит на чужой сайт).
-3. Скажи пользователю: «Купить билет через MCP нельзя — здесь только поиск и
+4. Если пользователь спрашивает, стоит ли покупать сейчас или подождать,
+   возьми `searchId` из `flight_search(..., response_format="json")` и
+   передай его в `flight_price_forecast(search_id)`.
+5. Скажи пользователю: «Купить билет через MCP нельзя — здесь только поиск и
    сравнение. Бронирование и оплата — в приложении.»
 
 ## Отели

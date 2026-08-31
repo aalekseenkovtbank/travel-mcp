@@ -1150,15 +1150,17 @@ class MobileSession:
                 f"tmsg-sdk-iOS:1.0.0; iOS:{_IOS_VERSION}; device:{self.device_model}")
         return h
 
-    def _call_read(self, template_key: str, *, overrides: dict | None = None,
-                   body: dict | list | None = None,
-                   path_override: str | None = None,
-                   headers_override: dict[str, str] | None = None,
-                   return_response: bool = False) -> Any:
-        """Replay a read endpoint (builtin shape) with fresh sessionid + Bearer.
+    def _prepare_request(self, template_key: str, *, overrides: dict | None = None,
+                        body: dict | list | None = None,
+                        path_override: str | None = None,
+                        headers_override: dict[str, str] | None = None):
+        """Build (method, url, params, headers, http, body_kwargs, tpl) for a
+        builtin endpoint template.
 
-        path_override replaces the path (for parameterized endpoints like
-        messenger conversations/{id}/messages)."""
+        Shared by _call_read (buffered, JSON-enveloped) and _call_stream
+        (unbuffered, ndjson): the session/param/header/cookie assembly below
+        is the one place that knows how a request gets authorised, and a fix
+        made there for one path must not silently miss the other."""
         tpl = self._tpl(template_key)
         params = {k: v for k, v in tpl.get("params", {}).items()
                   if k not in _LIVE_QUERY}
@@ -1244,6 +1246,7 @@ class MobileSession:
             http.cookies.clear()
         url = f"{host.rstrip('/')}/{path.lstrip('/')}"
         method = (tpl.get("method") or "GET").upper()
+        body_kwargs: dict[str, Any] = {}
         if method == "POST":
             post_body = body
             if post_body is None and tpl.get("body"):
@@ -1259,9 +1262,25 @@ class MobileSession:
                 data = {k: (json.dumps(v, ensure_ascii=False)
                             if isinstance(v, (dict, list)) else v)
                         for k, v in (post_body or {}).items()}
-                r = http.post(url, params=params, data=data, headers=headers, timeout=30)
+                body_kwargs = {"data": data}
             else:
-                r = http.post(url, params=params, json=post_body, headers=headers, timeout=30)
+                body_kwargs = {"json": post_body}
+        return method, url, params, headers, http, body_kwargs, tpl
+
+    def _call_read(self, template_key: str, *, overrides: dict | None = None,
+                   body: dict | list | None = None,
+                   path_override: str | None = None,
+                   headers_override: dict[str, str] | None = None,
+                   return_response: bool = False) -> Any:
+        """Replay a read endpoint (builtin shape) with fresh sessionid + Bearer.
+
+        path_override replaces the path (for parameterized endpoints like
+        messenger conversations/{id}/messages)."""
+        method, url, params, headers, http, body_kwargs, tpl = self._prepare_request(
+            template_key, overrides=overrides, body=body,
+            path_override=path_override, headers_override=headers_override)
+        if method == "POST":
+            r = http.post(url, params=params, headers=headers, timeout=30, **body_kwargs)
         elif method == "PUT":
             r = http.put(url, params=params, headers=headers, timeout=30)
         else:
@@ -1277,6 +1296,42 @@ class MobileSession:
             r.raise_for_status()
             return r.content
         return self._unwrap(r)
+
+    def _call_stream(self, template_key: str, *, body: dict | list | None = None,
+                     overrides: dict | None = None):
+        """POST a builtin endpoint that answers `application/x-ndjson` and
+        yield each frame as a parsed dict, without buffering the whole
+        response first.
+
+        Used for Zubat's flight `/search/stream`, which emits one
+        newline-delimited frame per line (`{"type": "Direct"|"Tpo"|"Finished",
+        ...}`) over a single connection. Being a generator also means a
+        caller that stops iterating early (a `break`, or letting the
+        generator get garbage-collected) closes the underlying connection
+        instead of reading a response nobody wants — see the `finally: r.close()`
+        below, not something callers have to remember to do themselves.
+
+        An error comes back as a single ordinary JSON body (BadRequestError /
+        TechError per the Zubat spec), not ndjson — signalled by an HTTP
+        status outside 2xx, which `_unwrap` already knows how to turn into
+        the right exception."""
+        method, url, params, headers, http, body_kwargs, _tpl = self._prepare_request(
+            template_key, overrides=overrides, body=body)
+        r = http.request(method, url, params=params, headers=headers,
+                         timeout=30, stream=True, **body_kwargs)
+        if not (200 <= r.status_code < 300):
+            self._unwrap(r)
+            return
+        try:
+            for raw_line in r.iter_lines(decode_unicode=True):
+                if not raw_line:
+                    continue
+                try:
+                    yield json.loads(raw_line)
+                except json.JSONDecodeError:
+                    continue
+        finally:
+            r.close()
 
     # ---- signed requests (v\d/(pay|group_pay) — x-api-signature) ----------
 
@@ -5116,51 +5171,188 @@ class MobileSession:
     def flight_search(self, from_code: str, to_code: str, date: str,
                       adults: int = 1, children: int = 0, infants: int = 0,
                       cabin: str = "Y", only_bookable: bool = False,
-                      max_batches: int = 8, deadline_s: float = 45.0) -> dict:
-        """Flights, as {searchId, flights, offers, complete, batches}.
+                      deadline_s: float = 45.0) -> dict:
+        """Flights, as {searchId, flights, offers, complete, info}.
 
-        The search STREAMS: the first call returns a batch and nextBatch blocks
-        until the following one is ready, setting isOver on the last. Measured on
-        one route: 4 batches, 757 flights, 4348 offers, the last batch alone
-        adding 2836 — so an unbounded loop is a minute and a five-figure list.
+        ONE ndjson connection (Zubat's `/flight/search/stream`), PUBLIC —
+        verified live against prod with no Bearer/Cookie/sessionid at all
+        (its `@useAuth` in the spec is merely PublicAuthOptions, optional,
+        and no observed field differed between an authenticated and an
+        anonymous call).
 
-        offers[].flights index the CONCATENATION of all batches, not the batch
-        they arrived in (757 flights, highest index 756), so nothing can be
-        resolved until the stream is stitched — and a caller that stops early
-        must be told, which is what `complete` is for.
+        The server writes a `Direct` frame (Tinkoff's own inventory) and zero
+        or more `Tpo` frames (Travelpayouts partners) as they complete, then
+        `Finished`. Measured live: `Direct` is NOT reliably first — one
+        request came back Tpo, Tpo, Direct, Tpo, Finished. only_bookable does
+        not chase frame order for that reason; it sets `aviasales: false` on
+        the request itself, which measured live returns ONLY `Direct` +
+        `Finished` (~7s, no partner search even started server-side) — so the
+        read is naturally short without ever truncating it client-side. Every
+        call runs to `Finished`; `complete` is always true on a normal return.
+        `deadline_s` is the one remaining safety bound, against a connection
+        that never sends `Finished` at all.
 
-        only_bookable stops after the first batch. Only vendor == "Tinkoff" offers
-        can be bought inside the bank, and on that route all 101 of them arrived
-        in that first batch, so the other three round trips buy nothing but
-        partner listings that lead out of the app."""
+        offers[].flights index the CONCATENATION of every frame's flights, not
+        the one frame they arrived in, so nothing can be resolved until the
+        stream is stitched — which is why a `deadline_s` timeout (the one way
+        this can still return early) is reported via `complete`, not
+        silently."""
         body = {"segments": [{"from": from_code.upper(), "to": to_code.upper(),
                               "date": date}],
                 "passengers": {"adults": adults, "children": children,
                                "infants": infants},
                 "cabin": cabin, "composite": 0, "groupsLimit": 4000,
-                "aviasales": True}
-        first = self._call_read("flight_search_start", body=body) or {}
-        search_id = str(first.get("searchId") or "")
-        flights = list(first.get("flights") or [])
-        offers = list(first.get("offers") or [])
-        complete = bool(first.get("isOver")) or only_bookable
-        batches = 1
-        if not complete and search_id:
-            started = time.monotonic()
-            while batches < max(1, max_batches):
-                if time.monotonic() - started > deadline_s:
-                    break
-                nxt = self._call_read("flight_search_next",
-                                      body={"searchId": search_id}) or {}
-                batches += 1
-                flights.extend(nxt.get("flights") or [])
-                offers.extend(nxt.get("offers") or [])
-                if nxt.get("isOver"):
+                "aviasales": not only_bookable}
+        search_id, flights, offers, info = "", [], [], {}
+        complete = False
+        started = time.monotonic()
+        stream = self._call_stream("flight_search_stream", body=body)
+        try:
+            for frame in stream:
+                ftype = frame.get("type")
+                if ftype == "Finished":
                     complete = True
                     break
+                if ftype not in ("Direct", "Tpo"):
+                    continue
+                batch = frame.get("batch") or {}
+                search_id = search_id or str(batch.get("searchId") or "")
+                flights.extend(batch.get("flights") or [])
+                offers.extend(batch.get("offers") or [])
+                # info is a dict-of-dicts (airportNames, carrierNames, ...); a
+                # later frame introduces codes an earlier one never saw, so
+                # merge rather than keep only the first frame's — a flight
+                # resolved from a later frame could otherwise be missing its
+                # airport/carrier name.
+                for key, value in (batch.get("info") or {}).items():
+                    if isinstance(value, dict):
+                        info.setdefault(key, {}).update(value)
+                if batch.get("isOver"):
+                    complete = True
+                if complete:
+                    break
+                if time.monotonic() - started > deadline_s:
+                    break
+        finally:
+            stream.close()  # release the connection now, not at GC, if we stopped early
         return {"searchId": search_id, "flights": flights, "offers": offers,
-                "complete": complete, "batches": batches,
-                "info": first.get("info") or {}}
+                "complete": complete, "info": info}
+
+    def flight_price_calendar(self, from_codes: str | list[str],
+                              to_codes: str | list[str], *,
+                              from_kind: str = "city", to_kind: str = "city",
+                              adults: int = 1, children: int = 0, infants: int = 0,
+                              direct: bool | None = None, baggage: bool | None = None,
+                              returning: bool | None = None,
+                              departure_from: str | None = None,
+                              departure_to: str | None = None,
+                              return_from: str | None = None,
+                              return_to: str | None = None,
+                              total_days_from: int | None = None,
+                              total_days_to: int | None = None) -> list[dict]:
+        """Cheapest price per departure date for a direction — Zubat's
+        `/flight/calendar/predictByDepartureDate` (a cache read, not a live
+        search: only dates already priced come back, so an empty result means
+        "not cached", not "no flights"). Verified live against prod, no
+        session required (genuinely public, per the spec's NoAuth).
+
+        `from_codes`/`to_codes` are the SAME discriminated union the spec
+        uses, not flattened to one code: a single string is one airport/city/
+        country, a list is a GROUP (`cities: [...]`) — one call answers "куда
+        дешевле из Москвы" across several destinations, not just one pair.
+        `from_kind`/`to_kind` pick which of the three the code(s) are. Also
+        confirmed live: `children`/`direct`/`baggage` on a group query.
+
+        Returns the raw `prices` array: [{departureDate, returnDate?, price,
+        marketingCarriers?, direct, searchSource, searchTime}, ...]."""
+        # The spec's plurals are not a bare `+ "s"` — "city" -> "cities", not
+        # "citys" — so the group variant is looked up, not derived.
+        _plural = {"airport": "airports", "city": "cities", "country": "countries"}
+
+        def point(codes: str | list[str], kind: str) -> dict:
+            values = [codes] if isinstance(codes, str) else list(codes)
+            values = [str(c).upper() for c in values if c]
+            if not values:
+                raise ValueError("flight_price_calendar: at least one IATA code is required")
+            if len(values) == 1:
+                return {"type": kind, "code": values[0]}
+            plural = _plural.get(kind)
+            if not plural:
+                raise ValueError(f"flight_price_calendar: unknown point kind {kind!r}")
+            return {"type": plural, "codes": values}
+
+        body: dict[str, Any] = {
+            "from": point(from_codes, from_kind),
+            "to": point(to_codes, to_kind),
+            "adults": max(1, adults),
+        }
+        if children:
+            body["children"] = children
+        if infants:
+            body["infants"] = infants
+        if baggage is not None:
+            body["baggage"] = baggage
+        if direct is not None:
+            body["direct"] = direct
+        if returning is not None:
+            body["returning"] = returning
+        # Verified live: the KEY has to be present even with nothing in it — a
+        # body with no `departureDate` at all 400s ("Bad Request", no JSON
+        # body), but `"departureDate": {}` (or with only one side filled) is
+        # accepted. So this is unconditional, not `if departure_from or
+        # departure_to:` as the request shape alone would suggest.
+        body["departureDate"] = {k: v for k, v in
+                                 (("from", departure_from), ("to", departure_to)) if v}
+        if return_from or return_to:
+            body["returnDate"] = {k: v for k, v in
+                                  (("from", return_from), ("to", return_to)) if v}
+        if total_days_from is not None and total_days_to is not None:
+            body["totalDays"] = {"from": total_days_from, "to": total_days_to}
+        data = self._call_read("flight_price_calendar", body=body) or {}
+        return [p for p in (data.get("prices") or []) if isinstance(p, dict)]
+
+    def flight_price_forecast(self, search_id: str) -> bool:
+        """Will the cheapest price on a search rise before departure — Zubat's
+        `GET /flight/search/priceForecast`. Takes the `searchId` flight_search()
+        already returns; it does not start a new search."""
+        data = self._call_read("flight_price_forecast",
+                               overrides={"searchId": search_id}) or {}
+        return bool(data.get("willPriceIncrease"))
+
+    def flight_schedule(self, from_code: str, to_code: str,
+                        date: str | None = None) -> list[dict]:
+        """Scheduled flights on a route — Zubat's `POST /flight/schedule/
+        getSchedule`. Verified live against prod, no session required
+        (`@useAuth(NoAuth)` in the spec).
+
+        This is a timetable, not a fare search: `minPrice` on each entry is
+        only meaningful when `date` is given (a specific day), and `dates`
+        lists every day in the schedule's window the flight actually
+        operates — without `date` there is no single fare to attach, so
+        callers wanting a real price for one day should follow up with
+        flight_search. Raises TbankApiError (e.g.
+        `schedule.geodata_code_not_found`) for an unknown IATA code."""
+        body: dict[str, Any] = {"from": from_code.upper(), "to": to_code.upper()}
+        if date:
+            body["date"] = date
+        data = self._call_read("flight_schedule", body=body) or {}
+        return [f for f in (data.get("flights") or []) if isinstance(f, dict)]
+
+    def geodata_by_code(self, codes: str | list[str]) -> list[dict]:
+        """Geo records (city or airport) for IATA codes — Zubat's `POST
+        /geodata/geoDataByCode`. Verified live, no session required
+        (`@useAuth(NoAuth)` in the spec).
+
+        Each entry has code/city_code/country_code, three localized names
+        (ru/en/synonyms; city_name also carries Russian case forms), lat/
+        lon, IANA timezone and `type` ("city" or "airport"). The order of
+        returned records matches the order of input codes; if a code maps
+        to both a city and an airport the city wins. Unknown codes raise
+        TbankApiError (`geodata.geodata_not_found`)."""
+        values = [codes] if isinstance(codes, str) else list(codes)
+        values = [str(c).strip().upper() for c in values if str(c).strip()]
+        data = self._call_read("geodata_by_code", body=values)
+        return [g for g in (data or []) if isinstance(g, dict)]
 
     # ---- marketplace (Шопинг) ---------------------------------------------
 

@@ -1843,35 +1843,70 @@ BUILTIN_ENDPOINTS.update({
 
 
 # ---- flights (www.tbank.ru /api/travel) ------------------------------------
-# The captured traffic runs these under a WEB session (a psid cookie from a
-# multi-step bridge), which read as «unreachable from a mobile session». It is
-# not: probed live, the same endpoints answer under the plain mobile Bearer with
-# the session in `sessionId` and X-Travel-Context: mb. No bridge, no new
-# credential — so the whole psid apparatus the plan budgeted for is not built.
-#
-# The search streams. startStreaming opens it and returns the first batch;
-# nextBatch blocks until the next one is ready and sets isOver on the last.
-# offers[].flights are indices into the CONCATENATION of every batch, not into
-# the batch they arrived in — measured: 757 flights, highest offer index 756 — so
-# a flight can only be resolved after the whole stream is stitched.
+# flight_history is personal (it IS the session's own search history), so it
+# stays on the mobile Bearer + sessionId + X-Travel-Context: mb shape that was
+# probed live for it.
 _TRAVEL_MB = {"session_param": "sessionId",
               "headers": {"X-Travel-Context": "mb"}}
-_TRAVEL_MB_POST = {"session_param": "sessionId",
-                   "headers": {"Content-Type": "application/json",
-                               "X-Travel-Context": "mb"}}
 
 BUILTIN_ENDPOINTS.update({
-    "flight_search_start": {"method": "POST", "host": "https://www.tbank.ru",
-                            "path": "/api/travel/flight/search/startStreaming",
-                            "params": {}, **_TRAVEL_MB_POST},
-    "flight_search_next": {"method": "POST", "host": "https://www.tbank.ru",
-                           "path": "/api/travel/flight/search/nextBatch",
-                           "params": {}, **_TRAVEL_MB_POST},
     # Past searches, and the only place codes come back WITH their names — there
     # is no name→IATA resolver anywhere in the captures.
     "flight_history": {"method": "GET", "host": "https://www.tbank.ru",
                        "path": "/api/travel/flight/history/getSearchHistoryBySession",
                        "params": {}, **_TRAVEL_MB},
+})
+
+# Genuinely public, no Bearer/Cookie/sessionid at all — confirmed LIVE against
+# prod for all three, not just claimed from the spec's NoAuth/PublicAuthOptions
+# tags (which turned out to undersell it: /search/stream is tagged merely
+# PublicAuthOptions — auth OPTIONAL — but answers a plain unauthenticated POST
+# with real offers, so login buys it nothing observed). server.py's tools for
+# these three do not gate on login() the way every other tool here does.
+#
+# /search/stream's one real trap: the session's default `Accept:
+# application/json` (see MobileSession.__post_init__) 406s against this
+# endpoint's `application/x-ndjson` body — content negotiation, not auth. Spent
+# a round of live probing looking for a missing credential before noticing the
+# response was empty AND the status was 406, not 401/403.
+_FLIGHT_PUBLIC = {"no_base_params": True, "no_bearer": True, "no_cookie": True}
+_FLIGHT_PUBLIC_POST = {**_FLIGHT_PUBLIC,
+                       "headers": {"Content-Type": "application/json"}}
+
+BUILTIN_ENDPOINTS.update({
+    "flight_search_stream": {
+        "method": "POST", "host": "https://www.tbank.ru",
+        "path": "/api/travel/flight/search/stream",
+        "params": {}, **_FLIGHT_PUBLIC_POST,
+        "headers": {**_FLIGHT_PUBLIC_POST["headers"], "Accept": "application/x-ndjson"},
+    },
+    # willPriceIncrease for an already-run flight_search's searchId.
+    "flight_price_forecast": {"method": "GET", "host": "https://www.tbank.ru",
+                              "path": "/api/travel/flight/search/priceForecast",
+                              "params": {}, **_FLIGHT_PUBLIC},
+    # The "price calendar": cheapest price per departure date for a direction,
+    # read from Zubat's calendar cache, not a live search.
+    "flight_price_calendar": {
+        "method": "POST", "host": "https://www.tbank.ru",
+        "path": "/api/travel/flight/calendar/predictByDepartureDate",
+        "params": {}, **_FLIGHT_PUBLIC_POST,
+    },
+    # Timetable for a route (all carriers on a from->to pair, optionally on one
+    # date) — Zubat's own scheduled-flights DB, not a live fare search. Also
+    # @useAuth(NoAuth) in the spec; confirmed live, no session needed.
+    "flight_schedule": {
+        "method": "POST", "host": "https://www.tbank.ru",
+        "path": "/api/travel/flight/schedule/getSchedule",
+        "params": {}, **_FLIGHT_PUBLIC_POST,
+    },
+    # Geo lookup: IATA codes (one or several) -> city/airport records with
+    # names, coordinates and timezones. Body is a JSON array of strings.
+    # @useAuth(NoAuth) in the spec; confirmed live, no session needed.
+    "geodata_by_code": {
+        "method": "POST", "host": "https://www.tbank.ru",
+        "path": "/api/travel/geodata/geoDataByCode",
+        "params": {}, **_FLIGHT_PUBLIC_POST,
+    },
 })
 
 

@@ -69,7 +69,9 @@ TRAVEL_TOOL_NAMES = frozenset({
     "orders", "order_details", "travel_order_details", "flight_history",
     "trip_personalization_profile",
     # Live travel inventory.
-    "flight_search", "hotel_autocomplete", "hotel_search", "hotel_details",
+    "flight_search", "flight_price_calendar", "flight_price_forecast",
+    "flight_schedule", "geodata_by_code",
+    "hotel_autocomplete", "hotel_search", "hotel_details",
     "hotel_rates", "hotel_reviews", "hotel_filters", "hotel_search_filters",
     "hotel_latest_offers", "hotel_checkout_url",
     "compare_flight_prices", "compare_hotel_prices",
@@ -231,6 +233,10 @@ TOOL_KINDS: dict[str, tuple[str, str]] = {
     "train_calendar": ("Даты продажи ЖД", READ),
     "flight_search": ("Поиск авиабилетов", READ),
     "flight_history": ("История авиапоисков", READ),
+    "flight_price_calendar": ("Календарь цен на авиабилеты", READ),
+    "flight_price_forecast": ("Прогноз изменения цены авиабилета", READ),
+    "flight_schedule": ("Расписание рейсов по направлению", READ),
+    "geodata_by_code": ("Геоданные города/аэропорта по IATA-коду", READ),
     "compare_flight_prices": ("Сравнение цен на авиабилеты", READ),
     "compare_train_prices": ("Сравнение цен на поезда", READ),
     "hotel_autocomplete": ("Поиск направления или отеля", READ),
@@ -530,6 +536,10 @@ _session: MobileSession | None = None
 # One stat() per call; the network is three orders of magnitude dearer. Ported from
 # the myt server (_require_myt), where this exact symptom was fixed first.
 _session_mtime: float | None = None
+# Lazily-built, credential-free fallback for the two avia tools that are
+# genuinely public per the Zubat spec (@useAuth(NoAuth), confirmed live: no
+# Bearer/Cookie/sessionid on the wire at all) — see _public_session().
+_public_flight_session: MobileSession | None = None
 _RECEIPTS_DIR = os.environ.get(
     "TBANK_RECEIPTS",
     os.path.expanduser("~/.local/share/tbank-mcp/receipts"),
@@ -692,6 +702,33 @@ def _require():
         raise TbankApiError("NO_SESSION",
             "Сначала вызови login(phone).")
     return _session
+
+
+def _public_session():
+    """A MobileSession good enough for the avia reads that need no bank
+    credential at all — flight_search, flight_price_calendar and
+    flight_price_forecast, all confirmed live with no Bearer, Cookie or
+    sessionid on the wire.
+
+    Goes through `_require()` FIRST, not a copy of its body: every test in
+    this repo stubs a fake session by reassigning `server._require`, and a
+    second, independent path to a session here would silently skip that stub
+    and hit the real network instead (found by test_response_parsers.py etc.
+    actually doing that once — a stub's canned flight_search offer was ignored
+    and the tool hit prod, which happened to answer HTTP_400 for the test's
+    fixture body instead of returning fixture data). Only the specific
+    NO_SESSION failure — nobody has called login() at all — falls back to a
+    credential-free session; any other error from `_require()` (a stub
+    raising something else on purpose) still propagates."""
+    global _public_flight_session
+    try:
+        return _require()
+    except TbankApiError as e:
+        if e.result_code != "NO_SESSION":
+            raise
+    if _public_flight_session is None:
+        _public_flight_session = MobileSession(mobile_sessionid="", refresh_token="")
+    return _public_flight_session
 
 
 def _err(e):
@@ -861,7 +898,7 @@ def _flight_inventory_call(session: MobileSession, from_code: str, to_code: str,
         result = session.flight_search(
             from_code, to_code, departure_date,
             adults=adults, children=children, infants=infants,
-            only_bookable=only_bookable, max_batches=8,
+            only_bookable=only_bookable,
         )
     return {
         "rows": normalize_flight_inventory(result, only_bookable=only_bookable),
@@ -869,7 +906,8 @@ def _flight_inventory_call(session: MobileSession, from_code: str, to_code: str,
         "checkedAt": _checked_at(),
         "warnings": ([] if result.get("complete") else
                      [f"{from_code.upper()}→{to_code.upper()} {departure_date}: "
-                      f"поток остановлен после {result.get('batches') or 0} батчей."]),
+                      "поток прерван по таймауту, получено "
+                      f"{len(result.get('offers') or [])} предложений."]),
         "source": "T-Bank Avia",
     }
 
@@ -6410,7 +6448,7 @@ def train_calendar(origin: str, destination: str, limit: int = 30) -> str:
 def flight_search(from_code: str, to_code: str, date: str, adults: int = 1,
                   children: int = 0, infants: int = 0,
                   only_bookable: bool = True, limit: int = 15,
-                  max_batches: int = 8, response_format: str = "text") -> str:
+                  response_format: str = "text") -> str:
     """Поиск авиабилетов. from_code/to_code — коды IATA (MOW, LED, SVO),
     date — YYYY-MM-DD.
 
@@ -6425,16 +6463,15 @@ def flight_search(from_code: str, to_code: str, date: str, adults: int = 1,
     Купить билет через MCP нельзя: подтверждённого шага бронирования и оплаты
     нет. Это поиск и сравнение, покупка — в приложении.
 
-    Технический нюанс: заголовок X-Travel-Context='mb', который делает этот
-    эндпоинт доступным по мобильной сессии, не встречался в пассивном перехвате
-    трафика — он был подобран пробой вживую. Если банк когда-нибудь изменит
-    поведение этого хоста, это первое место, куда стоит посмотреть."""
+    Публичный метод: `login()` не нужен (подтверждено на проде — ни Bearer,
+    ни sessionid в запросе нет, разницы в ответе между анонимным и вошедшим
+    вызовом не замечено)."""
     try:
         fmt = _response_format(response_format)
-        s = _require(); s.ensure_fresh()
+        s = _public_session()
         res = s.flight_search(from_code, to_code, date, adults=adults,
                               children=children, infants=infants,
-                              only_bookable=only_bookable, max_batches=max_batches)
+                              only_bookable=only_bookable)
         flights, offers = res["flights"], res["offers"]
         if only_bookable:
             offers = [o for o in offers if str(o.get("vendor")) == "Tinkoff"]
@@ -6489,7 +6526,7 @@ def flight_search(from_code: str, to_code: str, date: str, adults: int = 1,
             } for row in shown]
             warnings = []
             if not res.get("complete"):
-                warnings.append(f"Поток остановлен после {res.get('batches') or 0} батчей.")
+                warnings.append("Поток прерван по таймауту — это НЕ вся выдача.")
             if len(shown) < len(normalized):
                 warnings.append(f"Показано {len(shown)} из {len(normalized)} предложений.")
             return _json_envelope({
@@ -6500,8 +6537,7 @@ def flight_search(from_code: str, to_code: str, date: str, adults: int = 1,
                 "complete": bool(res.get("complete")),
                 "offers": rows,
             }, source="T-Bank Avia", warnings=warnings,
-               meta={"complete": bool(res.get("complete")),
-                     "batches": res.get("batches") or 0})
+               meta={"complete": bool(res.get("complete"))})
         if not offers:
             return (f"Рейсов {from_code}→{to_code} на {date} не найдено"
                     + (" среди бронируемых в банке (попробуй only_bookable=False)."
@@ -6533,8 +6569,7 @@ def flight_search(from_code: str, to_code: str, date: str, adults: int = 1,
         head = (f"Рейсы {from_code}→{to_code} на {date}"
                 + (" (бронируемые в банке)" if only_bookable else ""))
         tail = "" if res["complete"] else (
-            f"\n⚠️ Поток оборван на {res['batches']} батчах — это НЕ вся выдача. "
-            "Подними max_batches, если нужно всё.")
+            "\n⚠️ Поток прерван по таймауту — это НЕ вся выдача.")
         return _rows_out(offers, render, limit=limit, total=len(offers),
                          header=head, order_note="дешёвые сверху",
                          more_hint=f"Передай limit={len(offers)}.") + tail
@@ -6597,6 +6632,277 @@ def flight_history(response_format: str = "text") -> str:
 
 
 @mcp.tool()
+def flight_price_calendar(from_code: str, to_code: str,
+                          departure_from: str | None = None,
+                          departure_to: str | None = None,
+                          from_kind: Literal["airport", "city", "country"] = "city",
+                          to_kind: Literal["airport", "city", "country"] = "city",
+                          adults: int = 1, children: int = 0, infants: int = 0,
+                          direct: bool | None = None,
+                          returning: bool | None = None,
+                          baggage: bool | None = None,
+                          return_from: str | None = None,
+                          return_to: str | None = None,
+                          total_days_from: int | None = None,
+                          total_days_to: int | None = None,
+                          limit: int = 60,
+                          response_format: str = "text") -> str:
+    """Календарь цен: минимальная цена по каждой дате вылета для направления.
+
+    Публичный метод: `login()` не нужен, вызывается даже без банковской
+    сессии (подтверждено на проде — ни Bearer, ни sessionid в запросе нет).
+
+    Читает КЭШ банка (Zubat `predictByDepartureDate`), а не запускает живой
+    поиск — быстро, но пустой ответ значит «даты не в кэше», а не «рейсов
+    нет»; для конкретной даты доверяй `flight_search`, не этому календарю.
+
+    `from_code`/`to_code` — коды IATA; через запятую можно передать НЕСКОЛЬКО
+    кодов ОДНОГО типа как группу (например `to_code="MOW,LED"`), и банк
+    вернёт минимум по всей группе, а не по каждому коду отдельно. `from_kind`/
+    `to_kind` — тип этих кодов: `city` (по умолчанию, как MOW, LED),
+    `airport` (SVO, DME) или `country` (RU, TR).
+
+    `departure_from`/`departure_to` (YYYY-MM-DD) сужают диапазон дат;
+    без них банк отдаёт всё, что есть в кэше. `return_from`/`return_to` —
+    тот же диапазон, но для даты ВОЗВРАТА (билет туда-обратно).
+    `total_days_from`/`total_days_to` — фильтр на длительность поездки в днях
+    (нужны оба сразу, иначе игнорируются). `direct`/`returning`/`baggage` —
+    фильтры на пересадки, обратный билет и багаж; не заданы — не фильтруются."""
+    try:
+        fmt = _response_format(response_format)
+        # No login() needed: this endpoint is public (@useAuth(NoAuth) in the
+        # Zubat spec, confirmed live — no Bearer/Cookie/sessionid go out).
+        s = _public_session()
+        from_codes = [c.strip() for c in from_code.split(",") if c.strip()]
+        to_codes = [c.strip() for c in to_code.split(",") if c.strip()]
+        rows = s.flight_price_calendar(
+            from_codes, to_codes, from_kind=from_kind, to_kind=to_kind,
+            adults=adults, children=children, infants=infants,
+            direct=direct, returning=returning, baggage=baggage,
+            departure_from=departure_from, departure_to=departure_to,
+            return_from=return_from, return_to=return_to,
+            total_days_from=total_days_from, total_days_to=total_days_to)
+
+        def sort_key(row):
+            return str(row.get("departureDate") or "")
+
+        rows = sorted(rows, key=sort_key)
+
+        if fmt == "json":
+            data = [{
+                "departureDate": str(r.get("departureDate") or ""),
+                "returnDate": (str(r.get("returnDate")) if r.get("returnDate") else None),
+                "price": r.get("price"),
+                "direct": bool(r.get("direct")),
+                "marketingCarriers": list(r.get("marketingCarriers") or []),
+                "searchSource": str(r.get("searchSource") or ""),
+            } for r in (rows[:limit] if limit > 0 else rows)]
+            warnings = []
+            if len(data) < len(rows):
+                warnings.append(f"Показано {len(data)} из {len(rows)} дат.")
+            return _json_envelope({
+                "fromCode": from_code, "toCode": to_code, "prices": data,
+            }, source="T-Bank Avia", warnings=warnings)
+
+        if not rows:
+            return (f"В кэше нет цен {from_code}→{to_code}"
+                    + (f" за {departure_from or '…'}–{departure_to or '…'}" if
+                       (departure_from or departure_to) else "")
+                    + ". Это не значит, что рейсов нет — проверь flight_search на "
+                      "конкретную дату.")
+
+        cheapest = min(rows, key=lambda r: r.get("price") or float("inf"))
+
+        def render(r):
+            date = str(r.get("departureDate") or "?")
+            price = float(r.get("price") or 0)
+            mark = " ⭐" if r is cheapest else ""
+            carriers = ",".join(r.get("marketingCarriers") or []) or "?"
+            hop = "прямой" if r.get("direct") else "с пересадками"
+            ret = f" ⇄ {r.get('returnDate')}" if r.get("returnDate") else ""
+            return f"- {date}{ret}: {price:.0f} ₽ | {hop} | {carriers}{mark}"
+
+        return _rows_out(rows, render, limit=limit, total=len(rows),
+                         header=f"Календарь цен {from_code}→{to_code}",
+                         order_note="по датам вылета", more_hint=f"Передай limit={len(rows)}.")
+    except Exception as e:
+        return _formatted_error(e, response_format, source="T-Bank Avia")
+
+
+@mcp.tool()
+def flight_price_forecast(search_id: str, response_format: str = "text") -> str:
+    """Вырастет ли минимальная цена по уже выполненному поиску до вылета.
+
+    Публичный метод: `login()` не нужен (подтверждено на проде). Но сам
+    `search_id` берётся из `flight_search`, а тот сессию требует — так что
+    без входа этот тул отработает только на чужом/старом searchId.
+
+    `search_id` — это `searchId`, который вернул `flight_search`
+    (`response_format="json"` показывает его явно). Новый поиск этот вызов
+    НЕ запускает — только читает прогноз по уже посчитанному."""
+    try:
+        fmt = _response_format(response_format)
+        # No login() needed: same NoAuth grounds as flight_price_calendar,
+        # confirmed live — a well-formed but unknown searchId comes back as a
+        # normal envelope error (tech_error), not an auth rejection.
+        s = _public_session()
+        will_increase = s.flight_price_forecast(search_id)
+        if fmt == "json":
+            return _json_envelope(
+                {"searchId": search_id, "willPriceIncrease": will_increase},
+                source="T-Bank Avia")
+        return (f"Прогноз по поиску {search_id}: цена, скорее всего, вырастет "
+                "до вылета — бронировать стоит сейчас." if will_increase else
+                f"Прогноз по поиску {search_id}: рост цены не ожидается, можно "
+                "не торопиться.")
+    except Exception as e:
+        return _formatted_error(e, response_format, source="T-Bank Avia")
+
+
+@mcp.tool()
+def flight_schedule(from_code: str, to_code: str, date: str | None = None,
+                    limit: int = 30, response_format: str = "text") -> str:
+    """Расписание рейсов между двумя точками — таймтейбл, а не живой поиск цен.
+
+    Публичный метод: `login()` не нужен (подтверждено на проде — ни Bearer,
+    ни sessionid в запросе нет).
+
+    Это справочник Zubat о том, какие рейсы вообще ЛЕТАЮТ по направлению и по
+    каким дням (`dates`), а не результат живого поиска — `min_price` в ответе
+    появляется, только если задан `date` (конкретный день), и это ориентир,
+    не гарантированная цена. Для реальных тарифов на дату используй
+    `flight_search`.
+
+    `from_code`/`to_code` — коды IATA городов или аэропортов (MOW, LED, SVO).
+    `date` (YYYY-MM-DD) — опционально сузить до одного дня; без него отдаются
+    все рейсы направления с полным списком дат, когда они летают."""
+    try:
+        fmt = _response_format(response_format)
+        # No login() needed: @useAuth(NoAuth) in the Zubat spec, confirmed
+        # live — a plain unauthenticated POST answers with real schedule data.
+        s = _public_session()
+        flights = s.flight_schedule(from_code, to_code, date=date)
+
+        def sort_key(f):
+            return str((f.get("departure") or {}).get("time") or "")
+
+        flights = sorted(flights, key=sort_key)
+
+        if fmt == "json":
+            data = [{
+                "flightNumber": f.get("flightNumber"),
+                "departure": f.get("departure"),
+                "arrival": f.get("arrival"),
+                "durationMinutes": f.get("durationMinutes"),
+                "carriers": f.get("carriers"),
+                "vehicle": f.get("vehicle"),
+                "cabin": f.get("cabin"),
+                "minPrice": f.get("minPrice"),
+                "dates": [str(d) for d in (f.get("dates") or [])],
+            } for f in (flights[:limit] if limit > 0 else flights)]
+            warnings = []
+            if len(data) < len(flights):
+                warnings.append(f"Показано {len(data)} из {len(flights)} рейсов.")
+            return _json_envelope({
+                "fromCode": from_code, "toCode": to_code, "date": date,
+                "flights": data,
+            }, source="T-Bank Avia", warnings=warnings)
+
+        if not flights:
+            return f"Расписание {from_code}→{to_code} пусто — рейсов по направлению не найдено."
+
+        def render(f):
+            dep = f.get("departure") or {}
+            arr = f.get("arrival") or {}
+            dep_airport = (dep.get("airport") or {}).get("code") or "?"
+            arr_airport = (arr.get("airport") or {}).get("code") or "?"
+            carriers = f.get("carriers") or {}
+            marketing = (carriers.get("marketing") or {}).get("code") or "?"
+            price = f.get("minPrice") or {}
+            price_str = f" | от {price.get('amount')} {price.get('currency')}" if price else ""
+            return (f"- {marketing}{f.get('flightNumber', '?')} {dep_airport} "
+                    f"{dep.get('time', '?')} → {arr_airport} {arr.get('time', '?')} "
+                    f"({f.get('durationMinutes', '?')} мин){price_str}")
+
+        return _rows_out(flights, render, limit=limit, total=len(flights),
+                         header=f"Расписание {from_code}→{to_code}"
+                                + (f" на {date}" if date else ""),
+                         order_note="по времени вылета", more_hint=f"Передай limit={len(flights)}.")
+    except Exception as e:
+        return _formatted_error(e, response_format, source="T-Bank Avia")
+
+
+@mcp.tool()
+def geodata_by_code(codes: str | list[str], limit: int = 0,
+                    response_format: str = "text") -> str:
+    """Геоданные (город или аэропорт) по IATA-коду — справочник имён и координат.
+
+    Публичный метод: `login()` не нужен (подтверждено на проде — ни Bearer,
+    ни sessionid в запросе нет). Запрос — это ОДИН код или список кодов;
+    ответ приходит в порядке запроса; для коллизии кода (город и аэропорт
+    с одним кодом) банк отдаёт город.
+
+    По каждому коду возвращается код аэропорта, код города, код страны,
+    имена на русском/английском/синонимы (для города — ещё падежи: «в
+    Москве», «из Москвы»), широта/долгота и IANA-часовой пояс. Удобно
+    для двух вещей, которые в банке больше нигде не поднять:
+    «город → код IATA» в обратную сторону (по коду узнать название) и
+    координаты + timezone, нужные `nearby_search` и `weather`.
+
+    Неизвестный код — ошибка `geodata.geodata_not_found`, не пустой
+    ответ. Не путать с `flight_history()`: там коды приходят С историей
+    конкретной сессии, тут — СПРАВОЧНИК банка по любому коду."""
+    try:
+        fmt = _response_format(response_format)
+        # No login() needed: @useAuth(NoAuth) in the Zubat spec, confirmed
+        # live — a plain unauthenticated POST with a JSON array body
+        # answers with a list of geodata records.
+        s = _public_session()
+        records = s.geodata_by_code(codes)
+
+        if fmt == "json":
+            data = [{
+                "code": r.get("code"),
+                "type": r.get("type"),
+                "city_code": r.get("city_code"),
+                "country_code": r.get("country_code"),
+                "name": r.get("name"),
+                "city_name": r.get("city_name"),
+                "country_name": r.get("country_name"),
+                "coordinates": r.get("coordinates"),
+                "timezone": r.get("timezone"),
+            } for r in (records[:limit] if limit > 0 else records)]
+            warnings = []
+            if limit > 0 and len(data) < len(records):
+                warnings.append(f"Показано {len(data)} из {len(records)} записей.")
+            return _json_envelope({
+                "codes": ([codes] if isinstance(codes, str) else list(codes)),
+                "geoData": data,
+            }, source="T-Bank Гео", warnings=warnings)
+
+        if not records:
+            return "Геоданных по запрошенным кодам не найдено."
+
+        def render(r):
+            nm = r.get("name") or {}
+            city = r.get("city_name") or {}
+            country = r.get("country_name") or {}
+            coords = r.get("coordinates") or {}
+            return (f"- {r.get('code', '?')} [{r.get('type', '?')}] "
+                    f"{nm.get('ru', '?')} / {nm.get('en', '?')} "
+                    f"→ {city.get('ru', '?')} ({city.get('en', '?')}), "
+                    f"{country.get('ru', '?')} "
+                    f"| {coords.get('lat')}, {coords.get('lon')} "
+                    f"| {r.get('timezone', '?')}")
+
+        return _rows_out(records, render, limit=limit, total=len(records),
+                         header="Геоданные", order_note="в порядке запроса",
+                         more_hint=f"Передай limit={len(records)}.")
+    except Exception as e:
+        return _formatted_error(e, response_format, source="T-Bank Гео")
+
+
+@mcp.tool()
 async def compare_flight_prices(
     from_code: str,
     to_code: str,
@@ -6614,6 +6920,9 @@ async def compare_flight_prices(
 ) -> FlightComparisonResponse:
     """Сравнить живые авиапредложения для 1–7 дат одним вызовом.
 
+    Публичный метод: `login()` не нужен (каждая дата уходит в flight_search,
+    который сам публичный).
+
     Фильтры применяются до сортировки. Дельты считает сервер: относительно
     лучшей цены первой даты и lowest observed среди всех полученных дат.
     Частичная выдача явно помечается и не объявляется глобально самой дешёвой.
@@ -6629,8 +6938,9 @@ async def compare_flight_prices(
         _eligible_flights(
             [], max_stops=max_stops, max_duration_minutes=max_duration_minutes,
             baggage_required=baggage_required, refundable_required=refundable_required)
-        session = _require()
-        await asyncio.to_thread(session.ensure_fresh)
+        # No login() needed: every date fans out to flight_search, which is
+        # public (see _public_session()).
+        session = _public_session()
 
         async def load(departure_date: str):
             try:
@@ -6862,6 +7172,9 @@ async def compare_hotel_prices(
 ) -> HotelComparisonResponse:
     """Сравнить отели для 1–7 окон по полной цене, цене за ночь или рейтингу.
 
+    Публичный метод: `login()` не нужен (hotel_search — публичная витрина
+    hotels.tbank.ru).
+
     hotel_ids позволяет сравнить один и тот же отель на разных датах. Неполная
     выдача дочитывается максимум три раза и остаётся явно помеченной.
     """
@@ -6880,7 +7193,9 @@ async def compare_hotel_prices(
         _eligible_hotels(
             [], nights=1, hotel_ids=wanted_ids, min_stars=min_stars,
             min_rating=min_rating, max_total_price_rub=max_total_price_rub)
-        session = _require()
+        # No login() needed: hotel_search is the public hotels.tbank.ru
+        # facade (no Bearer/Cookie either).
+        session = _public_session()
 
         async def load(window: StayWindow):
             try:
@@ -6997,6 +7312,9 @@ async def compare_flight_hotel_prices(
 ) -> FlightHotelComparisonResponse:
     """Сравнить перелёт туда/обратно и отель для 1–3 окон проживания.
 
+    Публичный метод: `login()` не нужен (оба плеча — flight_search и
+    hotel_search — публичные).
+
     Сумма включает только три явно перечисленных live-компонента. Питание вне
     тарифа, события, трансферы и ежедневные расходы не оцениваются. Для каждого
     окна берутся lowest observed подходящие рейсы и сравнимые отели.
@@ -7023,8 +7341,9 @@ async def compare_flight_hotel_prices(
         budget = Decimal(str(budget_rub)) if budget_rub is not None else None
         if budget is not None and budget <= 0:
             raise TbankApiError("BAD_BUDGET", "budget_rub должен быть положительным.")
-        session = _require()
-        await asyncio.to_thread(session.ensure_fresh)
+        # No login() needed: both legs (flight_search, hotel_search) are
+        # public — see _public_session().
+        session = _public_session()
 
         async def safe(scope: str, fn, *args):
             try:

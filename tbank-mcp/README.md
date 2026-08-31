@@ -4,7 +4,7 @@
 
 ## Features
 
-- **98 tools**: accounts, cards, documents, operations, grocery ordering, cinema and
+- **101 tools**: accounts, cards, documents, operations, grocery ordering, cinema and
   concert tickets, flight/rail/hotel search, orders, transfers (including payment by
   bank requisites, from a scanned invoice QR), messenger, investments
 - **11 skills**, entered through the `tbank` router skill: grocery order, tickets,
@@ -31,7 +31,7 @@ npx -y @travel-growth-inspiration/mcp login
 npx -y @travel-growth-inspiration/mcp serve
 ```
 
-The `serve` command exposes 39 read-only travel tools and one local HTML renderer. Login,
+The `serve` command exposes 43 read-only travel tools and one local HTML renderer. Login,
 payments, transfers, bookings, carts, messages, credentials, documents, generic
 bank reads and rail booking/payment tools are physically absent from `tools/list`.
 Public context comes from T-Bank Railways, OpenStreetMap/Nominatim and Open-Meteo.
@@ -153,6 +153,7 @@ Read-only инструменты профиля и путешествий при
 `response_format="json"`: `list_accounts`, `list_operations`,
 `spending_categories`, `audience_profile`, `orders`, `order_details`,
 `travel_order_details`, `flight_history`, `flight_search`,
+`flight_price_calendar`, `flight_price_forecast`,
 `train_stations`, `train_search`, `hotel_autocomplete`, `hotel_search`,
 `hotel_details`, `hotel_rates`, `hotel_reviews`, `afisha_catalog`,
 `afisha_places`, `concert_schedule`, `nearby_search` и `weather`.
@@ -184,7 +185,7 @@ Russian and so is the person reading the answer.
 | **Afisha** | `afisha_catalog`, `afisha_places`, `place_schedule`, `place_info` |
 | **Tickets** | `cinema_search`, `cinema_schedule`, `cinema_seats`, `concert_schedule`, `concert_hall`, `cinema_book`, `ticket_pay`, `ticket_cancel`, `ticket_qr` |
 | **Search** | `search_app` |
-| **Travel search** | `train_stations`, `train_search`, `compare_train_prices`, `train_calendar`, `flight_search`, `compare_flight_prices`, `flight_history`, `hotel_autocomplete`, `hotel_search`, `hotel_search_filters`, `hotel_latest_offers`, `compare_hotel_prices`, `compare_flight_hotel_prices`, `hotel_details`, `hotel_rates`, `hotel_checkout_url`, `hotel_reviews`, `hotel_filters`, `nearby_search`, `weather`, `render_trip_page` |
+| **Travel search** | `train_stations`, `train_search`, `compare_train_prices`, `train_calendar`, `flight_search`, `flight_price_calendar`, `flight_price_forecast`, `compare_flight_prices`, `flight_history`, `hotel_autocomplete`, `hotel_search`, `hotel_search_filters`, `hotel_latest_offers`, `compare_hotel_prices`, `compare_flight_hotel_prices`, `hotel_details`, `hotel_rates`, `hotel_checkout_url`, `hotel_reviews`, `hotel_filters`, `nearby_search`, `weather`, `render_trip_page` |
 | **Marketplace** | `shop_search`, `shop_cart` |
 | **Messenger** | `messenger_conversations`, `messenger_messages`, `messenger_file`, `messenger_send`, `messenger_unread` |
 | **Money** | `transfer_sbp_resolve`, `transfer`, `payment_qr`, `transfer_requisites`, `payment_commission`, `pay_bill`, `payment_providers`, `confirm_payment`, `payment_status` |
@@ -310,7 +311,7 @@ live bank.
   second pending payment.
 - **Tool annotations.** Every tool declares what it does, in one table —
   `TOOL_KINDS` in `src/server.py` — and a tool missing from it raises at import
-  rather than defaulting to anything. Three kinds: 79 are `readOnlyHint: true` and
+  rather than defaulting to anything. Three kinds: 80 are `readOnlyHint: true` and
   may run without a prompt; 13 write something that costs nothing (a cart, a
   booking, a message, an OTP, a token, a local file) and are marked
   `destructiveHint: false`; 6 debit an account — `transfer`, `transfer_requisites`,

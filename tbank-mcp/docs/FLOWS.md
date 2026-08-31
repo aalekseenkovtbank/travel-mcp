@@ -7,7 +7,7 @@ don't call `refresh_session` manually unless a tool returns SESSION EXPIRED.
 Served section-by-section by the `flows(topic)` tool — call it with no argument
 for the list of topics. Reading the whole file is rarely what you want.
 
-> **Tool names:** the **98 MCP tools** and their docstrings are the authoritative
+> **Tool names:** the **99 MCP tools** and their docstrings are the authoritative
 > interface. Some sections below describe INTERNAL api steps — e.g. the web
 > checkout + HMAC signing run INSIDE `grocery_checkout` / `transfer`. Call the MCP
 > tools, not the internal methods named in the prose (`pay`, `payment_gate_pay`,
@@ -474,23 +474,45 @@ already holds, and wants none of the native query context — which is what the
 
 ## 14. Flights — searching, and only searching
 
-`flight_search(from_code, to_code, date, only_bookable)` plus `flight_history()`.
+`flight_search(from_code, to_code, date, only_bookable)`, `flight_history()`,
+`flight_price_calendar(from_code, to_code, ...)`, `flight_price_forecast(search_id)`,
+`flight_schedule(from_code, to_code, date)`.
 
-The captured traffic runs this under a web session behind a multi-step bridge,
-which reads as unreachable from a mobile one. It is not: probed live, the same
-endpoints answer under the plain mobile Bearer with `X-Travel-Context: mb` and
-the session in `sessionId`. No bridge is built, because none is needed.
+`flight_search`, `flight_price_calendar`, `flight_price_forecast` and
+`flight_schedule` are all PUBLIC — confirmed live against prod with no
+Bearer, Cookie or sessionid on the wire, no `login()` needed. `flight_history`
+is the one exception (it IS the session's own search history, so it stays on
+the mobile Bearer + `X-Travel-Context: mb` shape probed live for it).
 
-The search STREAMS. `startStreaming` returns the first batch; `nextBatch` blocks
-for the next and sets `isOver` on the last. Measured on one route: 4 batches, 757
-flights, 4348 offers, the final batch alone adding 2836. `offers[].flights` index
-the CONCATENATION of every batch — 757 flights, highest index 756 — so nothing
-resolves until the stream is stitched, and a caller that stops early is told.
+The search is ONE ndjson connection (Zubat's `/flight/search/stream`): the
+server writes a `Direct` frame (Tinkoff's own inventory) and zero or more
+`Tpo` frames (Travelpayouts partners) as they complete, then `Finished`.
+Measured live, `Direct` is NOT reliably first — one request came back Tpo,
+Tpo, Direct, Tpo, Finished. `offers[].flights` index the CONCATENATION of
+every frame's flights, so nothing resolves until the stream is stitched.
 
-`only_bookable` (the default) stops after the first batch: only `vendor ==
-"Tinkoff"` offers are buyable inside the bank, and all 101 of them arrived in
-that first batch, so the other three round trips buy partner listings that lead
-out of the app.
+`only_bookable` (the default) sets `aviasales: false` on the request itself —
+confirmed live this makes the server return ONLY `Direct` + `Finished` (~7s,
+no partner search even started), rather than relying on frame order to find
+the `Direct` batch early. Every call runs to `Finished`, so `complete` is
+normally always true; `deadline_s` (client-side, not exposed as a tool
+parameter) is the only remaining — and rare — source of a partial result.
+
+`flight_price_calendar` is a SEPARATE, cheaper read: Zubat's calendar cache
+(`predictByDepartureDate`), not a live search — cheapest price per departure
+date for a direction, good for picking a date before paying for a real
+`flight_search`. Its `from`/`to` accept a GROUP of IATA codes of one kind
+(airport/city/country), not just a single pair — the interface it wires up is
+the same discriminated union the spec uses, not flattened to one code.
+`flight_price_forecast(search_id)` reads a signal (price likely to rise or
+not) for a searchId `flight_search` already minted; it starts no new search.
+
+`flight_schedule` is a THIRD, distinct read: Zubat's `getSchedule` timetable
+of which flights operate a route at all and on which days (`dates`), not a
+fare search — `minPrice` on an entry is only meaningful when `date` narrows
+to one day, and even then it is an indicative floor, not a live offer. It
+answers "what flies MOW→LED and when" before `flight_search` answers "what
+does it cost on this exact date".
 
 > **There is no name→IATA resolver anywhere in the captures.** `flight_history()`
 > is the one place a code comes back with its name; take codes from there rather
@@ -555,6 +577,24 @@ host and is not part of the travel allowlist; do not use it as a resolver.
 банковских credentials. Транспортный тест закрепляет это как инвариант. MCP не
 создаёт гостиничную бронь и не вызывает оплату: он может только построить ссылку,
 а оформление остаётся на странице T-Bank.
+
+## 17. Geodata — name + coordinates by IATA code
+
+`geodata_by_code(codes)` — Zubat's `POST /geodata/geoDataByCode`. PUBLIC
+(`@useAuth(NoAuth)`, confirmed live; no Bearer, no sessionid). Body is a
+JSON array of IATA codes; response order matches input order; when a
+code collides between a city and an airport the city wins.
+
+Two things this is the only place to get:
+- A name for an IATA code — three localized names (ru / en / synonyms;
+  city_name additionally carries Russian case forms: accusative,
+  prepositional, genitive). `flight_history()` only gives codes WITH
+  names for the session's own past searches; everything else needs this.
+- Coordinates + IANA timezone for a city, which `nearby_search()` and
+  `weather()` want as inputs but do not resolve on their own.
+
+Unknown code is `geodata.geodata_not_found`, not an empty list — checked
+live, matches the spec error text exactly.
 
 ## Notes
 
