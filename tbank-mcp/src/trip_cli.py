@@ -13,7 +13,7 @@ from .trip_page import (TripPageDocumentV1, render_trip_page_files,
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="travel-nova-mcp")
+    parser = argparse.ArgumentParser(prog="tbank-mcp")
     commands = parser.add_subparsers(dest="command", required=True)
     render = commands.add_parser("render-trip", help="render trip JSON to a static HTML page")
     render.add_argument("document", help="path to trip-page/v1 JSON")
@@ -38,7 +38,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result.model_dump(by_alias=True), ensure_ascii=False, indent=2))
         return 0
     except (OSError, ValueError, ValidationError) as exc:
-        print(f"travel-nova-mcp: {exc}", file=sys.stderr)
+        print(f"tbank-mcp: {exc}", file=sys.stderr)
         return 2
 
 

@@ -1,4 +1,4 @@
-"""Public OpenStreetMap/Nominatim primitives for the travel-only MCP surface."""
+"""Public OpenStreetMap/Nominatim primitives for T-Bank MCP travel tools."""
 from __future__ import annotations
 
 import math
@@ -19,7 +19,7 @@ NOMINATIM_URL = os.environ.get(
     "NOMINATIM_URL", "https://nominatim.openstreetmap.org")
 TIMEOUT_SECONDS = max(1.0, float(os.environ.get("TRAVEL_PROVIDER_TIMEOUT_SECONDS", "15")))
 USER_AGENT = os.environ.get(
-    "TRAVEL_HTTP_USER_AGENT", "tbank-travel-mcp/0.1 (local read-only travel assistant)")
+    "TBANK_MCP_HTTP_USER_AGENT", "tbank-mcp/0.2 (travel search)")
 
 _geocode_lock = threading.Lock()
 _last_geocode_at = 0.0

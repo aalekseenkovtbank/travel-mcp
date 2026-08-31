@@ -17,6 +17,7 @@ import re
 import sys
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
@@ -29,6 +30,8 @@ from . import client, trace
 from .client import (MobileSession, TbankApiError, SessionExpired,
                      PaymentConfirmationRequired, ms_for_period, vertical)
 from .endpoints import VERTICALS, APP_VERSION
+from .instructions import (InstructionDocument, instruction_documents,
+                           instruction_index, server_instructions)
 from .nearby import search_nearby as _search_nearby
 from .railways import (search_trains as _search_trains,
                        station_suggestions as _station_suggestions)
@@ -49,19 +52,10 @@ from .trip_personalization import (TripPersonalizationProfile,
                                    build_personalization_profile)
 from .weather import weather_report as _weather_report
 
-TOOLSET_ALL = "all"
-TOOLSET_TRAVEL = "travel"
-
-# The ordinary server keeps the complete banking surface.  The separate
-# ``src.travel_server`` entrypoint sets TBANK_TOOLSET=travel before importing this
-# module, so tools outside this immutable allowlist never enter FastMCP's registry
-# and are physically absent from tools/list.
-ACTIVE_TOOLSET = os.environ.get("TBANK_TOOLSET", TOOLSET_ALL).strip().lower()
-if ACTIVE_TOOLSET not in (TOOLSET_ALL, TOOLSET_TRAVEL):
-    raise RuntimeError(
-        f"Unknown TBANK_TOOLSET={ACTIVE_TOOLSET!r}; expected 'all' or 'travel'.")
-
-TRAVEL_TOOL_NAMES = frozenset({
+# These travel methods are part of the single T-Bank MCP surface.  Keep the
+# explicit set as a maintained invariant for distribution checks and docs; it no
+# longer filters registration.
+FORMER_TRAVEL_TOOL_NAMES = frozenset({
     # Session and spending context.
     "session_status", "list_accounts", "list_operations",
     "spending_categories", "operations_histogram", "audience_profile",
@@ -84,11 +78,53 @@ TRAVEL_TOOL_NAMES = frozenset({
     "concert_schedule", "concert_hall",
     # Public no-key context sources.
     "nearby_search", "weather",
-    # Local static artifact generation (the only write in the travel registry).
+    # Local static artifact generation.
     "render_trip_page",
 })
 
-mcp = FastMCP("tbank-travel" if ACTIVE_TOOLSET == TOOLSET_TRAVEL else "tbank")
+mcp = FastMCP(
+    "tbank",
+    instructions=server_instructions(),
+)
+
+
+@mcp.resource(
+    "travel-nova://instructions/index",
+    name="travel_nova_instruction_index",
+    title="Travel Nova: входная точка инструкций",
+    description=(
+        "Короткий порядок чтения и каталог всех инструкций, поставляемых "
+        "вместе с этой MCP-поверхностью."
+    ),
+    mime_type="text/markdown",
+)
+def travel_nova_instruction_index() -> str:
+    """Return the MCP-native instruction entrypoint."""
+    return instruction_index()
+
+
+def _instruction_reader(document: InstructionDocument) -> Callable[[], str]:
+    def read_document() -> str:
+        return document.read()
+
+    return read_document
+
+
+def _register_instruction_resources() -> None:
+    """Publish every routed document as a separately discoverable resource."""
+    for document in instruction_documents():
+        read_document = _instruction_reader(document)
+        read_document.__name__ = f"read_instruction_{document.slug.replace('-', '_')}"
+        mcp.resource(
+            document.uri,
+            name=f"travel_nova_instruction_{document.slug.replace('-', '_')}",
+            title=document.title,
+            description=document.description,
+            mime_type="text/markdown",
+        )(read_document)
+
+
+_register_instruction_resources()
 
 
 @mcp.prompt(
@@ -310,8 +346,6 @@ def _annotations_for(name: str) -> ToolAnnotations:
 def _traced_tool(*a, **kw):
     def register(fn):
         annotations = _annotations_for(fn.__name__)
-        if ACTIVE_TOOLSET == TOOLSET_TRAVEL and fn.__name__ not in TRAVEL_TOOL_NAMES:
-            return fn
         title, _ = TOOL_KINDS[fn.__name__]
         opts = {"title": title, "annotations": annotations, **kw}
         return _untraced_tool(*a, **opts)(trace.wrap(fn))

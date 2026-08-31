@@ -1,10 +1,10 @@
 {
   "name": "@travel-growth-inspiration/mcp",
-  "version": "0.2.2",
-  "description": "POSIX bootstrap for T-Bank Travel MCP and static trip pages",
+  "version": "0.3.0",
+  "description": "POSIX bootstrap for the complete T-Bank MCP server",
   "license": "MIT",
   "bin": {
-    "travel-nova-mcp": "bin/travel-nova-mcp"
+    "tbank-mcp": "bin/tbank-mcp"
   },
   "files": [
     "bin/",
@@ -14,6 +14,7 @@
   ],
   "scripts": {
     "prepack": "sh scripts/stage-vendor.sh",
+    "postpack": "sh scripts/stage-vendor.sh --clean",
     "build:offline": "sh scripts/build-offline-bundle.sh"
   },
   "engines": {

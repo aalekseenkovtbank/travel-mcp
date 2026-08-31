@@ -1,6 +1,6 @@
 [project]
 name = "tbank-mcp"
-version = "0.2.2"
+version = "0.3.0"
 description = "MCP server for the T-Bank (Т-Банк) mobile personal-banking API (capture-driven, headless, pinned-root TLS)."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -16,7 +16,6 @@ dependencies = [
 
 [project.scripts]
 tbank-mcp = "src.server:main"
-tbank-travel-mcp = "src.travel_server:main"
 tbank-trip-page = "src.trip_cli:main"
 
 [build-system]
@@ -38,5 +37,5 @@ packages = ["src", "ca.roots", "docs"]
 
 [tool.setuptools.package-data]
 "ca.roots" = ["*.pem", "*.crt"]
-"docs" = ["*.md"]
+"docs" = ["*.md", "skills/*/*.md"]
 "src" = ["assets/*"]

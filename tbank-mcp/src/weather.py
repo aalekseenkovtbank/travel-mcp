@@ -1,4 +1,4 @@
-"""Open-Meteo forecast and ERA5 climate estimates for the travel MCP."""
+"""Open-Meteo forecast and ERA5 climate estimates for T-Bank MCP travel tools."""
 from __future__ import annotations
 
 import os

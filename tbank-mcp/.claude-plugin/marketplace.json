@@ -5,15 +5,15 @@
     "url": "https://github.com/icyberdeveloper"
   },
   "metadata": {
-    "description": "T-Bank (Т-Банк) MCP — mobile banking API: счета, операции, заказ продуктов, переводы, мессенджер, инвестиции.",
-    "version": "0.2.2"
+    "description": "Единый T-Bank MCP: счета, операции, платежи, переводы, travel, Афиша, отели, авиа и ЖД.",
+    "version": "0.3.0"
   },
   "plugins": [
     {
       "name": "tbank",
       "source": "./",
-      "description": "T-Bank mobile banking MCP + 11 skills",
-      "version": "0.2.2",
+      "description": "Единый T-Bank MCP для банковских и travel-сценариев + 12 skills",
+      "version": "0.3.0",
       "keywords": [
         "finance",
         "banking",

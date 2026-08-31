@@ -17,13 +17,15 @@ APP_ROOT="$BUNDLE_ROOT/app/tbank-mcp"
 SITE_PACKAGES="$BUNDLE_ROOT/app/site-packages"
 
 die() {
-  printf '%s\n' "travel-mcp-offline: $*" >&2
+  printf '%s\n' "tbank-mcp-offline: $*" >&2
   exit 1
 }
 
 [ -x "$PYTHON_COMMAND" ] || die "в архиве отсутствует runtime/bin/python3"
 [ -f "$APP_ROOT/login_cli.py" ] || die "в архиве отсутствует app/tbank-mcp"
 [ -d "$SITE_PACKAGES/mcp" ] || die "в архиве отсутствуют Python-зависимости"
+[ -d "$SITE_PACKAGES/playwright" ] || die "в архиве отсутствует Playwright"
+[ -d "$BUNDLE_ROOT/app/ms-playwright" ] || die "в архиве отсутствует Chromium"
 
 # Do not let user-site packages or an inherited PYTHONPATH change the audited
 # dependency set carried by the archive. Bytecode is prebuilt during packaging;
@@ -32,16 +34,18 @@ export PYTHONNOUSERSITE=1
 export PYTHONDONTWRITEBYTECODE=1
 export PYTHONPATH="$APP_ROOT:$SITE_PACKAGES"
 export TBANK_TRACE=${TBANK_TRACE:-0}
+export TBANK_INSTRUCTION_ROOT="$APP_ROOT/docs"
+export PLAYWRIGHT_BROWSERS_PATH="$BUNDLE_ROOT/app/ms-playwright"
 
 ACTION=${1:-help}
 case "$ACTION" in
   help|-h|--help|"")
     printf '%s\n' \
-      "Travel MCP offline bundle (read-only bank tools + local trip pages)" \
-      "  travel-nova-mcp login" \
-      "  travel-nova-mcp serve" \
-      "  travel-nova-mcp render-trip trip.json [-o trip.html] [--overwrite]" \
-      "  travel-nova-mcp trip-page-schema"
+      "T-Bank MCP offline bundle (complete server + Chromium)" \
+      "  tbank-mcp login" \
+      "  tbank-mcp serve" \
+      "  tbank-mcp render-trip trip.json [-o trip.html] [--overwrite]" \
+      "  tbank-mcp trip-page-schema"
     ;;
   version|-V|--version)
     if [ -f "$BUNDLE_ROOT/VERSION" ]; then
@@ -52,7 +56,7 @@ case "$ACTION" in
     ;;
   login)
     shift
-    [ "$#" -le 1 ] || die "использование: travel-nova-mcp login [phone]"
+    [ "$#" -le 1 ] || die "использование: tbank-mcp login [phone]"
     # Keep credentials outside the MCP/LLM process and reconnect to the terminal
     # if the parent process detached stdin.
     if { : </dev/tty; } 2>/dev/null; then
@@ -63,7 +67,7 @@ case "$ACTION" in
   serve)
     shift
     [ "$#" -eq 0 ] || die "serve не принимает аргументы"
-    exec "$PYTHON_COMMAND" -m src.travel_server
+    exec "$PYTHON_COMMAND" -m src.server
     ;;
   render-trip|trip-page-schema)
     exec "$PYTHON_COMMAND" -m src.trip_cli "$@"

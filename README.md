@@ -100,14 +100,16 @@ npm run build      # production-сборка всех workspace
 - `travel-api` — Express API, SQLite, SSE, компилятор и провайдеры;
 - `travel-web` — React + Vite, карточки, карта и чат;
 - `packages/contracts` — общие Zod-схемы и TypeScript-типы;
-- `packages/travel-mcp` — POSIX npm-bootstrap для Python-only Travel MCP;
-- `tbank-mcp` — локальный банковский MCP с обратносуместимым JSON-режимом для
-  read-only интеграции Travel Nova; обычные текстовые ответы сохранены.
+- `packages/tbank-mcp` — POSIX npm-bootstrap для единого Python T-Bank MCP;
+- `tbank-mcp` — единый T-Bank MCP; банковские и travel-операции, обычные
+  текстовые ответы и структурированный JSON-контракт доступны из одной серверной
+  поверхности.
 
-MCP-клиент содержит физический allowlist только для read-only travel- и
+Travel Nova сохраняет клиентский allowlist только для read-only travel- и
 профильных методов. Бронирование, сообщения, корзины, переводы и оплаты через
-Travel Nova вызвать нельзя. Сырые операции и банковские credentials не
-передаются ни в LLM Proxy, ни в OpenStreetMap.
+приложение Travel Nova вызвать нельзя, хотя эти операции доступны другим
+клиентам единого MCP. Сырые операции и банковские credentials не передаются ни
+в LLM Proxy, ни в OpenStreetMap.
 
 Перед подбором состояние источников можно проверить через
 `GET http://127.0.0.1:3000/api/v1/system/readiness`. Проверка не возвращает

@@ -4,12 +4,13 @@
 
 ## Features
 
-- **101 tools**: accounts, cards, documents, operations, grocery ordering, cinema and
-  concert tickets, flight/rail/hotel search, orders, transfers (including payment by
-  bank requisites, from a scanned invoice QR), messenger, investments
-- **11 skills**, entered through the `tbank` router skill: grocery order, tickets,
-  travel search, transfer, bill pay, cards & documents, messenger, budget analysis,
-  invest advisor, login
+- **One MCP surface**: accounts, cards, documents, operations, grocery ordering,
+  cinema and concert tickets, flight/rail/hotel search, orders, transfers
+  (including payment by bank requisites and scanned invoice QR), messenger and
+  investments are published by the same server
+- **12 skills**, entered through the `tbank` router skill: grocery order, tickets,
+  travel search, hotel search, transfer, bill pay, cards & documents, messenger,
+  budget analysis, invest advisor, login
 - **Pinned CA trust**: system store + the Russian Trusted Root CA (Минцифры), which no
   OS ships and every `*.t-bank-app.ru` host needs — that is most of the 23 hosts this
   MCP talks to. Shipped in `ca/roots/`, pinned by SHA-256. Leaf/intermediate rotation
@@ -20,24 +21,30 @@
 
 ## Quick Install
 
-### Travel-only MCP for product experiments
+### Through npm: the same complete T-Bank MCP
 
-The npm package is a POSIX bootstrap, not a Node.js server. It creates or updates
-an isolated Python environment and then replaces itself with the Python FastMCP
-process. Login happens in the terminal, outside the model:
+The npm package is a POSIX bootstrap for the same unified server. It creates or
+updates an isolated Python environment and then replaces itself with the
+`src.server` FastMCP process used by the plugin and source checkout.
+Login happens in the terminal, outside the model:
 
 ```bash
 npx -y @travel-growth-inspiration/mcp login
 npx -y @travel-growth-inspiration/mcp serve
 ```
 
-The `serve` command exposes 43 read-only travel tools and one local HTML renderer. Login,
-payments, transfers, bookings, carts, messages, credentials, documents, generic
-bank reads and rail booking/payment tools are physically absent from `tools/list`.
-Public context comes from T-Bank Railways, OpenStreetMap/Nominatim and Open-Meteo.
-See [docs/TRAVEL_MCP.md](docs/TRAVEL_MCP.md).
+The `serve` command exposes the complete banking and travel tool set. Install
+Chromium explicitly before using grocery checkout; MCP startup never downloads
+the browser implicitly:
 
-### As a Claude Code plugin (server + all 11 skills in one step)
+```bash
+npx -y @travel-growth-inspiration/mcp install-browser
+```
+
+Public travel context comes from T-Bank Railways, OpenStreetMap/Nominatim and
+Open-Meteo. See [docs/MCP_DISTRIBUTION.md](docs/MCP_DISTRIBUTION.md).
+
+### As a Claude Code plugin (server + all 12 skills in one step)
 
 ```bash
 /plugin marketplace add icyberdeveloper/tbank-mcp
@@ -153,7 +160,8 @@ Read-only инструменты профиля и путешествий при
 `response_format="json"`: `list_accounts`, `list_operations`,
 `spending_categories`, `audience_profile`, `orders`, `order_details`,
 `travel_order_details`, `flight_history`, `flight_search`,
-`flight_price_calendar`, `flight_price_forecast`,
+`flight_price_calendar`, `flight_price_forecast`, `flight_schedule`,
+`geodata_by_code`,
 `train_stations`, `train_search`, `hotel_autocomplete`, `hotel_search`,
 `hotel_details`, `hotel_rates`, `hotel_reviews`, `afisha_catalog`,
 `afisha_places`, `concert_schedule`, `nearby_search` и `weather`.
@@ -185,7 +193,7 @@ Russian and so is the person reading the answer.
 | **Afisha** | `afisha_catalog`, `afisha_places`, `place_schedule`, `place_info` |
 | **Tickets** | `cinema_search`, `cinema_schedule`, `cinema_seats`, `concert_schedule`, `concert_hall`, `cinema_book`, `ticket_pay`, `ticket_cancel`, `ticket_qr` |
 | **Search** | `search_app` |
-| **Travel search** | `train_stations`, `train_search`, `compare_train_prices`, `train_calendar`, `flight_search`, `flight_price_calendar`, `flight_price_forecast`, `compare_flight_prices`, `flight_history`, `hotel_autocomplete`, `hotel_search`, `hotel_search_filters`, `hotel_latest_offers`, `compare_hotel_prices`, `compare_flight_hotel_prices`, `hotel_details`, `hotel_rates`, `hotel_checkout_url`, `hotel_reviews`, `hotel_filters`, `nearby_search`, `weather`, `render_trip_page` |
+| **Travel search** | `train_stations`, `train_search`, `compare_train_prices`, `train_calendar`, `flight_search`, `flight_price_calendar`, `flight_price_forecast`, `flight_schedule`, `geodata_by_code`, `compare_flight_prices`, `flight_history`, `hotel_autocomplete`, `hotel_search`, `hotel_search_filters`, `hotel_latest_offers`, `compare_hotel_prices`, `compare_flight_hotel_prices`, `hotel_details`, `hotel_rates`, `hotel_checkout_url`, `hotel_reviews`, `hotel_filters`, `nearby_search`, `weather`, `render_trip_page` |
 | **Marketplace** | `shop_search`, `shop_cart` |
 | **Messenger** | `messenger_conversations`, `messenger_messages`, `messenger_file`, `messenger_send`, `messenger_unread` |
 | **Money** | `transfer_sbp_resolve`, `transfer`, `payment_qr`, `transfer_requisites`, `payment_commission`, `pay_bill`, `payment_providers`, `confirm_payment`, `payment_status` |
@@ -204,6 +212,7 @@ Grocery tools (`grocery_search`, `grocery_plan_order`, `grocery_add_to_cart`, `g
 | `tbank-grocery-order` | Recipe → search → cart → confirm → checkout |
 | `tbank-tickets` | Cinema/concert: search → showtime → seats → book → pay |
 | `tbank-travel-search` | Trains, flights, marketplace — search only, no booking |
+| `tbank-hotel-search` | Hotels — saved SSO context, live shortlist and photo cards in chat |
 | `tbank-bill-pay` | Service bills — utilities, taxes, fines: catalogue → provider fields → commission preview → pay |
 | `tbank-transfer-money` | P2P, SBP (СБП), account transfers |
 | `tbank-cards-documents` | Cards, limits, requisites, passport and other documents |
@@ -311,7 +320,7 @@ live bank.
   second pending payment.
 - **Tool annotations.** Every tool declares what it does, in one table —
   `TOOL_KINDS` in `src/server.py` — and a tool missing from it raises at import
-  rather than defaulting to anything. Three kinds: 80 are `readOnlyHint: true` and
+  rather than defaulting to anything. Three kinds: 82 are `readOnlyHint: true` and
   may run without a prompt; 13 write something that costs nothing (a cart, a
   booking, a message, an OTP, a token, a local file) and are marked
   `destructiveHint: false`; 6 debit an account — `transfer`, `transfer_requisites`,

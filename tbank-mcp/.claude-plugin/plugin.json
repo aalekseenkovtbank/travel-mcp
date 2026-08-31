@@ -1,8 +1,8 @@
 {
   "name": "tbank",
   "displayName": "T-Bank MCP",
-  "version": "0.2.2",
-  "description": "T-Bank (Т-Банк) MCP — mobile banking API: счета, операции, заказ продуктов, переводы, мессенджер, инвестиции.",
+  "version": "0.3.0",
+  "description": "Единый T-Bank MCP: счета, операции, платежи, переводы, travel, Афиша, отели, авиа и ЖД.",
   "author": {
     "name": "icyberdeveloper",
     "url": "https://github.com/icyberdeveloper"

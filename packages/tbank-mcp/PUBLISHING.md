@@ -10,7 +10,7 @@ tarball попадает Python-код `tbank-mcp`, который launcher ус
 - Node.js 18+ и npm 9+;
 - доступ к Artifactory;
 - JSON-файл service account key с правом публикации пакета;
-- чистая рабочая копия исходников `packages/travel-mcp` и `tbank-mcp`.
+- чистая рабочая копия исходников `packages/tbank-mcp` и `tbank-mcp`.
 
 Service key нельзя добавлять в git, npm tarball или `.npmrc`. Команды ниже
 создают временную копию с правами `0600` и удаляют весь временный каталог при
@@ -20,15 +20,15 @@ Service key нельзя добавлять в git, npm tarball или `.npmrc`.
 
 Версия должна совпадать в трёх местах:
 
-- `packages/travel-mcp/package.json`;
-- workspace-запись `packages/travel-mcp` в корневом `package-lock.json`;
+- `packages/tbank-mcp/package.json`;
+- workspace-запись `packages/tbank-mcp` в корневом `package-lock.json`;
 - `tbank-mcp/pyproject.toml`.
 
 Проверьте совпадение:
 
 ```bash
-node -p 'require("./packages/travel-mcp/package.json").version'
-node -p 'require("./package-lock.json").packages["packages/travel-mcp"].version'
+node -p 'require("./packages/tbank-mcp/package.json").version'
+node -p 'require("./package-lock.json").packages["packages/tbank-mcp"].version'
 sed -n 's/^version = "\([^"]*\)"/\1/p' tbank-mcp/pyproject.toml
 ```
 
@@ -42,10 +42,12 @@ sed -n 's/^version = "\([^"]*\)"/\1/p' tbank-mcp/pyproject.toml
 npm pack --dry-run -w @travel-growth-inspiration/mcp
 ```
 
-`prepack` заново формирует `vendor/tbank-mcp`. В пакет не должны попасть
-сессии, трассировки, локальные CA, SQLite, Node API или исходники веб-продукта.
-В выводе `npm pack --dry-run` должны быть `bin/`, `vendor/`, `README.md` и этот
-файл.
+`prepack` временно формирует `vendor/tbank-mcp` только из канонических исходников,
+а `postpack` удаляет staging-каталог. `vendor/` игнорируется Git и не должен
+коммититься. В пакет не должны попасть сессии, трассировки, локальные CA, SQLite,
+Node API или исходники веб-продукта. В выводе `npm pack --dry-run` должны быть
+`bin/`, `vendor/`, `README.md` и этот файл; после команды локального `vendor/`
+оставаться не должно.
 
 ## 3. Создать временный release-каталог
 
@@ -54,24 +56,28 @@ PVM определяет пакеты через git. Если рабочая д
 путь к ключу на свой:
 
 ```bash
-TRAVEL_RELEASE_ROOT=$(mktemp -d)
-export TRAVEL_RELEASE_ROOT
-trap 'rm -rf "$TRAVEL_RELEASE_ROOT"' EXIT HUP INT TERM
+TBANK_RELEASE_ROOT=$(mktemp -d)
+export TBANK_RELEASE_ROOT
+trap 'rm -rf "$TBANK_RELEASE_ROOT"' EXIT HUP INT TERM
 
-TRAVEL_SERVICE_KEY_SOURCE=/absolute/path/to/service-account-key.json
-TRAVEL_SERVICE_KEY_COPY="$TRAVEL_RELEASE_ROOT/service-key.json"
-cp "$TRAVEL_SERVICE_KEY_SOURCE" "$TRAVEL_SERVICE_KEY_COPY"
-chmod 600 "$TRAVEL_SERVICE_KEY_COPY"
+TBANK_SERVICE_KEY_SOURCE=/absolute/path/to/service-account-key.json
+TBANK_SERVICE_KEY_COPY="$TBANK_RELEASE_ROOT/service-key.json"
+cp "$TBANK_SERVICE_KEY_SOURCE" "$TBANK_SERVICE_KEY_COPY"
+chmod 600 "$TBANK_SERVICE_KEY_COPY"
 
-mkdir -p "$TRAVEL_RELEASE_ROOT/packages" "$TRAVEL_RELEASE_ROOT/tbank-mcp/ca/roots"
-cp -R packages/travel-mcp "$TRAVEL_RELEASE_ROOT/packages/"
+mkdir -p "$TBANK_RELEASE_ROOT/packages" "$TBANK_RELEASE_ROOT/docs" \
+  "$TBANK_RELEASE_ROOT/tbank-mcp/ca/roots"
+cp -R packages/tbank-mcp "$TBANK_RELEASE_ROOT/packages/"
+cp AGENTS.md "$TBANK_RELEASE_ROOT/"
+cp docs/AGENT_RULES.md "$TBANK_RELEASE_ROOT/docs/"
 cp tbank-mcp/pyproject.toml tbank-mcp/login_cli.py \
-  tbank-mcp/README.md tbank-mcp/LICENSE "$TRAVEL_RELEASE_ROOT/tbank-mcp/"
-cp -R tbank-mcp/src tbank-mcp/docs "$TRAVEL_RELEASE_ROOT/tbank-mcp/"
+  tbank-mcp/README.md tbank-mcp/LICENSE "$TBANK_RELEASE_ROOT/tbank-mcp/"
+cp -R tbank-mcp/src tbank-mcp/docs tbank-mcp/skills \
+  "$TBANK_RELEASE_ROOT/tbank-mcp/"
 cp tbank-mcp/ca/roots/russian-trusted-root-ca.crt \
-  "$TRAVEL_RELEASE_ROOT/tbank-mcp/ca/roots/"
+  "$TBANK_RELEASE_ROOT/tbank-mcp/ca/roots/"
 
-cd "$TRAVEL_RELEASE_ROOT/packages/travel-mcp"
+cd "$TBANK_RELEASE_ROOT/packages/tbank-mcp"
 sh scripts/stage-vendor.sh
 find . -name .DS_Store -delete
 git init -q
@@ -80,13 +86,14 @@ git commit -qm "release: @travel-growth-inspiration/mcp"
 ```
 
 Временный `tbank-mcp` содержит только файлы, которые разрешено включать в npm
-package. Пользовательская банковская сессия и reverse-engineering artifacts не
-копируются.
+package. Корневой `AGENTS.md`, карта правил и `SKILL.md` нужны для MCP Resources;
+`stage-vendor.sh` копирует их в производный runtime bundle. Пользовательская
+банковская сессия и reverse-engineering artifacts не копируются.
 
 ## 4. Выполнить dry-run
 
 ```bash
-DP_SERVICE_KEY="$TRAVEL_SERVICE_KEY_COPY" \
+DP_SERVICE_KEY="$TBANK_SERVICE_KEY_COPY" \
 PVM_EXTERNAL_DRY_RUN=true \
 npx -y @tinkoff/pvm publish -s stale
 ```
@@ -105,7 +112,7 @@ Dry-run не должен создавать версию в registry.
 Только после успешных тестов и dry-run:
 
 ```bash
-DP_SERVICE_KEY="$TRAVEL_SERVICE_KEY_COPY" \
+DP_SERVICE_KEY="$TBANK_SERVICE_KEY_COPY" \
 npx -y @tinkoff/pvm publish -s stale
 ```
 

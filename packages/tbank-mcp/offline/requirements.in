@@ -1,0 +1,4 @@
+# Complete T-Bank MCP runtime. Chromium itself is added by build-offline-bundle.sh.
+mcp==1.29.1
+playwright==1.62.0
+requests==2.34.2

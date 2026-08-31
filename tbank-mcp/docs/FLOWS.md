@@ -1,14 +1,15 @@
 # T-Bank MCP — agent flows
 
-Ordered tool-call sequences for common tasks. The session self-refreshes
-(`ensure_fresh` → silent re-login, no OTP) on the first call of each flow, so you
-don't call `refresh_session` manually unless a tool returns SESSION EXPIRED.
+Ordered tool-call sequences for common tasks. The session self-refreshes through
+the internal `ensure_fresh` mechanism (silent re-login, no OTP) on the first call
+of each flow, so you don't call `refresh_session` manually unless a tool returns
+SESSION EXPIRED.
 
 Served section-by-section by the `flows(topic)` tool — call it with no argument
 for the list of topics. Reading the whole file is rarely what you want.
 
-> **Tool names:** the **99 MCP tools** and their docstrings are the authoritative
-> interface. Some sections below describe INTERNAL api steps — e.g. the web
+> **Tool names:** `tools/list` of the unified T-Bank MCP and the tool docstrings
+> are the authoritative interface. Some sections below describe INTERNAL api steps — e.g. the web
 > checkout + HMAC signing run INSIDE `grocery_checkout` / `transfer`. Call the MCP
 > tools, not the internal methods named in the prose (`pay`, `payment_gate_pay`,
 > `active_loans` are NOT MCP tools — and there is no raw `pay` to drop down to when
@@ -307,9 +308,10 @@ call returning raw JSON:
 > **Session LEVEL matters here.** These endpoints validate the mobile *sessionid*,
 > not just the Bearer token, and refuse an ANONYMOUS-level session. The CLIENT
 > window is only ~11 minutes (`/v1/ping` → `portalSessionExpiresInSeconds` ≈ 659)
-> while `ensure_fresh` tracks the ~2h access_token — so between re-mints the
+> while the internal `ensure_fresh` mechanism tracks the ~2h access_token — so between re-mints the
 > session lapses and only these few tools notice. They call
-> `ensure_client_session()`, which pings and re-mints when the window has closed.
+> the internal `ensure_client_session` function, which pings and re-mints when
+> the window has closed.
 > Both grants (refresh_token and authorization_code) mint an equally privileged
 > session — the grant type is NOT the variable, the window is.
 
@@ -529,8 +531,8 @@ does it cost on this exact date".
    Example city codes: Moscow `2000000`, Saint Petersburg `2004000`.
 
 Both calls are public and read-only: no banking token, Cookie or session is sent.
-The legacy full-server-only `train_calendar` still targets the old mobile rail
-host and is not part of the travel allowlist; do not use it as a resolver.
+`train_calendar` targets the mobile rail host and показывает календарь продаж;
+do not use it as a station resolver.
 
 > **Buying is not supported.** `orders/pay` hands back a tpay webview URL that
 > cannot be completed headlessly, and creating an order needs passenger passport

@@ -1,11 +1,14 @@
 # T-Bank MCP: доступные вызовы и текущий статус
 
-Проверено: **16 августа 2026, Europe/Moscow**.
+Контракт `tools/list`, имена и режимы сверены: **31 августа 2026,
+Europe/Moscow**. Живые статусы источников в таблицах зафиксированы по проверке
+**16 августа 2026** и не считаются новой сетевой проверкой.
 
-MCP успешно запускается по stdio и публикует **92 инструмента**:
+Единый T-Bank MCP успешно запускается по stdio и публикует **101 инструмент**:
 
-- **74 READ** — только чтение;
-- **12 WRITE** — меняют состояние, но сами по себе не списывают деньги;
+- **82 READ** — только чтение;
+- **13 WRITE** — меняют состояние локально или во внешней системе, но сами по
+  себе не списывают деньги;
 - **6 MONEY** — могут начать или завершить списание.
 
 Во время проверки запускались **только READ-вызовы**. Переводы, оплаты, бронирования,
@@ -45,6 +48,7 @@ MCP успешно запускается по stdio и публикует **92 
 | `spending_categories(account_id, days=30)` | R | ✅ | Категории трат отвечают |
 | `operations_histogram(account_id="", days=30)` | R | ✅ | Проверена дневная группировка по категориям |
 | `audience_profile()` | R | ✅ | Возвращает только возрастной диапазон и допустимость 18+, без даты рождения и пола |
+| `trip_personalization_profile(...)` | R | 🟡 | Агрегированный бюджет и предпочтения поездки без сырых операций и банковских данных |
 | `get_data(section, arg="", days=30)` | R | ✅ | Проверена секция `services`; доступны и другие секции из схемы инструмента |
 
 ## Карты и документы
@@ -113,8 +117,15 @@ MCP успешно запускается по stdio и публикует **92 
 | `search_app(query, screen="afisha")` | R | ✅ | Полнотекстовый поиск отвечает |
 | `flight_search(from_code, to_code, date)` | R | ✅ | Живой поиск `LED → MOW` на 19.08.2026 прошёл |
 | `flight_history()` | R | ✅ | История и IATA-коды отвечают |
-| `train_search(origin, destination, date)` | R | 🔴 | `trains.t-bank-app.ru:443`: TCP/`ConnectTimeout` |
-| `train_calendar(origin, destination)` | R | 🔴 | Та же сетевая проблема ЖД-хоста |
+| `flight_price_calendar(...)` | R | 🟡 | Публичный кэш минимальных цен по датам; новая живая проверка в этой ревизии не выполнялась |
+| `flight_price_forecast(search_id)` | R | 🟡 | Прогноз изменения цены для `searchId` уже выполненного поиска |
+| `flight_schedule(from_code, to_code, date="")` | R | 🟡 | Публичное расписание рейсов направления, не живой поиск тарифов |
+| `geodata_by_code(codes)` | R | 🟡 | Публичные названия, координаты и timezone по известным IATA-кодам |
+| `compare_flight_prices(...)` | R | 🟡 | Сравнивает авиапредложения по нескольким окнам дат |
+| `train_stations(search_text)` | R | 🟡 | Публичный резолвер города или станции в числовой `searchCode` |
+| `train_search(origin, destination, date)` | R | 🟡 | Публичный read-only поиск `trains.tbank.ru`; текущий контракт опубликован, новая живая проверка не выполнялась |
+| `train_calendar(origin, destination)` | R | 🔴 | Старый mobile rail host `trains.t-bank-app.ru:443`: TCP/`ConnectTimeout` |
+| `compare_train_prices(...)` | R | 🟡 | Сравнивает ЖД-предложения по нескольким окнам дат |
 | `hotel_autocomplete(query)` | R | ✅ | Прод: «Москва» вернула 5 локаций и 1 конкретный отель |
 | `hotel_search(destination_id, checkin_date, checkout_date)` | R | ✅ | Актуальный v2-поиск: priced ids из `searchHotelPoints` объединяются со статическими карточками |
 | `hotel_details(hotel_id)` | R | ✅ | Прод: карточка первого результата, 13 групп удобств |
@@ -123,6 +134,11 @@ MCP успешно запускается по stdio и публикует **92 
 | `hotel_filters()` | R | ✅ | Прод: 14 фильтров и 7 популярных |
 | `hotel_search_filters(location_id, ...)` | R | 🟡 | `searchFilters_v3`: контракт, валидация, sticky/language headers и публичный transport покрыты offline-тестами |
 | `hotel_latest_offers(hotel_ids, ...)` | R | 🟡 | `getLatestHotelOffer`: batch 1–1000 id, финальность цены и публичный transport покрыты offline-тестами |
+| `hotel_checkout_url(..., book_hash, rate_confirmed=true)` | R | 🟡 | Создаёт ссылку на оформление выбранного тарифа; не создаёт бронь и не списывает деньги |
+| `compare_hotel_prices(...)` | R | 🟡 | Сравнивает отельные предложения по нескольким окнам дат |
+| `compare_flight_hotel_prices(...)` | R | 🟡 | Сравнивает сумму двух перелётов и отеля; не является полной стоимостью поездки |
+| `nearby_search(...)` | R | 🟡 | Рестораны и места рядом через OpenStreetMap/Nominatim/Overpass |
+| `weather(...)` | R | 🟡 | Прогноз Open-Meteo или климатическая оценка ERA5 |
 | `shop_search(query)` | R | ✅ | Поиск товаров отвечает |
 | `shop_cart(limit=20)` | R | ✅ | Корзины маркетплейса отвечают |
 
@@ -172,6 +188,7 @@ travel-инструменты предназначены для поиска и 
 | `flows(topic="")` | R | ✅ | Подсказки по последовательностям вызовов |
 | `diagnostics(limit=40)` | R | ✅ | Локальные очищенные события платежных сценариев |
 | `debug_report(runs=0, top=6)` | R | ✅ | Локальная статистика использования MCP |
+| `render_trip_page(document, output_dir="", overwrite=false)` | W | ⛔ | Создаёт локальные HTML + JSON с правами `0600`; сетевых действий и оплаты нет |
 
 ## Практический минимальный набор для Travel-ассистента
 
@@ -189,6 +206,6 @@ cinema_search(city="Москва")
 afisha_catalog(kind="movie", city="Москва", date_from="2026-08-16", date_to="2026-08-23")
 ```
 
-Для ЖД пока нужен другой источник или исправление доступа к
-`trains.t-bank-app.ru`; сам MCP-метод и его схема существуют, но сетевое соединение
-до API не устанавливается.
+Для основного ЖД-сценария используй `train_stations()` и `train_search()` единого
+T-Bank MCP: они работают через публичные read-only источники. Ограничение
+`trains.t-bank-app.ru` относится только к дополнительному `train_calendar()`.

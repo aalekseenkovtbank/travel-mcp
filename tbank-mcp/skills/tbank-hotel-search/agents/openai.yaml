@@ -1,0 +1,4 @@
+interface:
+  display_name: "Поиск отелей T-Bank"
+  short_description: "Отели с ценами и фотографиями в чате"
+  default_prompt: "Используй $tbank-hotel-search, чтобы найти отели по моему запросу и показать лучшие варианты с фотографиями."

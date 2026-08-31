@@ -7,7 +7,7 @@ config.env
 travel-api/data/
 travel-web/coverage/
 packages/contracts/dist/
-packages/travel-mcp/vendor/
+packages/tbank-mcp/vendor/
 
 # TypeScript project references may emit the Vite config next to its source.
 travel-web/vite.config.js

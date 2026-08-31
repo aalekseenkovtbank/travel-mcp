@@ -37,8 +37,9 @@ PACKAGE_VERSION=$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)",*$/\1/p' \
   exit 1
 }
 
-TEMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/travel-nova-offline.XXXXXX")
+TEMP_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/tbank-mcp-offline.XXXXXX")
 cleanup() {
+  sh "$PACKAGE_ROOT/scripts/stage-vendor.sh" --clean
   if [ -d "$TEMP_ROOT" ]; then
     find "$TEMP_ROOT" -mindepth 1 -delete
     rmdir "$TEMP_ROOT"
@@ -70,14 +71,14 @@ PYTHON_TAG=$(
     'import sys; print(f"{sys.version_info.major}{sys.version_info.minor}")'
 )
 
-BUNDLE_NAME="travel-nova-mcp-$PACKAGE_VERSION-$PLATFORM-py$PYTHON_VERSION"
+BUNDLE_NAME="tbank-mcp-$PACKAGE_VERSION-$PLATFORM-py$PYTHON_VERSION"
 BUNDLE_ROOT="$TEMP_ROOT/$BUNDLE_NAME"
 mkdir -p "$BUNDLE_ROOT/bin" "$BUNDLE_ROOT/runtime" \
   "$BUNDLE_ROOT/app/tbank-mcp" "$BUNDLE_ROOT/app/site-packages"
 
 cp -R "$PYTHON_SOURCE_ROOT/." "$BUNDLE_ROOT/runtime/"
-cp "$OFFLINE_ROOT/bin/travel-nova-mcp" "$BUNDLE_ROOT/bin/travel-nova-mcp"
-chmod 0755 "$BUNDLE_ROOT/bin/travel-nova-mcp"
+cp "$OFFLINE_ROOT/bin/tbank-mcp" "$BUNDLE_ROOT/bin/tbank-mcp"
+chmod 0755 "$BUNDLE_ROOT/bin/tbank-mcp"
 
 printf '%s\n' 'offline bundle: устанавливаю locked-зависимости в архив'
 UV_CACHE_DIR="$UV_CACHE" UV_LINK_MODE=copy "$UV_COMMAND" pip install \
@@ -91,14 +92,20 @@ UV_CACHE_DIR="$UV_CACHE" UV_LINK_MODE=copy "$UV_COMMAND" pip install \
   --no-config \
   --native-tls
 
+printf '%s\n' 'offline bundle: добавляю Chromium для grocery checkout'
+PYTHONPATH="$BUNDLE_ROOT/app/site-packages" \
+PLAYWRIGHT_BROWSERS_PATH="$BUNDLE_ROOT/app/ms-playwright" \
+  "$BUNDLE_ROOT/runtime/bin/python3" -m playwright install chromium
+
 sh "$PACKAGE_ROOT/scripts/stage-vendor.sh"
 cp -R "$PACKAGE_ROOT/vendor/tbank-mcp/." "$BUNDLE_ROOT/app/tbank-mcp/"
+sh "$PACKAGE_ROOT/scripts/stage-vendor.sh" --clean
 cp "$OFFLINE_ROOT/README.md" "$BUNDLE_ROOT/README.md"
 cp "$REQUIREMENTS" "$BUNDLE_ROOT/requirements.lock"
 cp "$REPOSITORY_ROOT/tbank-mcp/LICENSE" "$BUNDLE_ROOT/LICENSE"
 
 printf '%s\n' \
-  "travel-nova-mcp $PACKAGE_VERSION" \
+  "tbank-mcp $PACKAGE_VERSION" \
   "platform $PLATFORM" \
   "python $PYTHON_VERSION" >"$BUNDLE_ROOT/VERSION"
 

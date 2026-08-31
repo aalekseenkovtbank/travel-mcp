@@ -1,4 +1,4 @@
-"""Public, read-only T-Bank Railways primitives for the travel MCP."""
+"""Public, read-only T-Bank Railways primitives for T-Bank MCP."""
 from __future__ import annotations
 
 import os
@@ -24,7 +24,7 @@ SEARCH_TIMEOUT_SECONDS = max(
     float(os.environ.get("TRAVEL_RAIL_SEARCH_TIMEOUT_SECONDS", "60")),
 )
 USER_AGENT = os.environ.get(
-    "TRAVEL_HTTP_USER_AGENT", "tbank-travel-mcp/0.1 (local read-only travel assistant)")
+    "TBANK_MCP_HTTP_USER_AGENT", "tbank-mcp/0.2 (travel search)")
 SOURCE = "T-Bank Railways"
 
 
