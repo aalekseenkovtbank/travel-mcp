@@ -118,10 +118,16 @@ _DOCUMENTS = (
         "Общая поверхность инструментов, способы установки и renderer.",
     ),
     _mcp_document(
+        "travel-output-modes",
+        "TRAVEL_OUTPUT_MODES.md",
+        "Режимы результата Travel Nova",
+        "HTML по умолчанию, chat-режим и общий отельный блок с отзывами.",
+    ),
+    _mcp_document(
         "trip-generation",
         "TRIP_GENERATION.md",
         "Генерация страницы поездки",
-        "Обязательный flow поиска и создания TripPageDocumentV1.",
+        "Обязательный flow поиска и создания TripPageDocumentV2.",
     ),
     _skill_document(
         "tbank-travel-search",
@@ -221,7 +227,8 @@ def instruction_index() -> str:
         f"2. `{INSTRUCTION_URI_PREFIX}agent-rules` — выбери область задачи.",
         f"3. `{INSTRUCTION_URI_PREFIX}tbank-router` — выбери один узкий skill.",
         "4. Прочитай ровно один подходящий task-specific skill из каталога ниже.",
-        "5. Для составной поездки и HTML + JSON дополнительно прочитай "
+        "5. Для отелей или составной поездки прочитай `travel-output-modes`; "
+        "для полной поездки и HTML + JSON дополнительно прочитай "
         "`trip-generation` и `mcp-distribution`.",
         "",
         "Все банковские и travel-операции находятся в одном MCP. Инструменты, "

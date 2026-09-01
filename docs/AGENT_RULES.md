@@ -35,8 +35,9 @@
 | Задача | Обязательно прочитать | Дополнительный источник |
 |---|---|---|
 | Любое изменение репозитория | [`AGENTS.md`](../AGENTS.md) | README соответствующего пакета |
-| Поиск транспорта, отелей и досуга с готовой страницей поездки | [`TRIP_GENERATION.md`](../tbank-mcp/docs/TRIP_GENERATION.md) | [`MCP_DISTRIBUTION.md`](../tbank-mcp/docs/MCP_DISTRIBUTION.md) |
-| Изменение единого MCP, его дистрибуции или renderer | [`MCP_DISTRIBUTION.md`](../tbank-mcp/docs/MCP_DISTRIBUTION.md), [`TRIP_GENERATION.md`](../tbank-mcp/docs/TRIP_GENERATION.md) | [`server.py`](../tbank-mcp/src/server.py), [`trip_page.py`](../tbank-mcp/src/trip_page.py) |
+| Отдельный поиск отелей | [`TRAVEL_OUTPUT_MODES.md`](../tbank-mcp/docs/TRAVEL_OUTPUT_MODES.md), [`tbank-hotel-search`](../tbank-mcp/skills/tbank-hotel-search/SKILL.md) | Раздел Hotels в [`FLOWS.md`](../tbank-mcp/docs/FLOWS.md) |
+| Поиск транспорта, отелей и досуга с готовой страницей поездки | [`TRIP_GENERATION.md`](../tbank-mcp/docs/TRIP_GENERATION.md), [`TRAVEL_OUTPUT_MODES.md`](../tbank-mcp/docs/TRAVEL_OUTPUT_MODES.md) | [`MCP_DISTRIBUTION.md`](../tbank-mcp/docs/MCP_DISTRIBUTION.md) |
+| Изменение единого MCP, его дистрибуции или renderer | [`MCP_DISTRIBUTION.md`](../tbank-mcp/docs/MCP_DISTRIBUTION.md), [`TRIP_GENERATION.md`](../tbank-mcp/docs/TRIP_GENERATION.md), [`TRAVEL_OUTPUT_MODES.md`](../tbank-mcp/docs/TRAVEL_OUTPUT_MODES.md) | [`server.py`](../tbank-mcp/src/server.py), [`trip_page.py`](../tbank-mcp/src/trip_page.py) |
 | Любая задача T-Bank MCP | router-skill [`tbank`](../tbank-mcp/skills/tbank/SKILL.md), затем один узкий skill | Нужный раздел [`FLOWS.md`](../tbank-mcp/docs/FLOWS.md) |
 | Точная цепочка MCP-вызовов или диагностика flow | Соответствующий skill | Нужный раздел [`FLOWS.md`](../tbank-mcp/docs/FLOWS.md), не весь документ |
 | Изменение MCP tool или prompt | Сигнатура, docstring и annotations в [`server.py`](../tbank-mcp/src/server.py) | Связанный skill и `FLOWS.md` |
@@ -112,6 +113,12 @@ travel-операций. Travel Nova ограничивает свои вызо�
 не означает бронь или оплату.
 
 **`trip-page/v1`** — версия JSON-контракта статической страницы поездки.
+
+**`trip-page/v2`** — расширенная страница поездки с галереями, структурированным
+обзором отзывов и сравнением трёх отелей.
+
+**`hotel-page/v1`** — самостоятельная HTML + JSON подборка до пяти отелей в
+общем UI Travel Nova.
 
 ## Правила сопровождения документации
 

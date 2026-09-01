@@ -44,6 +44,8 @@ case "$ACTION" in
       "T-Bank MCP offline bundle (complete server + Chromium)" \
       "  tbank-mcp login" \
       "  tbank-mcp serve" \
+      "  tbank-mcp render-page page.json [-o page.html] [--overwrite]" \
+      "  tbank-mcp page-schema --kind trip|hotels" \
       "  tbank-mcp render-trip trip.json [-o trip.html] [--overwrite]" \
       "  tbank-mcp trip-page-schema"
     ;;
@@ -69,8 +71,8 @@ case "$ACTION" in
     [ "$#" -eq 0 ] || die "serve не принимает аргументы"
     exec "$PYTHON_COMMAND" -m src.server
     ;;
-  render-trip|trip-page-schema)
+  render-page|page-schema|render-trip|trip-page-schema)
     exec "$PYTHON_COMMAND" -m src.trip_cli "$@"
     ;;
-  *) die "неизвестная команда '$ACTION'; доступны login, serve, render-trip и trip-page-schema" ;;
+  *) die "неизвестная команда '$ACTION'; доступны login, serve, render-page, page-schema, render-trip и trip-page-schema" ;;
 esac

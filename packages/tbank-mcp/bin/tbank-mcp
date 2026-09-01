@@ -34,12 +34,14 @@ case "$ACTION" in
       "  npx -y @travel-growth-inspiration/mcp login" \
       "  npx -y @travel-growth-inspiration/mcp serve" \
       "  npx -y @travel-growth-inspiration/mcp install-browser" \
+      "  npx -y @travel-growth-inspiration/mcp render-page page.json [-o page.html] [--overwrite]" \
+      "  npx -y @travel-growth-inspiration/mcp page-schema --kind trip|hotels" \
       "  npx -y @travel-growth-inspiration/mcp render-trip trip.json [-o trip.html] [--overwrite]" \
       "  npx -y @travel-growth-inspiration/mcp trip-page-schema"
     exit 0
     ;;
-  login|serve|install-browser|render-trip|trip-page-schema) ;;
-  *) die "неизвестная команда '$ACTION'; доступны login, serve, install-browser, render-trip и trip-page-schema" ;;
+  login|serve|install-browser|render-page|page-schema|render-trip|trip-page-schema) ;;
+  *) die "неизвестная команда '$ACTION'; доступны login, serve, install-browser, render-page, page-schema, render-trip и trip-page-schema" ;;
 esac
 
 case "$(uname -s)" in
@@ -138,7 +140,7 @@ case "${1:-}" in
     [ "$#" -eq 0 ] || die "install-browser не принимает аргументы"
     exec "$VENV_ROOT/bin/python" -m playwright install chromium
     ;;
-  render-trip|trip-page-schema)
+  render-page|page-schema|render-trip|trip-page-schema)
     exec "$VENV_ROOT/bin/python" -m src.trip_cli "$@"
     ;;
 esac

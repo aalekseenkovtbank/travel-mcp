@@ -559,7 +559,9 @@ do not use it as a station resolver.
    питание, оплату и отмену для шорт-листа. Вызывай непосредственно перед тем,
    как сравнивать эти изменчивые условия. При `price.isFinalPrice=false` остальные
    условия по контракту не подтверждены.
-5. `hotel_details(hotel_id)` → адрес, описание, время заезда/выезда и удобства.
+5. `hotel_details(hotel_id, max_facilities, max_images)` → адрес, описание, время
+   заезда/выезда, удобства и до `max_images` официальных HTTPS-фотографий в
+   `imageUrls` JSON-ответа.
 6. `hotel_rates(hotel_id, checkin_date, checkout_date, adults, children_ages,
    filters)` → комнаты и все актуальные тарифы выбранного отеля: полная цена,
    питание, способ оплаты, правила отмены и доступность. `filters` — массив из

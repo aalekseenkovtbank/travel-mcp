@@ -72,7 +72,8 @@ npx -y @travel-growth-inspiration/mcp install-browser
 - кино, концерты, Афиша и билеты;
 - чаты, инвестиции, заказы и диагностика;
 - авиа, ЖД, отели, маркетплейс, погода и OpenStreetMap;
-- агрегированная персонализация и `render_trip_page`.
+- агрегированная персонализация, совместимый `render_trip_page` и единый
+  `render_travel_page` для новых страниц.
 
 Читающие инструменты помечены `readOnlyHint=true`. Восстанавливаемые изменения
 не помечаются destructive. Инструменты, которые списывают реальные деньги,
@@ -83,7 +84,7 @@ Travel Nova подключается к этому же единому серв�
 собственный клиентский allowlist read-only методов. Для travel-задач действуют
 ограничения `TRIP_GENERATION.md`: не вызывать денежные и бронирующие инструменты,
 не публиковать сырые банковские данные и создавать страницу только через
-`render_trip_page`.
+`render_travel_page` (`render_trip_page` сохраняется для `trip-page/v1`).
 
 ## Travel-источники
 
@@ -109,20 +110,25 @@ Travel Nova подключается к этому же единому серв�
 только два перелёта и отель, без питания вне тарифа, трансферов, событий и
 ежедневных расходов.
 
-## Статическая страница поездки
+## Статические страницы Travel Nova
 
-Публичный контракт — `TripPageDocumentV1` со значением
-`schemaVersion="trip-page/v1"`. JSON Schema и готовую пару файлов можно получить
-через единый launcher:
+Текущие публичные контракты — `trip-page/v2` для полной поездки и
+`hotel-page/v1` для отдельной подборки до пяти отелей. Они используют общий UI,
+общий CSS и единый `render_travel_page(document)`. Старый `trip-page/v1` и
+`render_trip_page(document)` сохранены без удаления для совместимости.
+
+JSON Schema и готовую пару файлов можно получить через единый launcher:
 
 ```bash
-tbank-mcp trip-page-schema
-tbank-mcp render-trip trip.json -o trip.html
+tbank-mcp page-schema --kind trip
+tbank-mcp page-schema --kind hotels
+tbank-mcp render-page page.json -o page.html
 ```
 
-MCP-инструмент `render_trip_page(document)` создаёт те же HTML + JSON. Без
-`overwrite=true` существующие файлы не заменяются. HTML содержит встроенные CSS,
-Leaflet и минимальный JS; фотографии и тайлы OpenStreetMap загружаются по HTTPS.
+Совместимые команды `trip-page-schema` и `render-trip` продолжают работать для
+v1. Без `overwrite=true` существующие файлы не заменяются. HTML содержит
+встроенные CSS и минимальный JS; trip page также содержит Leaflet. Фотографии и
+тайлы OpenStreetMap загружаются по HTTPS.
 
 Checkout URL используется только если его вернул источник. Ссылка не означает
 бронь или оплату и лишь передаёт пользователя на дальнейшее оформление.

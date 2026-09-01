@@ -20,9 +20,9 @@ MCP работает с **настоящим банковским счётом �
 |---|---|
 | Заказать продукты, собрать корзину, КБЖУ | `tbank-grocery-order` |
 | Билеты в кино, на концерт, афиша | `tbank-tickets` |
-| Отели с актуальными ценами и фотографиями в чате | `tbank-hotel-search` |
+| Отели с актуальными ценами, отзывами и HTML по умолчанию | `tbank-hotel-search` + `travel-output-modes` |
 | Поезда, самолёты, маркетплейс или составной travel-поиск — без оформления | `tbank-travel-search` |
-| Готовая персональная страница поездки | `trip_personalization_profile()` → поиск → `nearby_search()` → `render_trip_page()` |
+| Готовая персональная страница поездки | `trip_personalization_profile()` → поиск → `nearby_search()` → `render_travel_page()` |
 | Перевести деньги человеку, между своими счетами, юрлицу по реквизитам или по QR со счёта | `tbank-transfer-money` |
 | Оплатить счёт — ЖКХ, налог, штраф, интернет; пополнить телефон | `tbank-bill-pay` |
 | Анализ трат, подписки, экономия | `tbank-budget-analyzer` |
@@ -39,7 +39,7 @@ MCP работает с **настоящим банковским счётом �
   `spending_categories(account_id, days)`, `operations_histogram(...)`.
 - **Страница поездки:** `trip_personalization_profile()` возвращает только агрегаты
   бюджета и предпочтений; после поиска дороги, отелей, Афиши и заведений через
-  `nearby_search()` собери `trip-page/v1` и вызови `render_trip_page()`.
+  `nearby_search()` собери `trip-page/v2` и вызови `render_travel_page()`.
   Результат — готовый HTML и JSON, без React/Vite и без бронирования.
 - **Заказы:** `orders(kind)` — продукты, кино, концерты, авиа, поезда, отели в одной
   выдаче; `order_details(order_id)` — места и код брони;

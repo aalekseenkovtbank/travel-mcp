@@ -126,6 +126,67 @@ class HotelOption(ContractModel):
         return value
 
 
+class HotelPhoto(ContractModel):
+    url: HttpsUrl
+    kind: Literal["official", "guest"] = "official"
+    attribution: str = ""
+    source_url: HttpsUrl | None = None
+
+    @field_validator("url", "source_url")
+    @classmethod
+    def _https_urls(cls, value):
+        if value is not None and value.scheme != "https":
+            raise ValueError("photo URLs must use HTTPS")
+        return value
+
+
+class HotelReviewDigest(ContractModel):
+    sample_size: int = Field(default=0, ge=0, le=50)
+    sort: Literal["date", "rating"] = "date"
+    sort_type: Literal["asc", "desc"] = "desc"
+    date_from: date | None = None
+    date_to: date | None = None
+    pros: list[str] = Field(default_factory=list, max_length=5)
+    cons: list[str] = Field(default_factory=list, max_length=5)
+    suitable_for: str = ""
+    summary: str = ""
+
+    @model_validator(mode="after")
+    def _dates_are_ordered(self):
+        if (self.date_from is not None and self.date_to is not None
+                and self.date_to < self.date_from):
+            raise ValueError("review digest dateTo must not be earlier than dateFrom")
+        return self
+
+
+class HotelOptionV2(HotelOption):
+    photos: list[HotelPhoto] = Field(default_factory=list, max_length=3)
+    description: str = ""
+    check_in_time: str = ""
+    check_out_time: str = ""
+    facilities: list[str] = Field(default_factory=list, max_length=12)
+    location_summary: str = ""
+    details_url: HttpsUrl | None = None
+    review_digest: HotelReviewDigest | None = None
+
+    @field_validator("details_url")
+    @classmethod
+    def _https_details_url(cls, value):
+        if value is not None and value.scheme != "https":
+            raise ValueError("detailsUrl must use HTTPS")
+        return value
+
+    @model_validator(mode="after")
+    def _photos_are_unique(self):
+        urls = [str(item.url) for item in self.photos]
+        if len(urls) != len(set(urls)):
+            raise ValueError("hotel photos must have unique URLs")
+        kinds = [item.kind for item in self.photos]
+        if "guest" in kinds and "official" in kinds[kinds.index("guest"):]:
+            raise ValueError("official hotel photos must be listed before guest photos")
+        return self
+
+
 class BudgetRecommendation(ContractModel):
     component: Literal["transport", "hotel", "onsite", "total"]
     recommended_rub: float | None = Field(default=None, ge=0)
@@ -389,12 +450,71 @@ class TripPageDocumentV1(ContractModel):
         return self
 
 
+class TripPageDocumentV2(TripPageDocumentV1):
+    schema_version: Literal["trip-page/v2"] = "trip-page/v2"
+    hotels: list[HotelOptionV2] = Field(min_length=3, max_length=3)
+
+
+class HotelSearchSummary(ContractModel):
+    title: NonEmpty
+    destination: NonEmpty
+    date_from: date
+    date_to: date
+    adults: int = Field(default=2, ge=1, le=6)
+    children_ages: list[int] = Field(default_factory=list, max_length=4)
+    subtitle: str = ""
+
+    @field_validator("children_ages")
+    @classmethod
+    def _children_ages_are_valid(cls, value):
+        if any(age < 0 or age > 17 for age in value):
+            raise ValueError("childrenAges must contain ages from 0 to 17")
+        return value
+
+    @model_validator(mode="after")
+    def _dates_are_ordered(self):
+        if self.date_to <= self.date_from:
+            raise ValueError("dateTo must be later than dateFrom")
+        return self
+
+
+class HotelPageDocumentV1(ContractModel):
+    schema_version: Literal["hotel-page/v1"] = "hotel-page/v1"
+    search: HotelSearchSummary
+    hotels: list[HotelOptionV2] = Field(min_length=1, max_length=5)
+    selected_hotel_id: NonEmpty
+    sources: list[SourceReference] = Field(min_length=1, max_length=24)
+    warnings: list[str] = Field(default_factory=list, max_length=24)
+    checked_at: datetime
+
+    @model_validator(mode="after")
+    def _hotel_references_are_valid(self):
+        hotel_ids = [hotel.id for hotel in self.hotels]
+        if len(hotel_ids) != len(set(hotel_ids)):
+            raise ValueError("hotel IDs must be unique")
+        if self.selected_hotel_id not in hotel_ids:
+            raise ValueError("selectedHotelId must reference a hotel")
+        if len(self.hotels) < 5:
+            warning = (f"Найдено только {len(self.hotels)} подходящих доступных "
+                       "отелей из целевых пяти.")
+            if warning not in self.warnings:
+                self.warnings = [*self.warnings[:23], warning]
+        return self
+
+
+TravelPageDocument = TripPageDocumentV2 | HotelPageDocumentV1
+
+
 class RenderTripPageResult(ContractModel):
     html_path: str
     json_path: str
     title: str
     warnings: list[str]
     sources: list[str]
+
+
+class RenderTravelPageResult(RenderTripPageResult):
+    """Result of rendering a current Travel Nova page contract."""
 
 
 _ASSET_ROOT = Path(__file__).with_name("assets")
@@ -544,40 +664,184 @@ def _render_budget(document: TripPageDocumentV1) -> str:
       </article>""" for item in document.budget)
 
 
-def _render_hotels(document: TripPageDocumentV1) -> str:
+def _hotel_gallery(hotel: HotelOption) -> str:
+    photos = list(getattr(hotel, "photos", []) or [])
+    if not photos and hotel.image_url:
+        photos = [HotelPhoto(url=hotel.image_url)]
+    if not photos:
+        return '<div class="hotel-gallery is-empty"><div class="image-fallback">Фото в источнике не предоставлено</div></div>'
+    images = []
+    for index, photo in enumerate(photos):
+        attribution = photo.attribution
+        if photo.kind == "guest":
+            attribution = (f"Фото гостя · {attribution}"
+                           if attribution else "Фото гостя")
+        images.append(
+            f'<div class="hotel-gallery-item hotel-gallery-item-{index + 1}">'
+            f'{_image(photo.url, f"{hotel.name}, фото {index + 1}", attribution)}</div>'
+        )
+    return f'<div class="hotel-gallery count-{len(images)}">{"".join(images)}</div>'
+
+
+def _review_sample_label(digest: HotelReviewDigest) -> str:
+    dates = ""
+    if digest.date_from and digest.date_to:
+        dates = (f" · {digest.date_from.strftime('%d.%m.%Y')}–"
+                 f"{digest.date_to.strftime('%d.%m.%Y')}")
+    elif digest.date_from or digest.date_to:
+        value = digest.date_from or digest.date_to
+        dates = f" · {value.strftime('%d.%m.%Y')}"
+    ordering = "сначала новые" if digest.sort_type == "desc" else "сначала старые"
+    return f"По {digest.sample_size} загруженным отзывам · {ordering}{dates}"
+
+
+def _hotel_review_block(hotel: HotelOption) -> str:
+    digest = getattr(hotel, "review_digest", None)
+    if digest is None:
+        summary = hotel.review_summary or "Недостаточно данных"
+        return f'<blockquote class="hotel-review">{_e(summary)}</blockquote>'
+    if digest.sample_size < 2:
+        return (
+            '<div class="hotel-review-digest">'
+            f'<small>{_e(_review_sample_label(digest))}</small>'
+            '<p>Недостаточно данных</p></div>'
+        )
+    pros = "".join(f"<li>{_e(item)}</li>" for item in digest.pros)
+    cons = "".join(f"<li>{_e(item)}</li>" for item in digest.cons)
+    summary = digest.summary or hotel.review_summary
+    columns = ""
+    if pros or cons:
+        columns = (
+            '<div class="review-columns">'
+            f'<div><strong>Чаще хвалят</strong><ul>{pros or "<li>Недостаточно данных</li>"}</ul></div>'
+            f'<div><strong>Что учитывать</strong><ul>{cons or "<li>Недостаточно данных</li>"}</ul></div>'
+            '</div>'
+        )
+    suitable = (f'<p class="review-fit"><strong>Кому подходит:</strong> '
+                f'{_e(digest.suitable_for)}</p>' if digest.suitable_for else "")
+    return (
+        '<div class="hotel-review-digest">'
+        f'<small>{_e(_review_sample_label(digest))}</small>'
+        f'{f"<p>{_e(summary)}</p>" if summary else ""}{columns}{suitable}</div>'
+    )
+
+
+def _render_hotels(document: TripPageDocumentV1 | TripPageDocumentV2 | HotelPageDocumentV1) -> str:
     cards = []
     tier_labels = ("Выгодный", "Сбалансированный", "Больше комфорта")
     for index, hotel in enumerate(document.hotels):
         selected = hotel.id == document.selected_hotel_id
+        label = tier_labels[index] if len(document.hotels) == 3 else f"Вариант {index + 1:02d}"
         facts = [
             ("Номер", hotel.room),
             ("Питание", hotel.meal),
             ("Отмена", hotel.cancellation),
             ("Оплата", hotel.payment),
+            ("Заезд", getattr(hotel, "check_in_time", "")),
+            ("Выезд", getattr(hotel, "check_out_time", "")),
         ]
         conditions = "".join(
-            f'<li><span>{_e(label)}</span><strong>{_e(value)}</strong></li>'
-            for label, value in facts if value
+            f'<li><span>{_e(fact_label)}</span><strong>{_e(value)}</strong></li>'
+            for fact_label, value in facts if value
         )
         rating = (
             f'Рейтинг {_e(hotel.rating)}'
             f'{(" · " + _e(hotel.review_count) + " отзывов") if hotel.review_count is not None else ""}'
             if hotel.rating is not None else "Рейтинг не указан"
         )
+        description = getattr(hotel, "description", "")
+        location = getattr(hotel, "location_summary", "")
+        facilities = getattr(hotel, "facilities", []) or []
+        tags = "".join(f"<span>{_e(item)}</span>" for item in facilities[:6])
+        details_url = getattr(hotel, "details_url", None)
+        details_action = _link(details_url, "Посмотреть отель", "button")
+        checkout_action = (_link(hotel.booking_url, "Перейти к оформлению", "button button-primary")
+                           if hotel.booking_url else "")
+        actions = (f'<div class="hotel-actions">{details_action}{checkout_action}</div>'
+                   if details_action or checkout_action else "")
         cards.append(f"""
         <article class="hotel-card {'selected' if selected else ''}" id="entity-{_e(hotel.id)}">
-          <div class="card-media">{_image(hotel.image_url, hotel.name)}<span class="card-rank">0{index + 1}</span><span class="hotel-tier">{_e(tier_labels[index])}</span></div>
+          <div class="card-media">{_hotel_gallery(hotel)}<span class="card-rank">{index + 1:02d}</span><span class="hotel-tier">{_e(label)}</span></div>
           <div class="card-body">
             <div class="eyebrow">{'Рекомендуем · ' if selected else ''}{'★' * hotel.stars}</div>
-            <h3>{_e(hotel.name)}</h3><p>{_e(hotel.address)}</p>
+            <h3>{_e(hotel.name)}</h3><p>{_e(location or hotel.address)}</p>
+            {f'<p class="hotel-description">{_e(description)}</p>' if description else ''}
             <div class="hotel-metrics"><span>{rating}</span><span>{_rub(hotel.nightly_price_rub)} за ночь</span></div>
+            {f'<div class="card-tags hotel-facilities">{tags}</div>' if tags else ''}
             {f'<ul class="hotel-conditions">{conditions}</ul>' if conditions else '<p class="muted-note">Условия тарифа нужно уточнить перед оформлением.</p>'}
-            {f'<blockquote class="hotel-review">{_e(hotel.review_summary)}</blockquote>' if hotel.review_summary else ''}
-            <div class="price">{_rub(hotel.total_price_rub)} <small>за всю поездку</small></div>
-            {_checkout_action(hotel.booking_url, 'Оформить отель', 'Checkout отеля пока недоступен')}
+            {_hotel_review_block(hotel)}
+            <div class="price">{_rub(hotel.total_price_rub)} <small>за весь период</small></div>
+            {actions}
           </div>
         </article>""")
     return "".join(cards)
+
+
+def _comparison_list(values: list[str]) -> str:
+    return "<br>".join(_e(value) for value in values) if values else "—"
+
+
+def _render_hotel_comparison(
+        document: TripPageDocumentV1 | TripPageDocumentV2 | HotelPageDocumentV1) -> str:
+    hotels = document.hotels
+
+    def digest(hotel):
+        return getattr(hotel, "review_digest", None)
+
+    def digest_values(hotel, field: str) -> list[str]:
+        item = digest(hotel)
+        if item is None or item.sample_size < 2:
+            return ["Недостаточно данных"]
+        values = list(getattr(item, field) or [])
+        return values or ["Недостаточно данных"]
+
+    def suitable_for(hotel) -> str:
+        item = digest(hotel)
+        if item is None or item.sample_size < 2 or not item.suitable_for:
+            return "Недостаточно данных"
+        return item.suitable_for
+
+    rows = [
+        ("Полная цена", lambda hotel: _rub(hotel.total_price_rub)),
+        ("Цена за ночь", lambda hotel: _rub(hotel.nightly_price_rub)),
+        ("Звёзды", lambda hotel: "★" * hotel.stars if hotel.stars else "—"),
+        ("Рейтинг и отзывы", lambda hotel: (
+            f"{hotel.rating:g} · {hotel.review_count} отзывов"
+            if hotel.rating is not None and hotel.review_count is not None
+            else (f"{hotel.rating:g}" if hotel.rating is not None else "—"))),
+        ("Расположение", lambda hotel: _e(
+            getattr(hotel, "location_summary", "") or hotel.address)),
+        ("Номер", lambda hotel: _e(hotel.room) if hotel.room else "—"),
+        ("Питание", lambda hotel: _e(hotel.meal) if hotel.meal else "—"),
+        ("Отмена", lambda hotel: _e(hotel.cancellation) if hotel.cancellation else "—"),
+        ("Оплата", lambda hotel: _e(hotel.payment) if hotel.payment else "—"),
+        ("Удобства", lambda hotel: _comparison_list(
+            list(getattr(hotel, "facilities", []) or [])[:6])),
+        ("Плюсы по отзывам", lambda hotel: _comparison_list(
+            digest_values(hotel, "pros"))),
+        ("Минусы по отзывам", lambda hotel: _comparison_list(
+            digest_values(hotel, "cons"))),
+        ("Для кого подходит", lambda hotel: _e(suitable_for(hotel))),
+    ]
+    headers = "".join(
+        f'<th class="{"is-selected" if hotel.id == document.selected_hotel_id else ""}">'
+        f'<span>{"Рекомендуем" if hotel.id == document.selected_hotel_id else f"Вариант {index + 1}"}</span>'
+        f'<strong>{_e(hotel.name)}</strong></th>'
+        for index, hotel in enumerate(hotels)
+    )
+    body = "".join(
+        f'<tr><th scope="row">{_e(label)}</th>'
+        + "".join(
+            f'<td class="{"is-selected" if hotel.id == document.selected_hotel_id else ""}">'
+            f'{renderer(hotel)}</td>' for hotel in hotels
+        ) + "</tr>"
+        for label, renderer in rows
+    )
+    return (
+        '<div class="comparison-scroll"><table class="hotel-comparison">'
+        f'<thead><tr><th scope="col">Критерий</th>{headers}</tr></thead>'
+        f'<tbody>{body}</tbody></table></div>'
+    )
 
 
 def _render_events(document: TripPageDocumentV1) -> str:
@@ -641,8 +905,62 @@ def _render_plans(document: TripPageDocumentV1, entities: dict[str, dict]) -> st
     return "".join(blocks)
 
 
-def render_html(document: TripPageDocumentV1) -> str:
-    """Render one self-contained page, except for remote images and OSM tiles."""
+def _content_security_policy(scripts: list[str]) -> str:
+    script_hashes = []
+    for source in scripts:
+        digest = base64.b64encode(hashlib.sha256(source.encode()).digest()).decode()
+        script_hashes.append(f"'sha256-{digest}'")
+    script_src = f"script-src {' '.join(script_hashes)}; " if script_hashes else ""
+    return ("default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; "
+            f"{script_src}connect-src https:; base-uri 'none'; form-action 'none'; "
+            "object-src 'none'")
+
+
+def _page_head(title: str, csp: str, extra_css: str = "") -> str:
+    return (
+        '<!doctype html><html lang="ru"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        f'<meta http-equiv="Content-Security-Policy" content="{_e(csp)}">'
+        f'<title>{_e(title)}</title>'
+        f'{f"<style>{extra_css}</style>" if extra_css else ""}'
+        f'<style>{_asset("trip-page.css.txt")}</style></head>'
+    )
+
+
+def _site_header(nav_items: list[tuple[str, str]], destination: str,
+                 date_label: str, aria_label: str) -> str:
+    links = "".join(f'<a href="#{_e(anchor)}">{_e(label)}</a>'
+                    for anchor, label in nav_items)
+    return (
+        '<header class="site-header"><a class="brand" href="#top">'
+        '<span class="logo-mark">TN</span><strong>travel nova</strong></a>'
+        f'<nav class="site-nav" aria-label="{_e(aria_label)}">{links}</nav>'
+        f'<div class="header-meta"><span>{_e(destination)}</span>'
+        f'<span>{_e(date_label)}</span></div></header>'
+    )
+
+
+def _fine_print(document) -> str:
+    warnings = "".join(f"<li>{_e(item)}</li>" for item in document.warnings)
+    sources = "".join(
+        f'<li>{_link(item.url, item.name, "source-link") if item.url else _e(item.name)}'
+        f'<small>{_e(_dt(item.checked_at))}</small></li>' for item in document.sources)
+    return (
+        '<section class="fine-print" id="sources">'
+        f'<div><h2>Источники</h2><ul class="sources">{sources}</ul></div>'
+        '<div><h2>Важно знать</h2><ul>'
+        f'{warnings or "<li>Цены и доступность могут измениться до оформления.</li>"}'
+        '</ul></div></section>'
+    )
+
+
+def _page_footer() -> str:
+    return ('<footer><b>travel nova</b><span>Страница не является подтверждением '
+            'бронирования или оплаты.</span></footer>')
+
+
+def render_html(document: TripPageDocumentV1 | TripPageDocumentV2) -> str:
+    """Render one self-contained trip page, except for remote images and OSM tiles."""
     leaflet_css = _asset("leaflet-1.9.4.css.txt")
     leaflet_js = _asset("leaflet-1.9.4.js.txt")
     app_js = _asset("trip-page.js.txt")
@@ -654,17 +972,7 @@ def render_html(document: TripPageDocumentV1) -> str:
     map_rows = [entities[entity_id] for entity_id in map_ids]
     map_json = json.dumps(map_rows, ensure_ascii=False, separators=(",", ":"))
     map_json = map_json.replace("<", "\\u003c").replace(">", "\\u003e")
-    script_hashes = []
-    for source in (leaflet_js, app_js):
-        digest = base64.b64encode(hashlib.sha256(source.encode()).digest()).decode()
-        script_hashes.append(f"'sha256-{digest}'")
-    csp = ("default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; "
-           f"script-src {' '.join(script_hashes)}; connect-src https:; "
-           "base-uri 'none'; form-action 'none'; object-src 'none'")
-    warnings = "".join(f"<li>{_e(item)}</li>" for item in document.warnings)
-    sources = "".join(
-        f'<li>{_link(item.url, item.name, "source-link") if item.url else _e(item.name)}'
-        f'<small>{_e(_dt(item.checked_at))}</small></li>' for item in document.sources)
+    csp = _content_security_policy([leaflet_js, app_js])
     entity_labels = {key: {"label": value["label"]} for key, value in entities.items()}
     # Transport is valid for a plan reference too, even though it is not mapped.
     entity_labels.update({leg.id: {"label": f"{leg.origin} → {leg.destination}"}
@@ -674,26 +982,62 @@ def render_html(document: TripPageDocumentV1) -> str:
         (leg for leg in document.transport if leg.direction == "outbound"),
         key=lambda leg: leg.departure_at,
     )
-    return f"""<!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="{_e(csp)}">
-<title>{_e(document.trip.title)}</title>
-<style>{leaflet_css}</style><style>{_asset('trip-page.css.txt')}</style></head>
-<body><header class="site-header"><a class="brand" href="#top"><span class="logo-mark">TN</span><strong>travel nova</strong></a><nav class="site-nav" aria-label="Разделы поездки"><a href="#route">Дорога</a><a href="#hotels">Отели</a><a href="#events">Афиша</a><a href="#places">Места</a><a href="#plans">Планы</a></nav><div class="header-meta"><span>{_e(document.trip.destination)}</span><span>{_e(document.trip.date_from.strftime('%d.%m'))}–{_e(document.trip.date_to.strftime('%d.%m.%Y'))}</span></div></header>
+    date_label = (f"{document.trip.date_from.strftime('%d.%m')}–"
+                  f"{document.trip.date_to.strftime('%d.%m.%Y')}")
+    head = _page_head(document.trip.title, csp, leaflet_css)
+    header = _site_header(
+        [("route", "Дорога"), ("hotels", "Отели"), ("comparison", "Сравнение"),
+         ("events", "Афиша"), ("places", "Места"), ("plans", "Планы")],
+        document.trip.destination, date_label, "Разделы поездки")
+    return f"""{head}
+<body>{header}
 <main>
 <section class="hero" id="top"><div class="hero-copy"><p class="hero-kicker">Персональный план поездки</p><h1>{_e(document.trip.title)}</h1><p class="hero-lede">{_e(document.trip.subtitle)}</p><div class="hero-meta"><span>{_e(outbound.origin)} → {_e(outbound.destination)}</span><span>{_e(document.trip.date_from.strftime('%d.%m'))} — {_e(document.trip.date_to.strftime('%d.%m.%Y'))}</span><span>{document.trip.travelers} чел.</span><span>Проверено {_e(_dt(document.checked_at))}</span></div></div>
 <aside class="trip-profile"><span>Комфортный ориентир</span><strong>{_rub(total_budget.recommended_rub)}</strong><small>{_rub(total_budget.range_min_rub)} — {_rub(total_budget.range_max_rub)}</small><div><b>{document.personalization.travel_sample_size}</b><small>поездок в основе</small></div><div><b>{document.personalization.event_sample_size}</b><small>заказов Афиши</small></div></aside></section>
 <section class="budget-section" id="budget"><div class="section-head"><div><span>01</span><h2>Бюджет поездки</h2></div><p>{_e(document.personalization.explanation)}</p></div><div class="budget-grid">{_render_budget(document)}</div></section>
 <section class="route-section" id="route"><div class="section-head"><div><span>02</span><h2>Дорога туда и обратно</h2></div><p>Выбранные сегменты собраны в один маршрут. Checkout открывается отдельно и не означает покупку.</p></div>{_render_transport_overview(document)}<div class="transport-grid">{_render_transport(document)}</div></section>
-<section class="hotels-section" id="hotels"><div class="section-head"><div><span>03</span><h2>Где остановиться</h2></div><p>Три уровня цены с конкретным номером, условиями тарифа, отзывами и ссылкой на оформление.</p></div><div class="hotels">{_render_hotels(document)}</div></section>
+<section class="hotels-section" id="hotels"><div class="section-head"><div><span>03</span><h2>Где остановиться</h2></div><p>Три уровня цены с конкретным номером, условиями тарифа, отзывами и ссылкой на оформление.</p></div><div class="hotels">{_render_hotels(document)}</div><div class="hotel-comparison-block" id="comparison"><div class="subsection-head"><span>Сравнение</span><h3>Все условия рядом</h3><p>Резюме отзывов относится только к реально загруженной выборке.</p></div>{_render_hotel_comparison(document)}</div></section>
 <section class="events-section" id="events"><div class="section-head"><div><span>04</span><h2>Что посмотреть</h2></div><p>События ранжируются по безопасному профилю интересов без раскрытия истории покупок.</p></div><div class="card-grid events">{_render_events(document)}</div></section>
 <section class="venues-section" id="places"><div class="section-head"><div><span>05</span><h2>Рестораны и бары</h2></div><p>Заведения, категории и часы работы получены из OpenStreetMap через T-Bank MCP.</p></div><div class="card-grid venues">{_render_venues(document)}</div></section>
 <section class="map-section" id="map"><div class="section-head"><div><span>06</span><h2>Всё на карте</h2></div><p>Все три отеля, мероприятия и заведения. Нажмите маркер, чтобы перейти к карточке.</p></div><div id="trip-map" aria-label="Карта поездки OpenStreetMap"><div class="map-fallback">Карта появится при подключении к интернету.</div></div><div class="map-legend"><span class="hotel">Отели</span><span class="event">События</span><span class="restaurant">Рестораны</span><span class="bar">Бары</span></div></section>
 <section class="plans-section" id="plans"><div class="section-head"><div><span>07</span><h2>Три сценария поездки</h2></div><p>Выберите темп: сбалансированный, культурный или с акцентом на еду и вечернюю жизнь.</p></div><div class="plans">{_render_plans(document, entity_labels)}</div></section>
-<section class="fine-print"><div><h2>Источники</h2><ul class="sources">{sources}</ul></div><div><h2>Важно знать</h2><ul>{warnings or '<li>Цены и доступность могут измениться до оформления.</li>'}</ul></div></section>
-</main><footer><b>travel nova</b><span>Страница не является подтверждением бронирования или оплаты.</span></footer>
+{_fine_print(document)}</main>{_page_footer()}
 <script id="trip-map-data" type="application/json">{map_json}</script>
 <script>{leaflet_js}</script><script>{app_js}</script></body></html>"""
+
+
+def render_hotel_html(document: HotelPageDocumentV1) -> str:
+    """Render a hotel shortlist with the same shell and design system as a trip page."""
+    app_js = _asset("trip-page.js.txt")
+    csp = _content_security_policy([app_js])
+    date_label = (f"{document.search.date_from.strftime('%d.%m')}–"
+                  f"{document.search.date_to.strftime('%d.%m.%Y')}")
+    head = _page_head(document.search.title, csp)
+    header = _site_header(
+        [("hotels", "Отели"), ("comparison", "Сравнение"), ("sources", "Источники")],
+        document.search.destination, date_label, "Разделы подборки отелей")
+    selected = next(hotel for hotel in document.hotels
+                    if hotel.id == document.selected_hotel_id)
+    review_sample = sum(
+        hotel.review_digest.sample_size for hotel in document.hotels
+        if hotel.review_digest is not None)
+    children = len(document.search.children_ages)
+    guests = f"{document.search.adults} взр."
+    if children:
+        guests += f" · {children} дет."
+    return f"""{head}
+<body>{header}<main>
+<section class="hero hotel-hero" id="top"><div class="hero-copy"><p class="hero-kicker">Подборка отелей</p><h1>{_e(document.search.title)}</h1><p class="hero-lede">{_e(document.search.subtitle)}</p><div class="hero-meta"><span>{_e(document.search.destination)}</span><span>{_e(date_label)}</span><span>{_e(guests)}</span><span>Проверено {_e(_dt(document.checked_at))}</span></div></div>
+<aside class="trip-profile"><span>Рекомендуемый вариант</span><strong>{_rub(selected.total_price_rub)}</strong><small>{_e(selected.name)}</small><div><b>{len(document.hotels)}</b><small>отелей в сравнении</small></div><div><b>{review_sample}</b><small>отзывов загружено</small></div></aside></section>
+<section class="hotels-section" id="hotels"><div class="section-head"><div><span>01</span><h2>Где остановиться</h2></div><p>Актуальные предложения с фотографиями, условиями тарифов и отдельными обзорами отзывов.</p></div><div class="hotels hotels-five">{_render_hotels(document)}</div></section>
+<section class="comparison-section" id="comparison"><div class="section-head"><div><span>02</span><h2>Сравнение отелей</h2></div><p>Отзывы сравниваются на сопоставимых выборках; отсутствующие сведения не подменяются предположениями.</p></div>{_render_hotel_comparison(document)}</section>
+{_fine_print(document)}</main>{_page_footer()}<script>{app_js}</script></body></html>"""
+
+
+def render_travel_html(document: TripPageDocumentV2 | HotelPageDocumentV1) -> str:
+    if isinstance(document, HotelPageDocumentV1):
+        return render_hotel_html(document)
+    return render_html(document)
 
 
 def _atomic_write(path: Path, content: str, overwrite: bool) -> None:
@@ -722,6 +1066,13 @@ def default_output_dir() -> Path:
     if root:
         return Path(root).expanduser() / "tbank-mcp" / "trip-pages"
     return Path.home() / ".local" / "share" / "tbank-mcp" / "trip-pages"
+
+
+def default_travel_output_dir() -> Path:
+    root = os.environ.get("XDG_DATA_HOME")
+    if root:
+        return Path(root).expanduser() / "tbank-mcp" / "travel-pages"
+    return Path.home() / ".local" / "share" / "tbank-mcp" / "travel-pages"
 
 
 def render_trip_page_files(document: TripPageDocumentV1, *, output_dir: str = "",
@@ -761,5 +1112,55 @@ def render_trip_page_files(document: TripPageDocumentV1, *, output_dir: str = ""
     )
 
 
+def render_travel_page_files(
+        document: TripPageDocumentV2 | HotelPageDocumentV1, *, output_dir: str = "",
+        basename: str = "", overwrite: bool = False,
+        explicit_html_path: str = "") -> RenderTravelPageResult:
+    """Validate and atomically write a trip-page/v2 or hotel-page/v1 pair."""
+    if isinstance(document, HotelPageDocumentV1):
+        title = document.search.title
+        date_from = document.search.date_from
+        prefix = "hotels"
+    else:
+        title = document.trip.title
+        date_from = document.trip.date_from
+        prefix = "trip"
+    if explicit_html_path:
+        html_path = Path(explicit_html_path).expanduser().resolve()
+        if html_path.suffix.lower() != ".html":
+            raise ValueError("output path must end with .html")
+    else:
+        root = (Path(output_dir).expanduser().resolve()
+                if output_dir else default_travel_output_dir())
+        stem = _slug(basename or f"{prefix}-{date_from.isoformat()}")
+        html_path = root / f"{stem}.html"
+    json_path = html_path.with_suffix(".json")
+    if html_path.exists() and not overwrite:
+        raise FileExistsError(f"file already exists: {html_path}")
+    if json_path.exists() and not overwrite:
+        raise FileExistsError(f"file already exists: {json_path}")
+    payload = document.model_dump_json(by_alias=True, indent=2)
+    rendered = render_travel_html(document)
+    if "apikey=" in payload.lower() or "apikey=" in rendered.lower():
+        raise ValueError("generated artifacts contain an API credential")
+    _atomic_write(json_path, payload + "\n", overwrite)
+    try:
+        _atomic_write(html_path, rendered, overwrite)
+    except Exception:
+        if not overwrite:
+            json_path.unlink(missing_ok=True)
+        raise
+    return RenderTravelPageResult(
+        html_path=str(html_path), json_path=str(json_path), title=title,
+        warnings=document.warnings,
+        sources=[source.name for source in document.sources],
+    )
+
+
 def trip_page_json_schema() -> dict:
     return TripPageDocumentV1.model_json_schema(by_alias=True)
+
+
+def travel_page_json_schema(kind: Literal["trip", "hotels"]) -> dict:
+    model = TripPageDocumentV2 if kind == "trip" else HotelPageDocumentV1
+    return model.model_json_schema(by_alias=True)

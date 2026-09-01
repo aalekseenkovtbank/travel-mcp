@@ -128,7 +128,7 @@ Europe/Moscow**. Живые статусы источников в таблиц�
 | `compare_train_prices(...)` | R | 🟡 | Сравнивает ЖД-предложения по нескольким окнам дат |
 | `hotel_autocomplete(query)` | R | ✅ | Прод: «Москва» вернула 5 локаций и 1 конкретный отель |
 | `hotel_search(destination_id, checkin_date, checkout_date)` | R | ✅ | Актуальный v2-поиск: priced ids из `searchHotelPoints` объединяются со статическими карточками |
-| `hotel_details(hotel_id)` | R | ✅ | Прод: карточка первого результата, 13 групп удобств |
+| `hotel_details(hotel_id, max_facilities, max_images)` | R | ✅ | Прод: карточка первого результата, удобства и до 12 официальных HTTPS-фото |
 | `hotel_rates(hotel_id, checkin_date, checkout_date, ...)` | R | ✅ | Прод: v3-комнаты и тарифы; точный POST body и отсутствие credentials закреплены транспортным тестом |
 | `hotel_reviews(hotel_id, ...)` | R | ✅ | Прод: текущий v2 feedback, сортировка/поиск/cursor; ответ проверен на публичном маршруте |
 | `hotel_filters()` | R | ✅ | Прод: 14 фильтров и 7 популярных |
@@ -189,6 +189,7 @@ travel-инструменты предназначены для поиска и 
 | `diagnostics(limit=40)` | R | ✅ | Локальные очищенные события платежных сценариев |
 | `debug_report(runs=0, top=6)` | R | ✅ | Локальная статистика использования MCP |
 | `render_trip_page(document, output_dir="", overwrite=false)` | W | ⛔ | Создаёт локальные HTML + JSON с правами `0600`; сетевых действий и оплаты нет |
+| `render_travel_page(document, output_dir="", overwrite=false)` | W | ⛔ | Создаёт `trip-page/v2` или `hotel-page/v1` в общем UI Travel Nova; сетевых действий и оплаты нет |
 
 ## Практический минимальный набор для Travel-ассистента
 

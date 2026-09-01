@@ -46,8 +46,9 @@ from .travel_compare import (
     normalize_hotel_inventory, normalize_train_inventory, price_delta, rub_number,
     sort_flights, sort_hotels, sort_trains,
 )
-from .trip_page import (RenderTripPageResult, TripPageDocumentV1,
-                        render_trip_page_files)
+from .trip_page import (RenderTravelPageResult, RenderTripPageResult,
+                        TravelPageDocument, TripPageDocumentV1,
+                        render_travel_page_files, render_trip_page_files)
 from .trip_personalization import (TripPersonalizationProfile,
                                    build_personalization_profile)
 from .weather import weather_report as _weather_report
@@ -79,7 +80,7 @@ FORMER_TRAVEL_TOOL_NAMES = frozenset({
     # Public no-key context sources.
     "nearby_search", "weather",
     # Local static artifact generation.
-    "render_trip_page",
+    "render_trip_page", "render_travel_page",
 })
 
 mcp = FastMCP(
@@ -142,12 +143,18 @@ def personalized_weekend_landing(
     hotel_query: str = "",
     adults: int = 2,
     spending_lookback_days: int = 60,
+    output_mode: Literal["html", "chat"] = "html",
 ) -> str:
     """Build the agent prompt for a personalized event-and-hotel landing page."""
     hotel_part = (
         f"Пользователь назвал отель: {hotel_query}. Включи его в тройку и отметь рекомендуемым."
         if hotel_query.strip()
         else "Отель не задан: подбери ровно три варианта и выбери средний по цене как рекомендуемый."
+    )
+    output_part = (
+        "Собери trip-page/v2, вызови render_travel_page(document) и верни htmlPath и jsonPath."
+        if output_mode == "html"
+        else "Ответь только в чате: не вызывай renderer и не создавай локальные файлы."
     )
     return f"""Подготовь персональный лендинг для поездки в {city} с {date_from} по {date_to}.
 Состав карточки поездки: {adults} взрослых. Поисковые квоты фиксированы и не зависят
@@ -162,9 +169,10 @@ def personalized_weekend_landing(
 3. Найди ровно три отеля через hotel_autocomplete, hotel_search, hotel_details и актуальные hotel_rates/hotel_latest_offers, всегда явно передавая adults=2 во все hotel-вызовы и сравнения. Не используй compare_flight_hotel_prices в этом шаблоне: у него один общий adults, поэтому он не может одновременно искать билет на одного и отель на двоих. Расположи отели по строго возрастающей полной цене: выгодный, сбалансированный и более комфортный. Уровень звёзд, рейтинг, расположение и условия не должны становиться хуже при росте цены; разница между соседними вариантами должна быть разумной, без резкого скачка класса. Заполни room, meal, cancellation, payment, reviewSummary и bookingUrl фактическими данными тарифа. hotel_checkout_url используй только с подтверждённым book_hash; ссылка не создаёт бронь и не списывает деньги.
 4. Для {date_from}–{date_to} получи Афишу и перепроверь расписание. Ранжируй события по scoringWeights и агрегатам eventPreferences из профиля; сохраняй genres и ageRestriction. Не бронируй места и не вызывай ticket_pay.
 5. Вызови nearby_search() для ресторанов, баров и прогулочных точек. Используй карточки OpenStreetMap с координатами и sourceUrl; собери 4–8 заведений, минимум два ресторана и один бар. Не выдумывай отсутствующие фотографии, рейтинги, отзывы или часы работы.
-6. Составь TripPageDocumentV1: mapPoints должны ссылаться на выбранный отель, события и заведения по ID; renderer автоматически покажет на карте и два альтернативных отеля. Добавь ровно три непротиворечивых плана balanced, culture и food_nightlife. Все остановки должны попадать в даты поездки и ссылаться на существующие ID.
-7. Вызови render_trip_page(document). Верни пользователю абсолютный htmlPath как готовый результат и jsonPath как воспроизводимый контракт. Не пытайся собирать React/Vite-проект.
-8. Не раскрывай имена, номера счетов, балансы, зарплату или отдельные операции. Не заявляй, что билет или отель забронирован. В бюджете и карточках явно подпиши, что цена транспорта получена для 1 взрослого, а цена отеля — для 2 взрослых. Не умножай цену билета на число гостей карточки. Цены всегда снабжай временем проверки."""
+6. Следуй каноническому travel-output flow из MCP resource travel-nova://instructions/travel-output-modes. Для каждого финального отеля загрузи одну сопоставимую страницу hotel_reviews(sort="date", sort_type="desc", page_size=10), собери до трёх реальных фотографий и структурированный reviewDigest.
+7. Составь TripPageDocumentV2: mapPoints должны ссылаться на выбранный отель, события и заведения по ID; renderer автоматически покажет на карте и два альтернативных отеля. Добавь ровно три непротиворечивых плана balanced, culture и food_nightlife. Все остановки должны попадать в даты поездки и ссылаться на существующие ID.
+8. {output_part} Не пытайся собирать React/Vite-проект.
+9. Не раскрывай имена, номера счетов, балансы, зарплату или отдельные операции. Не заявляй, что билет или отель забронирован. В бюджете и карточках явно подпиши, что цена транспорта получена для 1 взрослого, а цена отеля — для 2 взрослых. Не умножай цену билета на число гостей карточки. Цены всегда снабжай временем проверки."""
 
 # Every @mcp.tool() below is recorded. Done by replacing the decorator ONCE rather
 # than touching 57 functions: a per-tool opt-in is a list somebody has to remember to
@@ -318,6 +326,7 @@ TOOL_KINDS: dict[str, tuple[str, str]] = {
     "diagnostics": ("События последних оплат", READ),
     "debug_report": ("Как использовали этот MCP", READ),
     "render_trip_page": ("Создание HTML-страницы поездки", WRITE),
+    "render_travel_page": ("Создание HTML-страницы Travel Nova", WRITE),
 }
 
 
@@ -330,7 +339,8 @@ def _annotations_for(name: str) -> ToolAnnotations:
     title, kind = TOOL_KINDS[name]
     # The renderer only writes a local, explicitly named artifact. Every other
     # tool either talks to the bank or to a public/commercial context provider.
-    ann = {"title": title, "openWorldHint": name != "render_trip_page"}
+    local_renderers = {"render_trip_page", "render_travel_page"}
+    ann = {"title": title, "openWorldHint": name not in local_renderers}
     if kind == READ:
         ann.update(readOnlyHint=True, destructiveHint=False, idempotentHint=True)
     elif kind == WRITE:
@@ -408,6 +418,24 @@ def render_trip_page(
     тайлы OpenStreetMap. Инструмент не бронирует и не оплачивает ничего.
     """
     return render_trip_page_files(
+        document, output_dir=output_dir, basename=basename, overwrite=overwrite)
+
+
+@mcp.tool()
+def render_travel_page(
+    document: TravelPageDocument,
+    output_dir: str = "",
+    basename: str = "",
+    overwrite: bool = False,
+) -> RenderTravelPageResult:
+    """Создать готовые HTML и JSON для trip-page/v2 или hotel-page/v1.
+
+    Обе страницы используют единый UI Travel Nova. По умолчанию файлы пишутся в
+    ~/.local/share/tbank-mcp/travel-pages; существующие файлы не заменяются без
+    overwrite=true. Инструмент только создаёт локальный артефакт и ничего не
+    бронирует и не оплачивает.
+    """
+    return render_travel_page_files(
         document, output_dir=output_dir, basename=basename, overwrite=overwrite)
 
 
@@ -739,10 +767,11 @@ def _require():
 
 
 def _public_session():
-    """A MobileSession good enough for the avia reads that need no bank
-    credential at all — flight_search, flight_price_calendar and
-    flight_price_forecast, all confirmed live with no Bearer, Cookie or
-    sessionid on the wire.
+    """A MobileSession for public travel reads that need no bank credential.
+
+    This covers Avia and Hotels facades confirmed to send no Bearer, bank Cookie
+    or mobile sessionid. A saved session is still preferred because Hotels may
+    use its separately allowlisted ssoId; an anonymous shell is enough otherwise.
 
     Goes through `_require()` FIRST, not a copy of its body: every test in
     this repo stubs a fake session by reassigning `server._require`, and a
@@ -5402,6 +5431,24 @@ def _hotel_coordinates(hotel: dict) -> tuple[float | None, float | None]:
     return None, None
 
 
+def _hotel_image_urls(hotel: dict, limit: int) -> list[str]:
+    if limit == 0:
+        return []
+    urls: list[str] = []
+    for item in hotel.get("images") or []:
+        if isinstance(item, dict):
+            value = (item.get("url") or item.get("URL") or item.get("imageUrl")
+                     or item.get("templateUrl"))
+        else:
+            value = item
+        url = _https_image_url(value, size="1024x768")
+        if url and url not in urls:
+            urls.append(url)
+        if limit > 0 and len(urls) >= limit:
+            break
+    return urls
+
+
 _HOTEL_ARRAY_FILTERS = {
     "accommodation_types", "chains", "meal_types", "payment_places", "stars",
     "hotel_entertainments", "hotel_facilities", "room_facilities", "bed_types",
@@ -5554,7 +5601,7 @@ def hotel_autocomplete(query: str, limit: int = 10,
         query = str(query or "").strip()
         if len(query) < 3:
             raise TbankApiError("BAD_QUERY", "Для поиска отелей введи минимум 3 символа.")
-        s = _require()
+        s = _public_session()
         data = s.hotel_autocomplete(query)
         locations = data.get("locations") or []
         hotels = data.get("hotels") or []
@@ -5626,7 +5673,7 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
             raise TbankApiError("BAD_DATES", "checkout_date должен быть позже checkin_date.")
         ages = _hotel_children(children_ages)
 
-        s = _require()
+        s = _public_session()
         data = s.hotel_search(int(destination_id), checkin_date, checkout_date,
                               adults=adults, children_ages=ages, limit=limit)
         hotels = [h for h in (data.get("hotels") or []) if isinstance(h, dict)]
@@ -5729,7 +5776,7 @@ def hotel_search_filters(
         map_frame = _hotel_map_frame(map_frame_input)
         favorite_ids = _hotel_positive_ids(
             favorite_hotel_ids, "favorite_hotel_ids", required=False)
-        data = _require().hotel_search_filters(
+        data = _public_session().hotel_search_filters(
             location_id, checkin_date, checkout_date, adults=adults,
             children_ages=ages, filters=selected_filters,
             map_frame_input=map_frame, favorite_hotel_ids=favorite_ids,
@@ -5821,7 +5868,7 @@ def hotel_latest_offers(
         nights = _hotel_search_window(checkin_date, checkout_date)
         ages = _hotel_search_guests(adults, children_ages)
         selected_filters = _hotel_search_filters_input(filters)
-        data = _require().hotel_latest_offers(
+        data = _public_session().hotel_latest_offers(
             ids, checkin_date, checkout_date, location_id=location_id,
             adults=adults, children_ages=ages, filters=selected_filters)
         hotels = [row for row in (data.get("hotels") or []) if isinstance(row, dict)]
@@ -5904,20 +5951,24 @@ def hotel_latest_offers(
 
 
 @_threaded_tool
-def hotel_details(hotel_id: str, max_facilities: int = 40,
+def hotel_details(hotel_id: str, max_facilities: int = 40, max_images: int = 3,
                   response_format: str = "text") -> str:
     """Карточка отеля по hotel_id из hotel_search()/hotel_autocomplete().
 
-    Показывает адрес, описание, часы заезда/выезда и удобства. Публичный
-    read-only запрос без банковского токена/cookie; бронирования и оплаты нет.
+    Показывает адрес, описание, часы заезда/выезда, удобства и до max_images
+    официальных HTTPS-фотографий (0 отключает фото, максимум 12). Публичный read-only запрос без
+    банковского токена/cookie; бронирования и оплаты нет.
     """
     try:
         fmt = _response_format(response_format)
         hotel_id = str(hotel_id or "").strip()
         if not hotel_id.isdigit():
             raise TbankApiError("BAD_HOTEL_ID", "hotel_id должен состоять из цифр.")
-        s = _require()
+        if not 0 <= int(max_images) <= 12:
+            raise TbankApiError("BAD_LIMIT", "max_images должен быть от 0 до 12.")
+        s = _public_session()
         hotel = s.hotel_details(hotel_id)
+        image_urls = _hotel_image_urls(hotel, int(max_images))
         facilities = []
         for group in hotel.get("facilitiesGroups") or []:
             if not isinstance(group, dict):
@@ -5946,6 +5997,7 @@ def hotel_details(hotel_id: str, max_facilities: int = 40,
                 "latitude": latitude,
                 "longitude": longitude,
                 "facilities": shown_facilities,
+                "imageUrls": image_urls,
             }, source="T-Bank Hotels", warnings=warnings,
                meta={"complete": len(shown_facilities) == len(facilities)})
         if not hotel or not hotel.get("hotelId"):
@@ -5969,6 +6021,8 @@ def hotel_details(hotel_id: str, max_facilities: int = 40,
             if len(shown) < len(facilities):
                 out.append(f"Показано удобств {len(shown)} из {len(facilities)}; "
                            f"передай max_facilities={len(facilities)}.")
+        if image_urls:
+            out.append("Фото: " + " | ".join(image_urls))
         out.append("Бронирование и оплата через MCP не выполняются.")
         return "\n".join(out)
     except Exception as e:
@@ -6021,7 +6075,7 @@ def hotel_rates(hotel_id: str, checkin_date: str, checkout_date: str,
         if not 1 <= int(limit) <= 100:
             raise TbankApiError("BAD_LIMIT", "limit должен быть от 1 до 100.")
         selected_filters = _hotel_rate_filters(filters)
-        data = _require().hotel_rates(
+        data = _public_session().hotel_rates(
             hotel_id, checkin_date, checkout_date, adults=int(adults),
             children_ages=ages, filters=selected_filters)
         rates = [row for row in (data.get("rates") or []) if isinstance(row, dict)]
@@ -6195,7 +6249,7 @@ def hotel_reviews(hotel_id: str, source_code: str = "",
         if len(search_text) > 300:
             raise TbankApiError(
                 "BAD_SEARCH_TEXT", "search_text должен быть не длиннее 300 символов.")
-        data = _require().hotel_reviews(
+        data = _public_session().hotel_reviews(
             hotel_id, source_code=source_code, sort=sort, sort_type=sort_type,
             cursor=cursor, page_size=int(page_size), search_text=search_text)
         reviews = [_hotel_review_item(item, hotel_id)
@@ -6254,7 +6308,7 @@ def hotel_filters(max_chars: int = 5000) -> str:
     max_chars=0 возвращает весь ответ; при ограничении обрезка всегда помечается.
     """
     try:
-        s = _require()
+        s = _public_session()
         return _json_out(s.hotel_filters(), limit=max_chars)
     except Exception as e:
         return _err(e)

@@ -8,6 +8,8 @@
 npx -y @travel-growth-inspiration/mcp login
 npx -y @travel-growth-inspiration/mcp serve
 npx -y @travel-growth-inspiration/mcp install-browser
+npx -y @travel-growth-inspiration/mcp page-schema --kind hotels > hotel-page.schema.json
+npx -y @travel-growth-inspiration/mcp render-page hotels.json -o hotels.html
 npx -y @travel-growth-inspiration/mcp trip-page-schema > trip-page.schema.json
 npx -y @travel-growth-inspiration/mcp render-trip trip.json -o trip.html
 ```
@@ -44,8 +46,10 @@ Nova не нужен.
 Для grocery checkout нужен Chromium. Установить его можно отдельной командой
 `install-browser`; обычный запуск сервера браузер автоматически не скачивает.
 
-`render-trip` не требует checkout репозитория, React или Vite. Шаблон, фирменные
-стили и Leaflet входят в Python wheel; удалёнными остаются фотографии и тайлы OSM.
+`render-page` создаёт `hotel-page/v1` и `trip-page/v2` в общем UI Travel Nova;
+`render-trip` сохранён для совместимого `trip-page/v1`. Оба режима не требуют
+checkout репозитория, React или Vite. Шаблон, фирменные стили и Leaflet входят в
+Python wheel; удалёнными остаются фотографии и тайлы OSM.
 
 На macOS Python автоматически добавляет в свой CA bundle сертификаты, явно
 разрешённые в user/admin Keychain trust settings. Это позволяет работать в

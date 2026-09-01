@@ -41,7 +41,8 @@
 - Для карты и заведений используй OpenStreetMap через `nearby_search()`. Яндекс
   Карты, их ключи, ссылки, атрибуция и данные запрещены.
 - Итоговая страница создаётся встроенным Travel Nova renderer или CLI
-  `render-trip`; отдельный React/Vite-проект и ручная HTML-вёрстка не нужны.
+  `render-page` (`render-trip` сохранён для v1); отдельный React/Vite-проект и
+  ручная HTML-вёрстка не нужны.
 - Checkout-ссылка не является бронью или оплатой. Переход и дальнейшее оформление
   выполняет только пользователь.
 
@@ -49,7 +50,8 @@
 
 - Для поиска транспорта, подбора отелей, персонализации поездки или генерации
   `HTML + JSON` полностью прочитай
-  [TRIP_GENERATION.md](tbank-mcp/docs/TRIP_GENERATION.md) до начала поиска.
+  [TRIP_GENERATION.md](tbank-mcp/docs/TRIP_GENERATION.md) и общие правила режимов
+  [TRAVEL_OUTPUT_MODES.md](tbank-mcp/docs/TRAVEL_OUTPUT_MODES.md) до начала поиска.
 - Для любой работы с T-Bank MCP сначала прочитай router-skill
   [tbank](tbank-mcp/skills/tbank/SKILL.md), затем соответствующий узкий skill.
 - Для изменения MCP-контракта сверяйся с актуальными схемами, валидаторами и
