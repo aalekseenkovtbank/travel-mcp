@@ -130,8 +130,8 @@ section:not(.hero) { padding: 82px 0; border-bottom: 1px solid var(--line); }
 .review-fit { margin: 12px 0 0 !important; }
 .hotel-card.selected .hotel-review-digest { background: rgba(255,255,255,.08); color: rgba(255,255,255,.72); }
 .hotel-card.selected .hotel-review-digest > small, .hotel-card.selected .review-columns strong { color: rgba(255,255,255,.72); }
-.hotel-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.hotel-actions .button { flex: 1 1 170px; width: auto; }
+.hotel-actions, .transport-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.hotel-actions .button, .transport-actions .button { flex: 1 1 170px; width: auto; }
 .hotel-comparison-block { margin-top: 72px; scroll-margin-top: 82px; }
 .subsection-head { display: grid; grid-template-columns: auto minmax(240px, 1fr) minmax(260px, 420px); gap: 18px; align-items: end; margin-bottom: 24px; }
 .subsection-head > span { color: var(--orange); font: italic 15px Georgia, serif; }

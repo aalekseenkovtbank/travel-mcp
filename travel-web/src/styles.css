@@ -156,7 +156,7 @@ footer { border-top: 1px solid var(--line); padding: 25px 0 40px; font-size: 11p
 .panel-title { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
 .panel-title span { color: var(--orange); font: italic 15px Georgia, serif; }
 .panel-title h2 { font-size: 21px; }
-.flight-row, .hotel-row { display: grid; grid-template-columns: 65px 1fr auto; align-items: center; gap: 15px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+.flight-row, .hotel-row { display: grid; grid-template-columns: 65px minmax(0, 1fr) auto 150px; align-items: center; gap: 15px; padding: 16px 0; border-bottom: 1px solid var(--line); }
 .flight-row > span { font: 600 19px "Manrope"; }
 .flight-row strong, .flight-row small, .hotel-row strong, .hotel-row small { display: block; }
 .flight-row small, .hotel-row small { color: var(--muted); font-size: 11px; margin-top: 4px; }
@@ -172,6 +172,12 @@ footer { border-top: 1px solid var(--line); padding: 25px 0 40px; font-size: 11p
 .event-media-card small, .event-media-card span { color: var(--muted); font-size: 9px; }
 .event-media-card strong { font-size: 13px; line-height: 1.35; }
 .event-media-card:not(.has-image) > div { min-height: 94px; align-content: center; }
+.tbank-action { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; border: 1px solid var(--ink); border-radius: 9px; padding: 7px 10px; color: var(--ink); font-size: 9px; font-weight: 700; line-height: 1.25; text-align: center; text-decoration: none; }
+.tbank-action:hover { background: var(--ink); color: white; }
+.tbank-action.is-disabled { border-color: var(--line); background: #eeeae2; color: var(--muted); cursor: not-allowed; }
+.event-media-card .tbank-action { margin-top: 7px; color: var(--ink); font-size: 9px; }
+.event-media-card .tbank-action:hover { color: white; }
+.event-media-card .tbank-action.is-disabled { color: var(--muted); }
 .timeline-weather-empty { margin: -7px 0 20px; padding: 11px 13px; border-radius: 10px; background: #f2eee6; color: var(--muted); font-size: 11px; }
 .timeline-days { display: grid; gap: 24px; }
 .timeline-day + .timeline-day { border-top: 1px solid var(--line); padding-top: 24px; }
@@ -257,6 +263,9 @@ footer { border-top: 1px solid var(--line); padding: 25px 0 40px; font-size: 11p
 .message { max-width: 88%; border-radius: 13px; padding: 10px 12px; font-size: 12px; line-height: 1.45; }
 .message.user { align-self: flex-end; background: var(--orange); }
 .message.assistant { align-self: flex-start; background: rgba(255,255,255,.1); color: rgba(255,255,255,.86); }
+.message-actions { display: grid; gap: 6px; margin-top: 9px; }
+.message-actions a { border-top: 1px solid rgba(255,255,255,.14); padding-top: 7px; color: #ffd5bd; font-weight: 700; text-decoration: none; }
+.message-actions a:hover { color: white; }
 .typing span { animation: blink 1s infinite; }
 @keyframes blink { 50% { opacity: .2; } }
 .chat-form { margin: auto 18px 9px; position: relative; }
@@ -298,6 +307,7 @@ footer { border-top: 1px solid var(--line); padding: 25px 0 40px; font-size: 11p
   .flight-row b { grid-column: 2; }
   .hotel-row { grid-template-columns: 64px 1fr; }
   .hotel-row b { grid-column: 2; }
+  .flight-row .tbank-action, .hotel-row .tbank-action { grid-column: 2; justify-self: start; }
   .poi-grid { grid-template-columns: 1fr; }
   .restaurant-grid { grid-template-columns: 1fr; }
   .trip-map { height: 320px; }

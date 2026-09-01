@@ -21,9 +21,17 @@ from typing import Annotated, Literal
 from pydantic import (AnyHttpUrl, BaseModel, ConfigDict, Field, StringConstraints,
                       field_validator, model_validator)
 
+from .tbank_urls import hotel_details_url, safe_tbank_url
+
 
 NonEmpty = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 HttpsUrl = Annotated[AnyHttpUrl, Field(description="An HTTPS URL")]
+
+
+def _require_tbank_url(value, field_name: str):
+    if value is not None and not safe_tbank_url(value):
+        raise ValueError(f"{field_name} must be a safe public T-Bank HTTPS URL")
+    return value
 
 
 class ContractModel(BaseModel):
@@ -83,15 +91,19 @@ class TransportLeg(ContractModel):
     service_number: str = ""
     seller: str = ""
     price_rub: float = Field(ge=0)
+    tbank_url: HttpsUrl | None = None
     booking_url: HttpsUrl | None = None
     notes: list[str] = Field(default_factory=list, max_length=8)
 
+    @field_validator("tbank_url")
+    @classmethod
+    def _tbank_object_url(cls, value):
+        return _require_tbank_url(value, "tbankUrl")
+
     @field_validator("booking_url")
     @classmethod
-    def _https_booking_url(cls, value):
-        if value is not None and value.scheme != "https":
-            raise ValueError("bookingUrl must use HTTPS")
-        return value
+    def _tbank_booking_url(cls, value):
+        return _require_tbank_url(value, "bookingUrl")
 
     @model_validator(mode="after")
     def _times_are_ordered(self):
@@ -118,12 +130,17 @@ class HotelOption(ContractModel):
     review_summary: str = ""
     booking_url: HttpsUrl | None = None
 
-    @field_validator("image_url", "booking_url")
+    @field_validator("image_url")
     @classmethod
-    def _https_urls(cls, value):
+    def _https_image_url(cls, value):
         if value is not None and value.scheme != "https":
             raise ValueError("remote URLs must use HTTPS")
         return value
+
+    @field_validator("booking_url")
+    @classmethod
+    def _tbank_booking_url(cls, value):
+        return _require_tbank_url(value, "bookingUrl")
 
 
 class HotelPhoto(ContractModel):
@@ -169,12 +186,18 @@ class HotelOptionV2(HotelOption):
     details_url: HttpsUrl | None = None
     review_digest: HotelReviewDigest | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_details_url(cls, value):
+        if not isinstance(value, dict) or value.get("details_url") or value.get("detailsUrl"):
+            return value
+        details_url = hotel_details_url(value.get("id"))
+        return {**value, "details_url": details_url} if details_url else value
+
     @field_validator("details_url")
     @classmethod
     def _https_details_url(cls, value):
-        if value is not None and value.scheme != "https":
-            raise ValueError("detailsUrl must use HTTPS")
-        return value
+        return _require_tbank_url(value, "detailsUrl")
 
     @model_validator(mode="after")
     def _photos_are_unique(self):
@@ -235,12 +258,17 @@ class EventOption(ContractModel):
     match_reason: NonEmpty
     personalization_basis: Literal["order_history", "no_history"]
 
-    @field_validator("image_url", "source_url")
+    @field_validator("image_url")
     @classmethod
-    def _https_urls(cls, value):
+    def _https_image_url(cls, value):
         if value is not None and value.scheme != "https":
             raise ValueError("remote URLs must use HTTPS")
         return value
+
+    @field_validator("source_url")
+    @classmethod
+    def _tbank_source_url(cls, value):
+        return _require_tbank_url(value, "sourceUrl")
 
     @model_validator(mode="after")
     def _event_times_are_ordered(self):
@@ -372,9 +400,7 @@ class TripPageDocumentV1(ContractModel):
     @field_validator("transport_booking_url")
     @classmethod
     def _https_transport_booking_url(cls, value):
-        if value is not None and value.scheme != "https":
-            raise ValueError("transportBookingUrl must use HTTPS")
-        return value
+        return _require_tbank_url(value, "transportBookingUrl")
 
     @model_validator(mode="after")
     def _cross_references_are_valid(self):
@@ -571,8 +597,7 @@ def _checkout_action(url, label: str, unavailable: str) -> str:
 def _transport_checkout_url(document: TripPageDocumentV1):
     if document.transport_booking_url:
         return document.transport_booking_url
-    leg_urls = {str(leg.booking_url) for leg in document.transport if leg.booking_url}
-    return next(iter(leg_urls)) if len(leg_urls) == 1 else None
+    return None
 
 
 def _entity_index(document: TripPageDocumentV1) -> dict[str, dict]:
@@ -601,15 +626,16 @@ def _render_transport(document: TripPageDocumentV1) -> str:
     cards = []
     labels = {"outbound": "Туда", "return": "Обратно"}
     icons = {"flight": "✈", "train": "▰"}
-    route_checkout = _transport_checkout_url(document)
     for leg in sorted(document.transport, key=lambda item: item.departure_at):
         notes = "".join(f'<span>{_e(note)}</span>' for note in leg.notes)
         seller = f'<small>Продавец: {_e(leg.seller)}</small>' if leg.seller else ""
-        leg_action = "" if route_checkout else _link(
-            leg.booking_url,
-            "Оформить билет туда" if leg.direction == "outbound" else "Оформить билет обратно",
-            "button button-primary",
+        leg_action = _checkout_action(
+            leg.tbank_url,
+            "Открыть билет в T-Bank",
+            "Ссылка T-Bank недоступна",
         )
+        booking_action = (_link(leg.booking_url, "Перейти к оформлению", "button")
+                          if leg.booking_url else "")
         cards.append(f"""
         <article class="transport-card" id="entity-{_e(leg.id)}">
           <div class="eyebrow">{_e(labels[leg.direction])} · {_e(leg.mode)}</div>
@@ -619,7 +645,7 @@ def _render_transport(document: TripPageDocumentV1) -> str:
           {seller}
           {f'<div class="transport-notes">{notes}</div>' if notes else ''}
           <div class="price">{_rub(leg.price_rub)}</div>
-          {leg_action}
+          <div class="transport-actions">{leg_action}{booking_action}</div>
         </article>""")
     return "".join(cards)
 
@@ -627,15 +653,13 @@ def _render_transport(document: TripPageDocumentV1) -> str:
 def _render_transport_overview(document: TripPageDocumentV1) -> str:
     checkout = _transport_checkout_url(document)
     total = sum(leg.price_rub for leg in document.transport)
-    has_separate_links = any(leg.booking_url for leg in document.transport)
     if checkout:
         action = _checkout_action(
-            checkout, "Оформить перелёт", "Checkout перелёта не получен")
-    elif has_separate_links:
-        action = '<span class="checkout-note">Оформление — в карточках рейсов</span>'
+            checkout, "Перейти к оформлению перелёта", "Checkout перелёта не получен")
+    elif any(leg.booking_url for leg in document.transport):
+        action = '<span class="checkout-note">Оформление — в карточках билетов</span>'
     else:
-        action = _checkout_action(
-            None, "Оформить перелёт", "Checkout перелёта пока недоступен")
+        action = '<span class="checkout-note">Оформление доступно после выбора предложения</span>'
     return f"""
       <aside class="transport-overview">
         <div><span>Выбранный маршрут</span><strong>{len(document.transport)} сегм.</strong></div>
@@ -753,8 +777,10 @@ def _render_hotels(document: TripPageDocumentV1 | TripPageDocumentV2 | HotelPage
         location = getattr(hotel, "location_summary", "")
         facilities = getattr(hotel, "facilities", []) or []
         tags = "".join(f"<span>{_e(item)}</span>" for item in facilities[:6])
-        details_url = getattr(hotel, "details_url", None)
-        details_action = _link(details_url, "Посмотреть отель", "button")
+        details_url = (safe_tbank_url(getattr(hotel, "details_url", None))
+                       or hotel_details_url(hotel.id))
+        details_action = _checkout_action(
+            details_url, "Открыть отель в T-Bank", "Ссылка T-Bank недоступна")
         checkout_action = (_link(hotel.booking_url, "Перейти к оформлению", "button button-primary")
                            if hotel.booking_url else "")
         actions = (f'<div class="hotel-actions">{details_action}{checkout_action}</div>'
@@ -858,7 +884,7 @@ def _render_events(document: TripPageDocumentV1) -> str:
           {f'<div class="card-tags">{"".join(f"<span>{_e(genre)}</span>" for genre in item.genres)}</div>' if item.genres else ''}
           <p>{_e(item.match_reason)}</p>
           <div class="price">{('от ' + _rub(item.price_from_rub)) if item.price_from_rub is not None else 'Цена уточняется'}</div>
-          {_checkout_action(item.source_url, 'Открыть в Афише', 'Ссылка Афиши не опубликована')}
+          {_checkout_action(item.source_url, 'Открыть событие в T-Bank', 'Ссылка T-Bank недоступна')}
         </div>
       </article>""" for index, item in enumerate(sorted(document.events,
                                          key=lambda event: -event.personalization_score), 1))
@@ -996,7 +1022,7 @@ def render_html(document: TripPageDocumentV1 | TripPageDocumentV2) -> str:
 <aside class="trip-profile"><span>Комфортный ориентир</span><strong>{_rub(total_budget.recommended_rub)}</strong><small>{_rub(total_budget.range_min_rub)} — {_rub(total_budget.range_max_rub)}</small><div><b>{document.personalization.travel_sample_size}</b><small>поездок в основе</small></div><div><b>{document.personalization.event_sample_size}</b><small>заказов Афиши</small></div></aside></section>
 <section class="budget-section" id="budget"><div class="section-head"><div><span>01</span><h2>Бюджет поездки</h2></div><p>{_e(document.personalization.explanation)}</p></div><div class="budget-grid">{_render_budget(document)}</div></section>
 <section class="route-section" id="route"><div class="section-head"><div><span>02</span><h2>Дорога туда и обратно</h2></div><p>Выбранные сегменты собраны в один маршрут. Checkout открывается отдельно и не означает покупку.</p></div>{_render_transport_overview(document)}<div class="transport-grid">{_render_transport(document)}</div></section>
-<section class="hotels-section" id="hotels"><div class="section-head"><div><span>03</span><h2>Где остановиться</h2></div><p>Три уровня цены с конкретным номером, условиями тарифа, отзывами и ссылкой на оформление.</p></div><div class="hotels">{_render_hotels(document)}</div><div class="hotel-comparison-block" id="comparison"><div class="subsection-head"><span>Сравнение</span><h3>Все условия рядом</h3><p>Резюме отзывов относится только к реально загруженной выборке.</p></div>{_render_hotel_comparison(document)}</div></section>
+<section class="hotels-section" id="hotels"><div class="section-head"><div><span>03</span><h2>Где остановиться</h2></div><p>Три уровня цены с конкретным номером, условиями тарифа, отзывами и ссылкой на карточку T-Bank.</p></div><div class="hotels">{_render_hotels(document)}</div><div class="hotel-comparison-block" id="comparison"><div class="subsection-head"><span>Сравнение</span><h3>Все условия рядом</h3><p>Резюме отзывов относится только к реально загруженной выборке.</p></div>{_render_hotel_comparison(document)}</div></section>
 <section class="events-section" id="events"><div class="section-head"><div><span>04</span><h2>Что посмотреть</h2></div><p>События ранжируются по безопасному профилю интересов без раскрытия истории покупок.</p></div><div class="card-grid events">{_render_events(document)}</div></section>
 <section class="venues-section" id="places"><div class="section-head"><div><span>05</span><h2>Рестораны и бары</h2></div><p>Заведения, категории и часы работы получены из OpenStreetMap через T-Bank MCP.</p></div><div class="card-grid venues">{_render_venues(document)}</div></section>
 <section class="map-section" id="map"><div class="section-head"><div><span>06</span><h2>Всё на карте</h2></div><p>Все три отеля, мероприятия и заведения. Нажмите маркер, чтобы перейти к карточке.</p></div><div id="trip-map" aria-label="Карта поездки OpenStreetMap"><div class="map-fallback">Карта появится при подключении к интернету.</div></div><div class="map-legend"><span class="hotel">Отели</span><span class="event">События</span><span class="restaurant">Рестораны</span><span class="bar">Бары</span></div></section>

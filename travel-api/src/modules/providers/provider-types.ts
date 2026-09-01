@@ -10,6 +10,7 @@ export type ProviderResult<T> = {
 
 export type FlightInventoryItem = {
   offerId?: string;
+  tbankUrl?: string;
   summary: string;
   priceRub: number;
   departureTime?: string;
@@ -27,6 +28,7 @@ export type HotelInventoryItem = {
   address?: string;
   rating?: number;
   meal?: string;
+  tbankUrl?: string;
   latitude?: number;
   longitude?: number;
   image?: ImageAsset;
@@ -45,6 +47,7 @@ export type EventInventoryItem = {
   dateTime?: string;
   venue?: string;
   address?: string;
+  tbankUrl?: string;
   latitude?: number;
   longitude?: number;
   priceRub?: number;

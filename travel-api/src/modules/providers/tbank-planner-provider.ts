@@ -1,4 +1,9 @@
-import type { City, PreferenceProfile, TripBrief } from "@travel-growth-inspiration/contracts";
+import {
+  safeTbankUrl,
+  type City,
+  type PreferenceProfile,
+  type TripBrief,
+} from "@travel-growth-inspiration/contracts";
 import type { ZodType } from "zod";
 
 import type {
@@ -67,6 +72,20 @@ function isDiningCategory(value: string): boolean {
 function isInside(dateTime: string, window: DateWindow): boolean {
   const date = dateTime.slice(0, 10);
   return Boolean(date) && date >= window.startDate && date <= window.endDate;
+}
+
+function hotelTbankUrl(hotelId: string): string | undefined {
+  if (!/^[1-9]\d*$/u.test(hotelId)) return undefined;
+  return safeTbankUrl(`https://www.tbank.ru/travel/hotels/new/hotels/${hotelId}`);
+}
+
+function eventTbankUrl(city: City, sourceUrl: string | undefined): string | undefined {
+  if (!city.tbankWebSlug) return undefined;
+  const safeUrl = safeTbankUrl(sourceUrl);
+  if (!safeUrl) return undefined;
+  return new URL(safeUrl).pathname.startsWith(`/gorod/afisha/${city.tbankWebSlug}/`)
+    ? safeUrl
+    : undefined;
 }
 
 function neutralProfile(warning: string): ProviderResult<PreferenceProfile> {
@@ -365,6 +384,7 @@ export class TbankPlannerProvider implements PlannerDataProvider {
         const arrivalTime = timeOf(offer.arrivalAt);
         return {
           offerId: offer.offerId,
+          ...(offer.tbankUrl ? { tbankUrl: offer.tbankUrl } : {}),
           summary: offer.summary || `${from.iata} → ${to.iata}`,
           priceRub: offer.price,
           ...(departureTime ? { departureTime } : {}),
@@ -425,6 +445,7 @@ export class TbankPlannerProvider implements PlannerDataProvider {
       warnings.push(...result.warnings);
       for (const hotel of result.data.hotels) {
         if (!hotel.hotelId || hotel.price <= 0) continue;
+        const tbankUrl = hotel.tbankUrl ?? hotelTbankUrl(hotel.hotelId);
         byId.set(hotel.hotelId, {
           hotelId: hotel.hotelId,
           name: hotel.name || "Отель",
@@ -433,6 +454,7 @@ export class TbankPlannerProvider implements PlannerDataProvider {
           ...(hotel.address ? { address: hotel.address } : {}),
           ...(hotel.rating != null ? { rating: hotel.rating } : {}),
           ...(hotel.meal ? { meal: hotel.meal } : {}),
+          ...(tbankUrl ? { tbankUrl } : {}),
           ...(hotel.latitude != null ? { latitude: hotel.latitude } : {}),
           ...(hotel.longitude != null ? { longitude: hotel.longitude } : {}),
           ...(hotel.imageUrl
@@ -518,24 +540,28 @@ export class TbankPlannerProvider implements PlannerDataProvider {
         const slot = event.slots.find((candidate) => isInside(candidate.startDateTime, window));
         if (!slot || !isInside(slot.startDateTime, window)) continue;
         const priceRub = slot.priceFix ?? slot.priceMin ?? slot.priceMax ?? undefined;
+        const tbankUrl = eventTbankUrl(city, event.sourceUrl);
         if (eventsById.has(event.eventId)) continue;
         eventsById.set(event.eventId, {
           kind,
           slotId: slot.slotId,
           event: {
-          eventId: event.eventId,
-          name: event.name,
-          kind,
-          ...(event.genres.length ? { genres: event.genres } : {}),
-          ...(event.ageRestriction ? { ageRestriction: event.ageRestriction } : {}),
-          ...(event.rating !== undefined && event.rating !== null ? { rating: event.rating } : {}),
-          dateTime: slot.startDateTime,
-          ...(priceRub !== undefined && priceRub > 0 ? { priceRub } : {}),
-          ...(event.imageUrl
-            ? { image: { url: event.imageUrl, source: result.source } }
-            : {}),
-          source: result.source,
-          checkedAt: result.checkedAt,
+            eventId: event.eventId,
+            name: event.name,
+            kind,
+            ...(event.genres.length ? { genres: event.genres } : {}),
+            ...(event.ageRestriction ? { ageRestriction: event.ageRestriction } : {}),
+            ...(event.rating !== undefined && event.rating !== null
+              ? { rating: event.rating }
+              : {}),
+            dateTime: slot.startDateTime,
+            ...(priceRub !== undefined && priceRub > 0 ? { priceRub } : {}),
+            ...(event.imageUrl
+              ? { image: { url: event.imageUrl, source: result.source } }
+              : {}),
+            ...(tbankUrl ? { tbankUrl } : {}),
+            source: result.source,
+            checkedAt: result.checkedAt,
           },
         });
       }

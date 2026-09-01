@@ -1,20 +1,22 @@
 import { randomUUID } from "node:crypto";
 
-import type {
-  AsyncJobAccepted,
-  EventOption,
-  FlightOption,
-  HotelOption,
-  MapPoint,
-  PreferenceProfile,
-  Price,
-  Restaurant,
-  RestaurantGroup,
-  SourceStatus,
-  TripBrief,
-  TripMessageInput,
-  TripPace,
-  TripProposal,
+import {
+  safeTbankUrl,
+  type AsyncJobAccepted,
+  type ChatMessageAction,
+  type EventOption,
+  type FlightOption,
+  type HotelOption,
+  type MapPoint,
+  type PreferenceProfile,
+  type Price,
+  type Restaurant,
+  type RestaurantGroup,
+  type SourceStatus,
+  type TripBrief,
+  type TripMessageInput,
+  type TripPace,
+  type TripProposal,
 } from "@travel-growth-inspiration/contracts";
 
 import { AppError } from "../../http/app-error.js";
@@ -275,7 +277,8 @@ export class TravelPlannerAgent {
           local.changeSummary,
         );
         const response = this.#chatResponse(change, revision.proposal, local.warnings, local.changeSummary);
-        this.#store.addMessage(tripId, "assistant", response, revision.id);
+        const actions = this.#chatActions(current.proposal, revision.proposal);
+        this.#store.addMessage(tripId, "assistant", response, revision.id, actions);
         this.#store.appendEvent(jobId, "trip.ready", {
           proposal: revision.proposal,
           revision,
@@ -311,7 +314,8 @@ export class TravelPlannerAgent {
         changeSummary,
       );
       const response = this.#chatResponse(change, revision.proposal, result.warnings, changeSummary);
-      this.#store.addMessage(tripId, "assistant", response, revision.id);
+      const actions = this.#chatActions(current.proposal, revision.proposal);
+      this.#store.addMessage(tripId, "assistant", response, revision.id, actions);
       this.#store.appendEvent(jobId, "trip.ready", { proposal: revision.proposal, revision });
       this.#store.updateJob(jobId, "completed");
       this.#store.appendEvent(jobId, "job.completed", { tripId, revisionId: revision.id });
@@ -460,6 +464,7 @@ export class TravelPlannerAgent {
       ...(replacement.address ? { address: replacement.address } : {}),
       ...(replacement.rating !== undefined ? { rating: replacement.rating } : {}),
       ...(replacement.meal ? { meal: replacement.meal } : {}),
+      ...(replacement.tbankUrl ? { tbankUrl: replacement.tbankUrl } : {}),
       ...(replacement.image ? { image: replacement.image } : {}),
       price: priceOf(replacement),
       mapPoint: hotelPoint,
@@ -592,6 +597,7 @@ export class TravelPlannerAgent {
       date: string,
     ): FlightOption => ({
       ...(item.offerId ? { offerId: item.offerId } : {}),
+      ...(item.tbankUrl ? { tbankUrl: item.tbankUrl } : {}),
       direction,
       fromCode,
       toCode,
@@ -1196,6 +1202,7 @@ export class TravelPlannerAgent {
       ...(item.dateTime ? { dateTime: item.dateTime } : {}),
       ...(item.venue ? { venue: item.venue } : {}),
       ...(item.address ? { address: item.address } : {}),
+      ...(item.tbankUrl ? { tbankUrl: item.tbankUrl } : {}),
       ...(item.image ? { image: item.image } : {}),
       ...(item.priceRub
         ? {
@@ -1374,5 +1381,53 @@ export class TravelPlannerAgent {
     const warning = warnings[0] ? ` Обратите внимание: ${warnings[0]}` : "";
     const changed = changeSummary.length ? ` Изменения: ${changeSummary.join("; ")}.` : "";
     return `${actions[change.action]}. Новый ориентир — ${proposal.totalPrice.amount.toLocaleString("ru-RU")} ₽.${changed}${warning}`;
+  }
+
+  #chatActions(previous: TripProposal, next: TripProposal): ChatMessageAction[] {
+    const actions: ChatMessageAction[] = [];
+    const add = (
+      label: string,
+      url: string | undefined,
+      entityType: ChatMessageAction["entityType"],
+      entityId: string,
+    ) => {
+      const safeUrl = safeTbankUrl(url);
+      if (!safeUrl) return;
+      actions.push({
+        label: label.slice(0, 120),
+        url: safeUrl,
+        entityType,
+        entityId: entityId.slice(0, 240),
+      });
+    };
+
+    if (previous.hotel.hotelId !== next.hotel.hotelId ||
+        previous.hotel.tbankUrl !== next.hotel.tbankUrl) {
+      add(`Открыть ${next.hotel.name} в T-Bank`, next.hotel.tbankUrl,
+          "hotel", next.hotel.hotelId);
+    }
+
+    for (const direction of ["outbound", "return"] as const) {
+      const before = previous.flights[direction];
+      const after = next.flights[direction];
+      const beforeId = before.offerId ?? [before.fromCode, before.toCode, before.date,
+        before.departureTime, before.summary].join(":");
+      const afterId = after.offerId ?? [after.fromCode, after.toCode, after.date,
+        after.departureTime, after.summary].join(":");
+      if (beforeId !== afterId || before.tbankUrl !== after.tbankUrl) {
+        add(`Открыть билет ${after.fromCode} → ${after.toCode}`, after.tbankUrl,
+            "flight", afterId);
+      }
+    }
+
+    const previousEvents = new Map(previous.events.map((event) => [event.eventId, event]));
+    for (const event of next.events) {
+      const before = previousEvents.get(event.eventId);
+      if (!before || before.tbankUrl !== event.tbankUrl) {
+        add(`Открыть «${event.name}» в Афише`, event.tbankUrl,
+            "event", event.eventId);
+      }
+    }
+    return actions;
   }
 }

@@ -106,6 +106,7 @@ export const citySchema = z.object({
   id: z.string(),
   name: z.string(),
   iata: z.string().length(3),
+  tbankWebSlug: z.string().trim().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u).optional(),
   latitude: z.number(),
   longitude: z.number(),
   tags: z.array(z.string()),
@@ -144,6 +145,37 @@ const httpsUrlSchema = z
   .url()
   .refine((value) => /^https:\/\//iu.test(value), "Image URLs must use HTTPS");
 
+export const tbankUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => {
+    const url = new URL(value);
+    const host = url.hostname.toLocaleLowerCase("en-US");
+    return url.protocol === "https:" &&
+      (host === "tbank.ru" || host.endsWith(".tbank.ru")) &&
+      !url.username &&
+      !url.password;
+  }, "T-Bank URLs must use HTTPS on a tbank.ru host without credentials")
+  .refine((value) => {
+    const url = new URL(value);
+    let safe = true;
+    const inspect = (parameters: URLSearchParams) => parameters.forEach((_value, key) => {
+      const normalized = key.toLocaleLowerCase("en-US").replace(/[^a-z0-9]/gu, "");
+      if (normalized.includes("session") || normalized.includes("token") ||
+          normalized.startsWith("sso")) safe = false;
+    });
+    inspect(url.searchParams);
+    inspect(new URLSearchParams(url.hash.replace(/^#/u, "")));
+    return safe;
+  }, "T-Bank URLs must not contain session or token parameters");
+
+export type TbankUrl = z.infer<typeof tbankUrlSchema>;
+
+export function safeTbankUrl(value: unknown): TbankUrl | undefined {
+  const parsed = tbankUrlSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
 export const imageAssetSchema = z.object({
   url: httpsUrlSchema,
   source: z.string().min(1),
@@ -171,6 +203,7 @@ export const flightOptionSchema = z.object({
   summary: z.string(),
   departureTime: z.string().optional(),
   arrivalTime: z.string().optional(),
+  tbankUrl: tbankUrlSchema.optional(),
   price: priceSchema,
   availability: sourceStatusSchema,
 });
@@ -183,6 +216,7 @@ export const hotelOptionSchema = z.object({
   address: z.string().optional(),
   rating: z.number().optional(),
   meal: z.string().optional(),
+  tbankUrl: tbankUrlSchema.optional(),
   image: imageAssetSchema.optional(),
   price: priceSchema,
   mapPoint: mapPointSchema,
@@ -200,6 +234,7 @@ export const eventOptionSchema = z.object({
   dateTime: z.string().optional(),
   venue: z.string().optional(),
   address: z.string().optional(),
+  tbankUrl: tbankUrlSchema.optional(),
   image: imageAssetSchema.optional(),
   price: priceSchema.optional(),
   mapPoint: mapPointSchema.optional(),
@@ -506,11 +541,21 @@ export type TripRevision = {
   createdAt: string;
 };
 
+export const chatMessageActionSchema = z.object({
+  label: z.string().trim().min(1).max(120),
+  url: tbankUrlSchema,
+  entityType: z.enum(["flight", "hotel", "event"]),
+  entityId: z.string().trim().min(1).max(240),
+});
+
+export type ChatMessageAction = z.infer<typeof chatMessageActionSchema>;
+
 export type ChatMessage = {
   id: string;
   tripId: string;
   role: "user" | "assistant";
   content: string;
+  actions?: ChatMessageAction[];
   revisionId?: string;
   createdAt: string;
 };

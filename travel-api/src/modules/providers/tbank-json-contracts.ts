@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { tbankUrlSchema } from "@travel-growth-inspiration/contracts";
 
 const nullableNumber = z.number().nullable().optional();
 const httpsImageUrl = z.string().url().refine((value) => /^https:\/\//iu.test(value));
@@ -154,6 +155,7 @@ export const flightSearchDataSchema = z.object({
       withBaggage: z.boolean(),
       refundable: z.boolean(),
       vendor: z.string(),
+      tbankUrl: tbankUrlSchema.optional(),
       legs: z.array(
         z.object({
           carrier: z.string(),
@@ -202,6 +204,7 @@ export const hotelSearchDataSchema = z.object({
       latitude: nullableNumber,
       longitude: nullableNumber,
       imageUrl: httpsImageUrl.optional(),
+      tbankUrl: tbankUrlSchema.optional(),
     }),
   ),
 });
@@ -238,11 +241,13 @@ export const afishaCatalogDataSchema = z.object({
     z.object({
       eventId: z.string(),
       name: z.string(),
+      eventNameTransliteration: z.string(),
       kind: z.string(),
       genres: z.array(z.string()),
       ageRestriction: z.string(),
       rating: nullableNumber,
       imageUrl: httpsImageUrl.optional(),
+      sourceUrl: tbankUrlSchema.optional(),
       slots: z.array(eventSlotSchema),
     }),
   ),

@@ -4,22 +4,24 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
-import type {
-  ChatMessage,
-  Completeness,
-  DataMode,
-  JobEvent,
-  JobEventType,
-  JobStatus,
-  PreferenceProfile,
-  Restaurant,
-  RestaurantGroup,
-  TripBrief,
-  TripDetail,
-  TripProposal,
-  TripRevision,
-  TripRunSnapshot,
-  SourceStatus,
+import {
+  chatMessageActionSchema,
+  type ChatMessage,
+  type ChatMessageAction,
+  type Completeness,
+  type DataMode,
+  type JobEvent,
+  type JobEventType,
+  type JobStatus,
+  type PreferenceProfile,
+  type Restaurant,
+  type RestaurantGroup,
+  type TripBrief,
+  type TripDetail,
+  type TripProposal,
+  type TripRevision,
+  type TripRunSnapshot,
+  type SourceStatus,
 } from "@travel-growth-inspiration/contracts";
 import { emptyBehavioralInsights } from "../providers/behavioral-profile.js";
 
@@ -180,6 +182,7 @@ export class TravelStore {
         trip_id TEXT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
         role TEXT NOT NULL,
         content TEXT NOT NULL,
+        actions_json TEXT NOT NULL DEFAULT '[]',
         revision_id TEXT,
         created_at TEXT NOT NULL
       );
@@ -219,6 +222,7 @@ export class TravelStore {
     this.#ensureColumn("trip_runs", "completeness", "TEXT NOT NULL DEFAULT 'failed'");
     this.#ensureColumn("trip_runs", "sources_json", "TEXT NOT NULL DEFAULT '[]'");
     this.#ensureColumn("trip_revisions", "change_summary_json", "TEXT NOT NULL DEFAULT '[]'");
+    this.#ensureColumn("chat_messages", "actions_json", "TEXT NOT NULL DEFAULT '[]'");
     this.#recoverInterruptedWork();
   }
 
@@ -541,24 +545,31 @@ export class TravelStore {
     role: ChatMessage["role"],
     content: string,
     revisionId?: string,
+    actions: ChatMessageAction[] = [],
   ): ChatMessage {
+    const safeActions = actions.flatMap((action) => {
+      const parsed = chatMessageActionSchema.safeParse(action);
+      return parsed.success ? [parsed.data] : [];
+    });
     const message: ChatMessage = {
       id: randomUUID(),
       tripId,
       role,
       content,
+      ...(safeActions.length ? { actions: safeActions } : {}),
       ...(revisionId ? { revisionId } : {}),
       createdAt: now(),
     };
     this.#database
       .prepare(
-        "INSERT INTO chat_messages (id, trip_id, role, content, revision_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO chat_messages (id, trip_id, role, content, actions_json, revision_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         message.id,
         tripId,
         role,
         content,
+        JSON.stringify(safeActions),
         revisionId ?? null,
         message.createdAt,
       );
@@ -569,13 +580,21 @@ export class TravelStore {
     const rows = this.#database
       .prepare("SELECT * FROM chat_messages WHERE trip_id = ? ORDER BY created_at ASC")
       .all(tripId) as DatabaseRow[];
-    return rows.map((row) => ({
-      id: String(row.id),
-      tripId: String(row.trip_id),
-      role: String(row.role) as ChatMessage["role"],
-      content: String(row.content),
-      ...(row.revision_id ? { revisionId: String(row.revision_id) } : {}),
-      createdAt: String(row.created_at),
-    }));
+    return rows.map((row) => {
+      const storedActions = parseJson<unknown>(row.actions_json ?? "[]");
+      const actions = (Array.isArray(storedActions) ? storedActions : []).flatMap((action) => {
+        const parsed = chatMessageActionSchema.safeParse(action);
+        return parsed.success ? [parsed.data] : [];
+      });
+      return {
+        id: String(row.id),
+        tripId: String(row.trip_id),
+        role: String(row.role) as ChatMessage["role"],
+        content: String(row.content),
+        ...(actions.length ? { actions } : {}),
+        ...(row.revision_id ? { revisionId: String(row.revision_id) } : {}),
+        createdAt: String(row.created_at),
+      };
+    });
   }
 }

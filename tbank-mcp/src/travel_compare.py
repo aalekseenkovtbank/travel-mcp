@@ -429,6 +429,8 @@ def normalize_flight_inventory(result: dict[str, Any], *, only_bookable: bool) -
             "withBaggage": bool(offer.get("withBaggage")),
             "refundable": bool(offer.get("refundable")),
             "vendor": str(offer.get("vendor") or ""),
+            "candidateUrl": str(offer.get("tbankUrl") or offer.get("webUrl")
+                                or offer.get("bookingUrl") or offer.get("url") or ""),
             "legs": legs,
         })
     return rows
@@ -466,6 +468,8 @@ def normalize_train_inventory(ways: list[dict[str, Any]]) -> list[dict[str, Any]
                 str(car.get("carTypeName") or car.get("carType") or "")
                 for car, _ in cars if car.get("carTypeName") or car.get("carType")
             }),
+            "candidateUrl": str(way.get("tbankUrl") or way.get("webUrl")
+                                or way.get("bookingUrl") or way.get("url") or ""),
         })
     return rows
 

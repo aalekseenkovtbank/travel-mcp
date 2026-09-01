@@ -4,6 +4,7 @@ export const cities: City[] = [
   {
     id: "moscow",
     name: "Москва",
+    tbankWebSlug: "moscow",
     iata: "MOW",
     latitude: 55.7558,
     longitude: 37.6176,
@@ -26,6 +27,7 @@ export const cities: City[] = [
   {
     id: "saint-petersburg",
     name: "Санкт-Петербург",
+    tbankWebSlug: "saint-petersburg",
     iata: "LED",
     latitude: 59.9343,
     longitude: 30.3351,
@@ -48,6 +50,7 @@ export const cities: City[] = [
   {
     id: "kazan",
     name: "Казань",
+    tbankWebSlug: "kazan",
     iata: "KZN",
     latitude: 55.7961,
     longitude: 49.1064,
@@ -70,6 +73,7 @@ export const cities: City[] = [
   {
     id: "kaliningrad",
     name: "Калининград",
+    tbankWebSlug: "kaliningrad",
     iata: "KGD",
     latitude: 54.7104,
     longitude: 20.4522,
@@ -92,6 +96,7 @@ export const cities: City[] = [
   {
     id: "sochi",
     name: "Сочи",
+    tbankWebSlug: "sochi",
     iata: "AER",
     latitude: 43.5855,
     longitude: 39.7231,
@@ -114,6 +119,7 @@ export const cities: City[] = [
   {
     id: "nizhny-novgorod",
     name: "Нижний Новгород",
+    tbankWebSlug: "nizhny-novgorod",
     iata: "GOJ",
     latitude: 56.2965,
     longitude: 43.9361,
@@ -136,6 +142,7 @@ export const cities: City[] = [
   {
     id: "yekaterinburg",
     name: "Екатеринбург",
+    tbankWebSlug: "yekaterinburg",
     iata: "SVX",
     latitude: 56.8389,
     longitude: 60.6057,
@@ -158,6 +165,7 @@ export const cities: City[] = [
   {
     id: "murmansk",
     name: "Мурманск",
+    tbankWebSlug: "murmansk",
     iata: "MMK",
     latitude: 68.9707,
     longitude: 33.0749,
@@ -180,6 +188,7 @@ export const cities: City[] = [
   {
     id: "irkutsk",
     name: "Иркутск",
+    tbankWebSlug: "irkutsk",
     iata: "IKT",
     latitude: 52.2864,
     longitude: 104.2807,
@@ -202,6 +211,7 @@ export const cities: City[] = [
   {
     id: "vladivostok",
     name: "Владивосток",
+    tbankWebSlug: "vladivostok",
     iata: "VVO",
     latitude: 43.1155,
     longitude: 131.8855,
@@ -224,6 +234,7 @@ export const cities: City[] = [
   {
     id: "novosibirsk",
     name: "Новосибирск",
+    tbankWebSlug: "novosibirsk",
     iata: "OVB",
     latitude: 55.0084,
     longitude: 82.9357,
@@ -246,6 +257,7 @@ export const cities: City[] = [
   {
     id: "krasnoyarsk",
     name: "Красноярск",
+    tbankWebSlug: "krasnoyarsk",
     iata: "KJA",
     latitude: 56.0153,
     longitude: 92.8932,
@@ -268,6 +280,7 @@ export const cities: City[] = [
   {
     id: "samara",
     name: "Самара",
+    tbankWebSlug: "samara",
     iata: "KUF",
     latitude: 53.1959,
     longitude: 50.1002,
@@ -290,6 +303,7 @@ export const cities: City[] = [
   {
     id: "ufa",
     name: "Уфа",
+    tbankWebSlug: "ufa",
     iata: "UFA",
     latitude: 54.7388,
     longitude: 55.9721,
@@ -312,6 +326,7 @@ export const cities: City[] = [
   {
     id: "volgograd",
     name: "Волгоград",
+    tbankWebSlug: "volgograd",
     iata: "VOG",
     latitude: 48.708,
     longitude: 44.5133,
@@ -334,6 +349,7 @@ export const cities: City[] = [
   {
     id: "perm",
     name: "Пермь",
+    tbankWebSlug: "perm",
     iata: "PEE",
     latitude: 58.0105,
     longitude: 56.2502,
@@ -356,6 +372,7 @@ export const cities: City[] = [
   {
     id: "tyumen",
     name: "Тюмень",
+    tbankWebSlug: "tyumen",
     iata: "TJM",
     latitude: 57.153,
     longitude: 65.5343,
@@ -378,6 +395,7 @@ export const cities: City[] = [
   {
     id: "makhachkala",
     name: "Махачкала",
+    tbankWebSlug: "makhachkala",
     iata: "MCX",
     latitude: 42.9849,
     longitude: 47.5047,
@@ -400,6 +418,7 @@ export const cities: City[] = [
   {
     id: "mineralnye-vody",
     name: "Минеральные Воды",
+    tbankWebSlug: "mineralnye-vody",
     iata: "MRV",
     latitude: 44.2107,
     longitude: 43.1353,
@@ -422,6 +441,7 @@ export const cities: City[] = [
   {
     id: "arkhangelsk",
     name: "Архангельск",
+    tbankWebSlug: "arkhangelsk",
     iata: "ARH",
     latitude: 64.5393,
     longitude: 40.5187,

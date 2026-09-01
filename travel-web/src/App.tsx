@@ -183,6 +183,32 @@ function Logo() {
   );
 }
 
+function TbankAction({
+  url,
+  label,
+}: {
+  url?: string;
+  label: string;
+}) {
+  if (!url) {
+    return (
+      <span
+        className="tbank-action is-disabled"
+        aria-disabled="true"
+        title="Ссылка T-Bank недоступна"
+      >
+        Ссылка T-Bank недоступна
+      </span>
+    );
+  }
+
+  return (
+    <a className="tbank-action" href={url} target="_blank" rel="noopener noreferrer">
+      {label}
+    </a>
+  );
+}
+
 function Header({ dataMode, degraded = false }: { dataMode?: "demo" | "real"; degraded?: boolean }) {
   const label = dataMode === "demo" ? "Демо-данные" : dataMode === "real" ? "Реальные данные" : "Локальная alpha";
   return (
@@ -942,8 +968,8 @@ function TripPage() {
           <div className="detail-main">
             <section className="panel route-panel">
               <div className="panel-title"><span>01</span><h2>Дорога и дом</h2></div>
-              <div className="flight-row"><span>{proposal.flights.outbound.departureTime ?? "—"}</span><div><strong>{proposal.flights.outbound.fromCode} → {proposal.flights.outbound.toCode}</strong><small>{proposal.flights.outbound.summary}</small></div><b>{money(proposal.flights.outbound.price.amount)}</b></div>
-              <div className="flight-row"><span>{proposal.flights.return.departureTime ?? "—"}</span><div><strong>{proposal.flights.return.fromCode} → {proposal.flights.return.toCode}</strong><small>{proposal.flights.return.summary}</small></div><b>{money(proposal.flights.return.price.amount)}</b></div>
+              <div className="flight-row"><span>{proposal.flights.outbound.departureTime ?? "—"}</span><div><strong>{proposal.flights.outbound.fromCode} → {proposal.flights.outbound.toCode}</strong><small>{proposal.flights.outbound.summary}</small></div><b>{money(proposal.flights.outbound.price.amount)}</b><TbankAction url={proposal.flights.outbound.tbankUrl} label="Открыть билет в T-Bank" /></div>
+              <div className="flight-row"><span>{proposal.flights.return.departureTime ?? "—"}</span><div><strong>{proposal.flights.return.fromCode} → {proposal.flights.return.toCode}</strong><small>{proposal.flights.return.summary}</small></div><b>{money(proposal.flights.return.price.amount)}</b><TbankAction url={proposal.flights.return.tbankUrl} label="Открыть билет в T-Bank" /></div>
               <div className="hotel-row">
                 <div className="hotel-media">
                   <div className="hotel-symbol">⌂</div>
@@ -951,6 +977,7 @@ function TripPage() {
                 </div>
                 <div><strong>{proposal.hotel.name}</strong><small>{"★".repeat(proposal.hotel.stars)} {proposal.hotel.address ?? ""}</small></div>
                 <b>{money(proposal.hotel.price.amount)}</b>
+                <TbankAction url={proposal.hotel.tbankUrl} label="Открыть отель в T-Bank" />
               </div>
             </section>
 
@@ -965,6 +992,7 @@ function TripPage() {
                         <small>{event.kind}{event.ageRestriction ? ` · ${event.ageRestriction}` : ""}{event.dateTime ? ` · ${new Date(event.dateTime).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}` : ""}</small>
                         <strong>{event.name}</strong>
                         {event.venue ? <span>{event.venue}</span> : null}
+                        <TbankAction url={event.tbankUrl} label="Открыть событие в T-Bank" />
                       </div>
                     </article>
                   ))}
@@ -1106,7 +1134,25 @@ function TripPage() {
             </div>
             <div className="messages">
               {messages.length === 0 ? <div className="assistant-intro">{preparing ? "Сначала закончим дополнять маршрут — затем здесь можно будет изменить любую его часть." : "Расскажите, что изменить. Например: «хочу вылет позже» или «добавь больше локальной кухни»."}</div> : null}
-              {messages.map((message) => <div key={message.id} className={`message ${message.role}`}>{message.content}</div>)}
+              {messages.map((message) => (
+                <div key={message.id} className={`message ${message.role}`}>
+                  <div>{message.content}</div>
+                  {message.actions?.length ? (
+                    <div className="message-actions">
+                      {message.actions.map((action) => (
+                        <a
+                          key={`${action.entityType}:${action.entityId}:${action.url}`}
+                          href={action.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {action.label}
+                        </a>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
               {busy ? <div className="message assistant typing">Пересобираю и проверяю<span>…</span></div> : null}
             </div>
             <form className="chat-form" onSubmit={(event) => { event.preventDefault(); void send(); }}>

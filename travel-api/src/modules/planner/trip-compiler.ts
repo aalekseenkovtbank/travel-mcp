@@ -1115,6 +1115,7 @@ export class TripCompiler {
       date: string,
     ): FlightOption => ({
       ...(inventory.offerId ? { offerId: inventory.offerId } : {}),
+      ...(inventory.tbankUrl ? { tbankUrl: inventory.tbankUrl } : {}),
       direction,
       fromCode: from,
       toCode: to,
@@ -1132,6 +1133,7 @@ export class TripCompiler {
       ...(seed.hotel.address ? { address: seed.hotel.address } : {}),
       ...(seed.hotel.rating !== undefined ? { rating: seed.hotel.rating } : {}),
       ...(seed.hotel.meal ? { meal: seed.hotel.meal } : {}),
+      ...(seed.hotel.tbankUrl ? { tbankUrl: seed.hotel.tbankUrl } : {}),
       ...(seed.hotel.image ? { image: seed.hotel.image } : {}),
       price: hotelPrice,
       mapPoint: hotelPoint,
@@ -1558,6 +1560,7 @@ export class TripCompiler {
       ...(item.dateTime ? { dateTime: item.dateTime } : {}),
       ...(item.venue ? { venue: item.venue } : {}),
       ...(item.address ? { address: item.address } : {}),
+      ...(item.tbankUrl ? { tbankUrl: item.tbankUrl } : {}),
       ...(item.image ? { image: item.image } : {}),
       ...(item.priceRub
         ? {

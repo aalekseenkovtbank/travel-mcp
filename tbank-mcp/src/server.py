@@ -25,6 +25,10 @@ from urllib.parse import urlencode
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ClientCapabilities, ElicitationCapability, ToolAnnotations
+
+from .tbank_urls import (afisha_event_url as _afisha_event_url,
+                         hotel_details_url as _hotel_details_url,
+                         safe_tbank_url as _safe_tbank_url)
 from pydantic import BaseModel
 from . import client, trace
 from .client import (MobileSession, TbankApiError, SessionExpired,
@@ -165,13 +169,13 @@ def personalized_weekend_landing(
 
 Работай по этому сценарию:
 1. Вызови trip_personalization_profile() для агрегированного бюджета и интересов. Не вызывай list_operations и order_details самостоятельно ради профиля: новый инструмент уже исключает переводы, отмены и сырые персональные данные.
-2. Подбери транспорт туда и обратно через flight_search или train_search, всегда явно передавая adults=1. Для сравнения дат в compare_flight_prices и compare_train_prices также всегда передавай adults=1. Это только поиск: не утверждай, что билеты куплены. Для пятничного вылета на выходные выбирай отправление не раньше 18:00 по местному времени, если пользователь явно не сказал, что пятница свободна. Передай найденные цены повторно в trip_personalization_profile(), если истории поездок недостаточно. Сохрани продавца в seller, а единый checkout маршрута — в transportBookingUrl, только если их вернул источник.
-3. Найди ровно три отеля через hotel_autocomplete, hotel_search, hotel_details и актуальные hotel_rates/hotel_latest_offers, всегда явно передавая adults=2 во все hotel-вызовы и сравнения. Не используй compare_flight_hotel_prices в этом шаблоне: у него один общий adults, поэтому он не может одновременно искать билет на одного и отель на двоих. Расположи отели по строго возрастающей полной цене: выгодный, сбалансированный и более комфортный. Уровень звёзд, рейтинг, расположение и условия не должны становиться хуже при росте цены; разница между соседними вариантами должна быть разумной, без резкого скачка класса. Заполни room, meal, cancellation, payment, reviewSummary и bookingUrl фактическими данными тарифа. hotel_checkout_url используй только с подтверждённым book_hash; ссылка не создаёт бронь и не списывает деньги.
-4. Для {date_from}–{date_to} получи Афишу и перепроверь расписание. Ранжируй события по scoringWeights и агрегатам eventPreferences из профиля; сохраняй genres и ageRestriction. Не бронируй места и не вызывай ticket_pay.
+2. Подбери транспорт туда и обратно через flight_search или train_search, всегда явно передавая adults=1. Для сравнения дат в compare_flight_prices и compare_train_prices также всегда передавай adults=1. Это только поиск: не утверждай, что билеты куплены. Для пятничного вылета на выходные выбирай отправление не раньше 18:00 по местному времени, если пользователь явно не сказал, что пятница свободна. Передай найденные цены повторно в trip_personalization_profile(), если истории поездок недостаточно. Сохрани продавца в seller, подтверждённую ссылку объекта — в tbankUrl, а единый checkout маршрута — отдельно в transportBookingUrl, только если их вернул источник. Не конструируй транспортную ссылку и не подставляй общий раздел.
+3. Найди ровно три отеля через hotel_autocomplete, hotel_search, hotel_details и актуальные hotel_rates/hotel_latest_offers, всегда явно передавая adults=2 во все hotel-вызовы и сравнения. Не используй compare_flight_hotel_prices в этом шаблоне: у него один общий adults, поэтому он не может одновременно искать билет на одного и отель на двоих. Расположи отели по строго возрастающей полной цене: выгодный, сбалансированный и более комфортный. Уровень звёзд, рейтинг, расположение и условия не должны становиться хуже при росте цены; разница между соседними вариантами должна быть разумной, без резкого скачка класса. Заполни room, meal, cancellation, payment, reviewSummary и detailsUrl фактическими данными; detailsUrl строй только из настоящего hotelId. bookingUrl — отдельный checkout: hotel_checkout_url используй только после явного выбора тарифа и с подтверждённым book_hash; ссылка не создаёт бронь и не списывает деньги.
+4. Для {date_from}–{date_to} получи Афишу и перепроверь расписание. Ранжируй события по scoringWeights и агрегатам eventPreferences из профиля; сохраняй genres, ageRestriction и готовый sourceUrl из afisha_catalog(). Не транслитерируй неизвестные значения самостоятельно. Не бронируй места и не вызывай ticket_pay.
 5. Вызови nearby_search() для ресторанов, баров и прогулочных точек. Используй карточки OpenStreetMap с координатами и sourceUrl; собери 4–8 заведений, минимум два ресторана и один бар. Не выдумывай отсутствующие фотографии, рейтинги, отзывы или часы работы.
 6. Следуй каноническому travel-output flow из MCP resource travel-nova://instructions/travel-output-modes. Для каждого финального отеля загрузи одну сопоставимую страницу hotel_reviews(sort="date", sort_type="desc", page_size=10), собери до трёх реальных фотографий и структурированный reviewDigest.
 7. Составь TripPageDocumentV2: mapPoints должны ссылаться на выбранный отель, события и заведения по ID; renderer автоматически покажет на карте и два альтернативных отеля. Добавь ровно три непротиворечивых плана balanced, culture и food_nightlife. Все остановки должны попадать в даты поездки и ссылаться на существующие ID.
-8. {output_part} Не пытайся собирать React/Vite-проект.
+8. {output_part} Не пытайся собирать React/Vite-проект. В chat-режиме после каждой карточки отеля, билета и события выведи Markdown-ссылку на точный объект T-Bank, а при отсутствии подтверждённого URL — отдельную строку «Ссылка T-Bank недоступна».
 9. Не раскрывай имена, номера счетов, балансы, зарплату или отдельные операции. Не заявляй, что билет или отель забронирован. В бюджете и карточках явно подпиши, что цена транспорта получена для 1 взрослого, а цена отеля — для 2 взрослых. Не умножай цену билета на число гостей карточки. Цены всегда снабжай временем проверки."""
 
 # Every @mcp.tool() below is recorded. Done by replacing the decorator ONCE rather
@@ -5682,6 +5686,10 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
             total = len(hotels)
         if fmt == "json":
             normalized = normalize_hotel_inventory(hotels)
+            for row in normalized:
+                tbank_url = _hotel_details_url(row.get("hotelId"))
+                if tbank_url:
+                    row["tbankUrl"] = tbank_url
             shown = normalized[:limit] if limit > 0 else normalized
             rows = [{key: value for key, value in row.items()
                      if key not in ("priceDecimal",)} for row in shown]
@@ -5727,6 +5735,8 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
             if rooms is not None:
                 bits.append(f"номеров {rooms}")
             bits.append(f"hotel_id={hotel.get('hotelId')}")
+            details_url = _hotel_details_url(hotel.get("hotelId"))
+            bits.append(details_url or "Ссылка T-Bank недоступна")
             return " | ".join(bits)
 
         out = _rows_out(hotels, render, limit=limit, total=total,
@@ -5986,7 +5996,7 @@ def hotel_details(hotel_id: str, max_facilities: int = 40, max_images: int = 3,
                                 if max_facilities > 0 else facilities)
             warnings = ([] if len(shown_facilities) == len(facilities) else
                         [f"Показано {len(shown_facilities)} из {len(facilities)} удобств."])
-            return _json_envelope({
+            payload = {
                 "hotelId": str(hotel.get("hotelId") or hotel_id),
                 "name": _flat(hotel.get("hotelName") or ""),
                 "stars": int(hotel.get("starRating") or 0),
@@ -5998,7 +6008,11 @@ def hotel_details(hotel_id: str, max_facilities: int = 40, max_images: int = 3,
                 "longitude": longitude,
                 "facilities": shown_facilities,
                 "imageUrls": image_urls,
-            }, source="T-Bank Hotels", warnings=warnings,
+            }
+            details_url = _hotel_details_url(hotel.get("hotelId") or hotel_id)
+            if details_url:
+                payload["tbankUrl"] = details_url
+            return _json_envelope(payload, source="T-Bank Hotels", warnings=warnings,
                meta={"complete": len(shown_facilities) == len(facilities)})
         if not hotel or not hotel.get("hotelId"):
             return f"Отель hotel_id={hotel_id} не найден."
@@ -6023,6 +6037,8 @@ def hotel_details(hotel_id: str, max_facilities: int = 40, max_images: int = 3,
                            f"передай max_facilities={len(facilities)}.")
         if image_urls:
             out.append("Фото: " + " | ".join(image_urls))
+        details_url = _hotel_details_url(hotel.get("hotelId") or hotel_id)
+        out.append(f"T-Bank: {details_url}" if details_url else "Ссылка T-Bank недоступна")
         out.append("Бронирование и оплата через MCP не выполняются.")
         return "\n".join(out)
     except Exception as e:
@@ -6479,6 +6495,11 @@ def train_search(origin: str, destination: str, date: str, adults: int = 1,
             return f"Поездов {origin}→{destination} на {date} не найдено."
 
         trains = normalize_train_inventory(ways)
+        for train in trains:
+            candidate_url = train.pop("candidateUrl", "")
+            tbank_url = _safe_tbank_url(candidate_url)
+            if tbank_url:
+                train["tbankUrl"] = tbank_url
         shown = trains[:limit] if limit > 0 else trains
         warnings = list(result["warnings"])
         if len(shown) < len(trains):
@@ -6599,6 +6620,11 @@ def flight_search(from_code: str, to_code: str, date: str, adults: int = 1,
                 normalize_flight_inventory(res, only_bookable=only_bookable),
                 key=lambda row: row["priceDecimal"],
             )
+            for row in normalized:
+                candidate_url = row.pop("candidateUrl", "")
+                tbank_url = _safe_tbank_url(candidate_url)
+                if tbank_url:
+                    row["tbankUrl"] = tbank_url
             shown = normalized[:limit] if limit > 0 else normalized
             rows = [{
                 "offerId": row["offerId"],
@@ -6611,6 +6637,7 @@ def flight_search(from_code: str, to_code: str, date: str, adults: int = 1,
                 "refundable": row["refundable"],
                 "vendor": row["vendor"],
                 "legs": row["legs"],
+                **({"tbankUrl": row["tbankUrl"]} if row.get("tbankUrl") else {}),
             } for row in shown]
             warnings = []
             if not res.get("complete"):
@@ -7768,6 +7795,8 @@ def afisha_catalog(kind: str = "movie", city: str = "", date_from: str = "",
                 row = {
                     "eventId": str(event.get("eventId") or ""),
                     "name": _flat(event.get("eventName") or ""),
+                    "eventNameTransliteration": str(
+                        event.get("eventNameTransliteration") or ""),
                     "kind": kind,
                     "genres": [str(value) for value in (event.get("genres") or [])],
                     "ageRestriction": str(fields.get("ageRestriction") or ""),
@@ -7777,6 +7806,11 @@ def afisha_catalog(kind: str = "movie", city: str = "", date_from: str = "",
                 }
                 if image_url:
                     row["imageUrl"] = image_url
+                source_url = _afisha_event_url(
+                    city, event.get("eventType") or kind,
+                    event.get("eventNameTransliteration") or "")
+                if source_url:
+                    row["sourceUrl"] = source_url
                 rows.append(row)
             warnings = []
             if scanned < amount:
@@ -7812,13 +7846,18 @@ def afisha_catalog(kind: str = "movie", city: str = "", date_from: str = "",
             rating = (f.get("rating") or {}).get("value")
             slots = e.get("slots") or []
             when = str((slots[0] or {}).get("startDateTime") or "")[:16] if slots else ""
+            source_url = _afisha_event_url(
+                city, e.get("eventType") or kind,
+                e.get("eventNameTransliteration") or "")
             return (f"- {_cut(e.get('eventName', '?'), 46)}"
                     + (f" [{f.get('ageRestriction')}]" if f.get("ageRestriction") else "")
                     + (f" | ★{rating}" if rating else "")
                     + (f" | {', '.join(e.get('genres') or [])}"
                        if e.get("genres") else "")
                     + (f" | ближайший {when}" if when else "")
-                    + f" | eventId={e.get('eventId', '?')}")
+                    + f" | eventId={e.get('eventId', '?')}"
+                    + (f" | {source_url}" if source_url
+                       else " | Ссылка T-Bank недоступна"))
 
         head = (f"Афиша ({kind}, {city or city_id}, "
                 f"{date_from or date_to}..{date_to or date_from})")
