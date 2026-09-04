@@ -855,6 +855,8 @@ class MobileSession:
     tmsg_session_id: str = ""       # messenger JWT cookie (tm.t-bank-app.ru)
     trains_cookie: str = ""         # rail host cookie (trains.t-bank-app.ru)
     trains_cookie_at: float = 0.0   # when it was minted (unix seconds)
+    hotels_cookie: str = ""         # isolated cookies learned from Hotels web SSO
+    hotels_cookie_at: float = 0.0   # when the Hotels cookie set was last updated
     token_url: str = DEFAULT_TOKEN_URL
     # read request templates, per endpoint key (verbatim from capture)
     read_templates: dict = field(default_factory=dict)
@@ -1224,12 +1226,28 @@ class MobileSession:
         if not tpl.get("no_bearer"):
             headers["Authorization"] = "Bearer " + self.access_token
         # Public facades must never inherit the normal bank/session cookie set.
-        # A template may explicitly allow a small optional subset (Hotels uses
-        # only ssoId for personalized search when the SSO login already supplied
-        # it). No other credential is forwarded.
+        # A template may explicitly allow a small optional subset. Public Hotels
+        # reads use only ssoId; authenticated favorites opts into its separate,
+        # narrowly-built web SSO cookie profile. No implicit credential is sent.
         if tpl.get("no_cookie"):
-            allowed = tuple(tpl.get("optional_cookie_names") or ())
-            cookie = self._optional_cookies(allowed) if allowed else ""
+            if tpl.get("hotels_sso_session"):
+                cookie = self._hotels_sso_cookie()
+                if self.sso_id:
+                    headers.setdefault("x-tcs-sso-id", self.sso_id)
+            elif tpl.get("optional_hotels_sso_session"):
+                cookie = ""
+                if self.access_token or self.refresh_token:
+                    try:
+                        cookie = self._hotels_sso_cookie()
+                    except (TbankApiError, requests.RequestException):
+                        # Search is public: failed optional auth only removes
+                        # personalization and must not fail the search itself.
+                        cookie = ""
+                if cookie and self.sso_id:
+                    headers.setdefault("x-tcs-sso-id", self.sso_id)
+            else:
+                allowed = tuple(tpl.get("optional_cookie_names") or ())
+                cookie = self._optional_cookies(allowed) if allowed else ""
         else:
             cookie = self._cookie_for(host)
         if cookie:
@@ -1285,6 +1303,8 @@ class MobileSession:
             r = http.put(url, params=params, headers=headers, timeout=30)
         else:
             r = http.get(url, params=params, headers=headers, timeout=30)
+        if tpl.get("optional_hotels_sso_session") or tpl.get("hotels_sso_session"):
+            self._remember_hotels_sso_cookies(http)
         if return_response:
             # The caller wants the response itself, not a parsed body: a download
             # whose FILENAME lives in the headers, not in the bytes. Status handling
@@ -1549,6 +1569,71 @@ class MobileSession:
         return "; ".join(
             f"{name}={values[name]}" for name in names if values.get(name))
 
+    def _hotels_sso_cookie(self) -> str:
+        """Narrow web session used only by authenticated Hotels endpoints.
+
+        ``ssoId`` identifies the user but is not, on its own, proof of an
+        authenticated web session. Prefer the distinct cookies actually issued
+        by Hotels; the mobile token aliases remain a compatibility fallback.
+        """
+        self.ensure_fresh()
+        if not self.sso_id:
+            self.session_status()
+        names = (
+            "__P__wuid", "api_sso_id", "sso_used", "ssoId", "sso_user_id",
+            "sso_api_session", "sessionID", "SSO_ID_TOKEN", "SSO_VALIDATION",
+            "_T_travel_session_id",
+        )
+        values = {}
+        actual = selected_cookies(self.hotels_cookie, names)
+        for part in actual.split(";"):
+            if "=" in part:
+                key, value = part.strip().split("=", 1)
+                if key in names and value:
+                    values[key] = value
+
+        fallback = {
+            "ssoId": self.sso_id,
+            "sso_user_id": self.sso_id,
+            "sso_api_session": self.access_token,
+            "sessionID": self.access_token,
+        }
+        wide = selected_cookies(self._wide_cookie(), names)
+        for part in wide.split(";"):
+            if "=" in part:
+                key, value = part.strip().split("=", 1)
+                if key in names and value:
+                    values.setdefault(key, value)
+        for key, value in fallback.items():
+            if value:
+                values.setdefault(key, value)
+        return "; ".join(
+            f"{name}={values[name]}" for name in names if values.get(name))
+
+    def _remember_hotels_sso_cookies(self, http) -> None:
+        """Persist only the allowlisted cookies issued by the Hotels web flow."""
+        names = (
+            "__P__wuid", "api_sso_id", "sso_used", "ssoId", "sso_user_id",
+            "sso_api_session", "sessionID", "SSO_ID_TOKEN", "SSO_VALIDATION",
+            "_T_travel_session_id",
+        )
+        jar = getattr(http, "cookies", None)
+        values = {}
+        for part in selected_cookies(self.hotels_cookie, names).split(";"):
+            if "=" in part:
+                key, value = part.strip().split("=", 1)
+                if key in names and value:
+                    values[key] = value
+        if jar is not None:
+            values.update({key: value for key, value in jar.get_dict().items()
+                           if key in names and value})
+        learned = "; ".join(
+            f"{name}={values[name]}" for name in names if values.get(name))
+        if learned and learned != self.hotels_cookie:
+            self.hotels_cookie = learned
+            self.hotels_cookie_at = time.time()
+            self._persist()
+
     def _cookie_for(self, host: str) -> str:
         """The Cookie header this host expects, or "".
 
@@ -1808,6 +1893,8 @@ class MobileSession:
         # public web identity into the new session; session_status() will learn
         # and persist the matching ssoId on its next call.
         self.sso_id = ""
+        self.hotels_cookie = ""
+        self.hotels_cookie_at = 0.0
         # NOT the whole jar. sso_login_cookie keeps every cookie because
         # silent_relogin replays it against id.t-bank-app.ru, which is the one host
         # that issued SSO_SESSION and the one host that should ever see it again.
@@ -4482,7 +4569,7 @@ class MobileSession:
             path_override=f"/api/v1/hotels/bookings/{booking_id}")
         return data if isinstance(data, dict) else {}
 
-    # ---- public hotel search (no bank session/token; optional ssoId only) ---
+    # ---- hotel search (public fallback; optional isolated web SSO session) ---
 
     def hotel_autocomplete(self, query: str) -> dict:
         """Locations and hotels matching a name on the public hotel facade."""
@@ -4501,11 +4588,13 @@ class MobileSession:
         steps as the production web app. Offers
         whose search price is not final are refreshed through
         ``getLatestHotelOffer`` before they are joined with ``getHotelStaticInfo``.
-        All calls go through www.tbank.ru/api/hotels without bank tokens or
-        session cookies. If the SSO login supplied ssoId, that single cookie is
-        forwarded so the Hotels API can personalize the response.
+        All calls go through www.tbank.ru/api/hotels without Bearer or bank
+        sessionid. If a saved login can establish the isolated Hotels web SSO
+        session, it is forwarded for a personalized response; otherwise the
+        same search continues anonymously.
         """
-        search_tag = f"mcp-{time.time_ns()}"
+        search_tag = self._hotel_sticky_id(
+            destination_id, checkin_date, checkout_date, adults, children_ages)
         base_body = {
             "searchTag": search_tag,
             "locationId": int(destination_id),
@@ -4670,8 +4759,7 @@ class MobileSession:
             parts.append(f"did={int(location_id)}")
         parts.append(f"adults={int(adults)}")
         ages = list(children_ages or [])
-        if ages:
-            parts.append("cages=" + ",".join(str(age) for age in ages))
+        parts.append("cages=" + ",".join(str(age) for age in ages))
         return "&".join(parts)
 
     def hotel_search_filters(self, location_id: int, checkin_date: str,
@@ -4801,6 +4889,37 @@ class MobileSession:
             "hotel_reviews", overrides=query,
             path_override=f"/api/hotels/api/v2/review/{hotel_id}/feedback")
         return data if isinstance(data, dict) else {}
+
+    def hotel_favorites(self) -> dict:
+        """Favorite hotels and the configured per-user maximum (v1)."""
+        data = self._call_read("hotel_favorites")
+        return data if isinstance(data, dict) else {}
+
+    def hotel_similar(self, hotel_id: int, *, date_from: str = "",
+                      date_to: str = "", guests: int = 2,
+                      children_ages: list[int] | None = None) -> list[dict]:
+        """Ranked hotel-to-hotel recommendations from Hotels BFF."""
+        query = {"guests": int(guests)}
+        if date_from and date_to:
+            query.update({"dateFrom": date_from, "dateTo": date_to})
+        if children_ages:
+            query["childrenAges"] = ",".join(str(age) for age in children_ages)
+        try:
+            data = self._call_read(
+                "hotel_similar",
+                path_override=f"/bff/api/v1/i2i/{int(hotel_id)}",
+                overrides=query,
+                headers_override={"X-Request-Id": str(__import__("uuid").uuid4())},
+            )
+        except TbankApiError as exc:
+            # The recommendations contract defines 404 as an expected absence,
+            # equivalent for consumers to the ordinary 200 [] empty state.
+            if exc.result_code == "HTTP_404":
+                return []
+            raise
+        if not isinstance(data, list):
+            return []
+        return [item for item in data if isinstance(item, dict)]
 
     # ---- grocery item detail + nutrition ---------------------------------
 

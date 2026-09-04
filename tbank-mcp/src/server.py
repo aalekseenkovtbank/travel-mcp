@@ -72,7 +72,8 @@ FORMER_TRAVEL_TOOL_NAMES = frozenset({
     "flight_schedule", "geodata_by_code",
     "hotel_autocomplete", "hotel_search", "hotel_details",
     "hotel_rates", "hotel_reviews", "hotel_filters", "hotel_search_filters",
-    "hotel_latest_offers", "hotel_checkout_url",
+    "hotel_latest_offers", "hotel_checkout_url", "hotel_favorites",
+    "hotel_similar",
     "compare_flight_prices", "compare_hotel_prices",
     "compare_flight_hotel_prices",
     # Rail search (public, no booking/payment).
@@ -296,6 +297,8 @@ TOOL_KINDS: dict[str, tuple[str, str]] = {
     "hotel_filters": ("Фильтры поиска отелей", READ),
     "hotel_search_filters": ("Доступные фильтры для поиска отелей", READ),
     "hotel_latest_offers": ("Актуальные цены и условия отелей", READ),
+    "hotel_favorites": ("Избранные отели", READ),
+    "hotel_similar": ("Похожие отели", READ),
     "compare_hotel_prices": ("Сравнение цен на отели", READ),
     "compare_flight_hotel_prices": ("Сравнение перелёта и отеля", READ),
     "nearby_search": ("Места рядом", READ),
@@ -5591,6 +5594,153 @@ def _hotel_review_item(item: dict, fallback_hotel_id: str) -> dict:
 
 
 @_threaded_tool
+def hotel_favorites(response_format: str = "text") -> str:
+    """Получить избранные отели авторизованного пользователя.
+
+    Возвращает список hotels по контракту GetFavoriteHotels v1. Каждый элемент
+    содержит обязательный hotelId и опциональный collectionId; maxCount задаёт
+    максимальное допустимое количество избранных у пользователя.
+
+    Это read-only запрос к Hotels Search API. Bearer и банковский sessionid не
+    отправляются; используется отдельная Hotels web SSO-сессия. Если
+    пользователь не вошёл в SSO, API вернёт ошибку авторизации. Tool не
+    добавляет и не удаляет отели и коллекции, не бронирует отель и не списывает
+    деньги.
+    """
+    try:
+        fmt = _response_format(response_format)
+        raw = _public_session().hotel_favorites()
+        raw_hotels = raw.get("hotels")
+        if not isinstance(raw_hotels, list):
+            raise TbankApiError(
+                "INVALID_FAVORITES_RESPONSE", "В ответе нет обязательного hotels[].")
+        max_count = raw.get("maxCount")
+        if isinstance(max_count, bool) or not isinstance(max_count, int):
+            raise TbankApiError(
+                "INVALID_FAVORITES_RESPONSE", "В ответе нет обязательного maxCount.")
+        hotels = []
+        for item in raw_hotels:
+            hotel_id = item.get("hotelId") if isinstance(item, dict) else None
+            if not isinstance(hotel_id, str) or not hotel_id:
+                raise TbankApiError(
+                    "INVALID_FAVORITES_RESPONSE",
+                    "Элемент hotels[] не содержит обязательный строковый hotelId.")
+            row = {"hotelId": hotel_id}
+            collection_id = item.get("collectionId")
+            if collection_id is not None:
+                if not isinstance(collection_id, str):
+                    raise TbankApiError(
+                        "INVALID_FAVORITES_RESPONSE",
+                        "Опциональный collectionId должен быть строкой.")
+                row["collectionId"] = collection_id
+            hotels.append(row)
+        payload = {
+            "hotels": hotels,
+            "maxCount": max_count,
+        }
+        if fmt == "json":
+            return _json_envelope(
+                payload, source="T-Bank Hotels",
+                meta={"complete": True, "hotelsCount": len(hotels)})
+
+        if not hotels:
+            return f"Избранных отелей не найдено. Лимит: {max_count}."
+        lines = [f"Избранные отели: {len(hotels)}. Лимит: {max_count}."]
+        for item in hotels:
+            suffix = (f" | collection_id={item['collectionId']}"
+                      if item.get("collectionId") else "")
+            lines.append(f"- hotel_id={item['hotelId']}{suffix}")
+        lines.append("Это чтение избранного; бронирование и оплата не выполняются.")
+        return "\n".join(lines)
+    except Exception as e:
+        return _formatted_error(e, response_format, source="T-Bank Hotels")
+
+
+@_threaded_tool
+def hotel_similar(
+        hotel_id: int, date_from: str = "", date_to: str = "", guests: int = 2,
+        children_ages: list[int] | None = None,
+        response_format: str = "text") -> str:
+    """Получить до 15 отелей, похожих на конкретный отель.
+
+    hotel_id — положительный id исходного отеля из hotel_search(),
+    hotel_autocomplete(), hotel_favorites() или другого Hotels-ответа. Исходный
+    отель в рекомендациях не возвращается. date_from/date_to — необязательная
+    пара дат YYYY-MM-DD; если они переданы, date_to должна быть позже date_from,
+    а карточки могут содержать ориентир цены за весь период в priceHint. guests
+    должен быть положительным целым числом; children_ages — возраста детей.
+
+    Порядок результата задаёт рекомендательная модель, поэтому не сортируй его
+    заново. priceHint не является офертой: актуальные доступность и цену перед
+    показом пользователю получай через hotel_latest_offers() или hotel_rates().
+    Пустой список — штатный результат. Tool только читает данные, не бронирует
+    отель и не списывает деньги.
+    """
+    try:
+        fmt = _response_format(response_format)
+        if (isinstance(hotel_id, bool) or not isinstance(hotel_id, int)
+                or not 1 <= hotel_id <= 2_147_483_647):
+            raise TbankApiError(
+                "BAD_HOTEL_ID",
+                "hotel_id должен быть положительным целым числом не больше 2147483647.")
+        start_raw = str(date_from or "").strip()
+        end_raw = str(date_to or "").strip()
+        if bool(start_raw) != bool(end_raw):
+            raise TbankApiError(
+                "BAD_DATES", "date_from и date_to нужно передавать вместе.")
+        if start_raw:
+            start = _hotel_date(start_raw, "date_from")
+            end = _hotel_date(end_raw, "date_to")
+            if end <= start:
+                raise TbankApiError(
+                    "BAD_DATE_TO", "date_to должна быть позже date_from.")
+        if isinstance(guests, bool) or not isinstance(guests, int) or guests < 1:
+            raise TbankApiError(
+                "BAD_GUESTS", "guests должен быть положительным целым числом.")
+        ages = list(children_ages or [])
+        if any(isinstance(age, bool) or not isinstance(age, int) or age < 0
+               for age in ages):
+            raise TbankApiError(
+                "BAD_CHILDREN_AGES",
+                "children_ages должен содержать неотрицательные целые возраста.")
+
+        hotels = _public_session().hotel_similar(
+            hotel_id, date_from=start_raw, date_to=end_raw, guests=guests,
+            children_ages=ages)
+        hotels = hotels[:15]
+        payload = {"sourceHotelId": hotel_id, "hotels": hotels}
+        warnings = ([] if start_raw else
+                    ["Даты не переданы: priceHint в карточках отсутствует."])
+        if fmt == "json":
+            return _json_envelope(
+                payload, source="T-Bank Hotels", warnings=warnings,
+                meta={"complete": True, "hotelsCount": len(hotels),
+                      "ranked": True})
+
+        if not hotels:
+            return "Похожих отелей не найдено. Это штатный пустой результат."
+        lines = [f"Похожие отели: {len(hotels)} (в порядке рекомендации)."]
+        for index, item in enumerate(hotels, 1):
+            name = item.get("hotelName") or "Без названия"
+            row = f"{index}. {name} | hotel_id={item.get('hotelId', '?')}"
+            if item.get("starRating") is not None:
+                row += f" | звёзды={item['starRating']}"
+            review = item.get("review") or {}
+            if review.get("rating") is not None:
+                row += f" | рейтинг={review['rating']}"
+            price_hint = item.get("priceHint") or {}
+            if price_hint.get("priceHintRub") is not None:
+                row += (f" | ориентир за период={price_hint['priceHintRub']} ₽"
+                        f" ({price_hint.get('confidence', 'unknown')})")
+            lines.append(row)
+        lines.append(
+            "priceHint — ориентир, не оферта; проверь актуальный тариф перед выбором.")
+        return "\n".join(lines)
+    except Exception as e:
+        return _formatted_error(e, response_format, source="T-Bank Hotels")
+
+
+@_threaded_tool
 def hotel_autocomplete(query: str, limit: int = 10,
                        response_format: str = "text") -> str:
     """Найти destination_id для hotel_search() по названию города/места.
@@ -5660,9 +5810,10 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
     destination_id бери из hotel_autocomplete(); даты — YYYY-MM-DD; adults —
     1..6; children_ages — возраста через запятую (например ``5,12``) или JSON
     ``[5,12]``. По умолчанию поиск возвращает до 100 отелей; меньшее значение
-    можно задать через limit. Запрос read-only и уходит без банковских credentials.
-    MCP не бронирует и не оплачивает отель — здесь только поиск и сравнение. Перед
-    окончательным сравнением изменчивых условий шорт-листа вызови
+    можно задать через limit. Запрос read-only: при доступной Hotels web
+    SSO-сессии выдача персонализируется, без неё поиск работает анонимно. Bearer
+    и банковский sessionid не отправляются. MCP не бронирует и не оплачивает
+    отель — здесь только поиск и сравнение. Перед окончательным сравнением вызови
     hotel_latest_offers(); для availability-aware фильтров — hotel_search_filters().
     """
     try:

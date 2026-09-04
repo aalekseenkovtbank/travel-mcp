@@ -1509,7 +1509,15 @@ BUILTIN_ENDPOINTS.update({
     "hotel_search_points": {
         "method": "POST", "host": "https://www.tbank.ru",
         "path": "/api/hotels/search-api/v2/hotels/map/searchHotelPoints",
-        "params": {}, "headers": {"Content-Type": "application/json"},
+        "params": {}, "headers": {
+            "Content-Type": "application/json",
+            "x-api-method-name": "createMapSearchHotelPoints2",
+            "x-brand-type": "mb",
+            "x-source-platform": "web",
+            "Origin": "https://www.tbank.ru",
+            "Referer": "https://www.tbank.ru/",
+        },
+        "optional_hotels_sso_session": True,
         **_HOTELS_PUBLIC,
     },
     "hotel_search_filters": {
@@ -1525,12 +1533,14 @@ BUILTIN_ENDPOINTS.update({
         # the backend method name use the ordinary Latin spelling below.
         "path": "/api/hotels/search-api/v1/hotels/getLatestHotelOffer",
         "params": {}, "headers": {"Content-Type": "application/json"},
+        "optional_hotels_sso_session": True,
         **_HOTELS_PUBLIC,
     },
     "hotel_static_info": {
         "method": "POST", "host": "https://www.tbank.ru",
         "path": "/api/hotels/search-api/v1/hotels/getHotelStaticInfo",
         "params": {}, "headers": {"Content-Type": "application/json"},
+        "optional_hotels_sso_session": True,
         **_HOTELS_PUBLIC,
     },
     # path is parameterized: /api/v1/hotels/{hotelId}
@@ -1560,6 +1570,24 @@ BUILTIN_ENDPOINTS.update({
         "method": "GET", "host": "https://www.tbank.ru",
         "path": "/api/hotels/api/v2/review/_/feedback", "params": {},
         "headers": {"x-api-method-name": "getReviewFeedback"},
+        **_HOTELS_PUBLIC,
+    },
+    # Authenticated favorite hotels. Keep the public facade's isolated
+    # cookie jar, but attach its narrowly-built Hotels web SSO session. This is
+    # endpoint-specific: search uses the same profile only when a session exists;
+    # other hotel reads still receive at most optional ssoId.
+    "hotel_favorites": {
+        "method": "GET", "host": "https://hotels.tbank.ru",
+        "path": "/search-api/v1/favorites", "params": {},
+        "headers": {"x-api-method-name": "getV1Favorites",
+                    "x-brand-type": "mb"},
+        "hotels_sso_session": True,
+        **_HOTELS_PUBLIC,
+    },
+    # path is parameterized: /bff/api/v1/i2i/{hotelId}
+    "hotel_similar": {
+        "method": "GET", "host": "https://hotels.tbank.ru",
+        "path": "/bff/api/v1/i2i/_", "params": {},
         **_HOTELS_PUBLIC,
     },
 })
