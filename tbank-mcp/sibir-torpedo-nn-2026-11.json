@@ -1,0 +1,382 @@
+{
+  "schemaVersion": "trip-page/v2",
+  "trip": {
+    "title": "Сибирь — Торпедо: три дня в Нижнем Новгороде",
+    "destination": "Нижний Новгород",
+    "dateFrom": "2026-11-24",
+    "dateTo": "2026-11-26",
+    "travelers": 2,
+    "subtitle": "Домашний матч «Торпедо» — «Сибирь» 25 ноября 2026, 19:00, КРК «Нагорный». Заезд за день до игры, вылет на следующий день. Карточка: 2 взрослых. Поиск билетов — 1 взрослый, отель — 2 взрослых с завтраком."
+  },
+  "transport": [
+    {
+      "id": "t-out",
+      "direction": "outbound",
+      "mode": "flight",
+      "origin": "Новосибирск (OVB)",
+      "destination": "Нижний Новгород (GOJ)",
+      "departureAt": "2026-11-24T06:25:00+07:00",
+      "arrivalAt": "2026-11-24T10:50:00+03:00",
+      "carrier": "Аэрофлот",
+      "seller": "Tinkoff",
+      "priceRub": 14868.67,
+      "notes": [
+        "1 пересадка, в пути 8 ч 25 мин",
+        "без багажа, невозвратный",
+        "из 12 самых дешёвых bookable-предложений это единственное, которое прибывает 24 ноября до игры"
+      ]
+    },
+    {
+      "id": "t-ret",
+      "direction": "return",
+      "mode": "flight",
+      "origin": "Нижний Новгород (GOJ)",
+      "destination": "Новосибирск (OVB)",
+      "departureAt": "2026-11-26T21:30:00+03:00",
+      "arrivalAt": "2026-11-27T09:45:00+07:00",
+      "carrier": "Аэрофлот",
+      "seller": "Tinkoff",
+      "priceRub": 15478.5,
+      "notes": [
+        "1 пересадка, в пути 8 ч 15 мин",
+        "без багажа, невозвратный",
+        "вылет вечером 26 ноября после выезда из отеля"
+      ]
+    }
+  ],
+  "hotels": [
+    {
+      "id": "h-marins",
+      "name": "Marins Нижний Новгород",
+      "address": "улица Советская, д.12, г. Нижний Новгород",
+      "coordinates": {"latitude": 56.325549, "longitude": 43.958205},
+      "stars": 4,
+      "rating": 8.2,
+      "imageUrl": "https://cdn.tbank.ru/nfs-imgproxy/compressed/plain/https://extranet-cdn.tinkoff.ru/b5/extranet/1024x768/11080/7d14419b-a05d-4f89-9240-768b3464d555.jpg",
+      "nightlyPriceRub": 7590.05,
+      "totalPriceRub": 15180.09,
+      "meal": "Завтрак включён",
+      "room": "Люкс двухкомнатный с двуспальной кроватью и диваном",
+      "cancellation": "Бесплатная отмена до 2026-11-23T00:00:00+03:00",
+      "payment": "Оплата сейчас",
+      "photos": [
+        {"url": "https://cdn.tbank.ru/nfs-imgproxy/compressed/plain/https://extranet-cdn.tinkoff.ru/b5/extranet/1024x768/11080/7d14419b-a05d-4f89-9240-768b3464d555.jpg", "kind": "official"},
+        {"url": "https://cdn.tbank.ru/nfs-imgproxy/compressed/plain/https://extranet-cdn.tinkoff.ru/b19/extranet/1024x768/11080/733eb27e-af15-4161-999c-0c28dfcd04e7.jpg", "kind": "official"},
+        {"url": "https://cdn.tbank.ru/nfs-imgproxy/compressed/plain/https://extranet-cdn.tinkoff.ru/b21/extranet/1024x768/11080/e374e679-b539-4298-a319-3deeabb55ece.jpg", "kind": "official"}
+      ],
+      "facilities": ["Интернет", "Сейф", "Мини-бар", "Фен", "Халат", "Чайник или кофеварка"],
+      "locationSummary": "улица Советская, д.12, г. Нижний Новгород",
+      "detailsUrl": "https://www.tbank.ru/travel/hotels/new/hotels/1440549",
+      "reviewDigest": {
+        "sampleSize": 10,
+        "sort": "date",
+        "sortType": "desc",
+        "dateFrom": "2026-07-26",
+        "dateTo": "2026-09-03",
+        "pros": ["удобное расположение и транспорт", "завтраки"],
+        "cons": ["износ номеров и слабая уборка", "шум ремонта / тесные синглы"],
+        "suitableFor": "тем, кому важны завтрак и цена 4*, а не свежий ремонт",
+        "summary": "По 10 последним отзывам локация и завтрак хвалят чаще, чем номера: часть гостей пишет про усталость корпуса и уборку."
+      }
+    },
+    {
+      "id": "h-minin",
+      "name": "Отель Минин",
+      "address": "улица Пожарского, д.1, Нижний Новгород",
+      "coordinates": {"latitude": 56.324436, "longitude": 43.999214},
+      "stars": 4,
+      "rating": 9.0,
+      "imageUrl": "https://cdn.tbank.ru/nfs-imgproxy/compressed/plain/https://cdn.ostrovok.ru/t/1024x768/extranet/66/72/66727d63503ed87ba50c66d8d0abbb453d7c6370.jpeg",
+      "nightlyPriceRub": 9437.63,
+      "totalPriceRub": 18875.25,
+      "meal": "Завтрак включён",
+      "room": "Двухместный номер Standard",
+      "cancellation": "Бесплатная отмена до 2026-11-23T13:30:00+03:00",
+      "payment": "Оплата сейчас",
+      "photos": [
+        {"url": "https://cdn.tbank.ru/nfs-imgproxy/compressed/plain/https://cdn.ostrovok.ru/t/1024x768/extranet/66/72/66727d63503ed87ba50c66d8d0abbb453d7c6370.jpeg", "kind": "official"},
+        {"url": "https://cdn.tbank.ru/nfs-imgproxy/compressed/plain/https://cdn.ostrovok.ru/t/1024x768/extranet/16/27/1627ce3fbd7158f33b93882bcd6149198603f629.jpeg", "kind": "official"},
+        {"url": "https://cdn.tbank.ru/nfs-imgproxy/compressed/plain/https://cdn.ostrovok.ru/t/1024x768/extranet/23/dd/23dd0d10362a993ddc1f0129699ee661857781a1.jpeg", "kind": "official"}
+      ],
+      "facilities": ["Кондиционер", "Своя ванная комната", "Сейф", "Чайник или кофеварка", "Фен", "Халат"],
+      "locationSummary": "улица Пожарского, д.1, Нижний Новгород",
+      "detailsUrl": "https://www.tbank.ru/travel/hotels/new/hotels/1468883",
+      "reviewDigest": {
+        "sampleSize": 10,
+        "sort": "date",
+        "sortType": "desc",
+        "dateFrom": "2025-10-27",
+        "dateTo": "2026-06-30",
+        "pros": ["центр, Кремль и Волга рядом", "персонал и повторные заезды"],
+        "cons": ["маленькие номера", "завтрак кажется скромным части гостей"],
+        "suitableFor": "паре, которой важнее центр и рейтинг, чем площадь номера",
+        "summary": "По 10 последним отзывам сильнее всего хвалят расположение у Кремля и персонал; минусы — размер номера и завтрак."
+      }
+    },
+    {
+      "id": "h-kulibin",
+      "name": "Кулибин Парк-отель & СПА",
+      "address": "улица Максима Горького, д.121, Нижний Новгород",
+      "coordinates": {"latitude": 56.315246, "longitude": 44.005088},
+      "stars": 5,
+      "rating": 9.2,
+      "imageUrl": "https://cdn.tbank.ru/nfs-imgproxy/compressed/plain/https://extranet-cdn.tinkoff.ru/b14/extranet/1024x768/12009/db351bee-72b2-4212-89c8-adb8c6a09a6d.jpg",
+      "nightlyPriceRub": 10918.39,
+      "totalPriceRub": 21836.78,
+      "meal": "Завтрак включён",
+      "room": "Бизнес двухместный DBL",
+      "cancellation": "Бесплатная отмена до 2026-11-23T00:00:00+03:00",
+      "payment": "Оплата сейчас",
+      "photos": [
+        {"url": "https://cdn.tbank.ru/nfs-imgproxy/compressed/plain/https://extranet-cdn.tinkoff.ru/b14/extranet/1024x768/12009/db351bee-72b2-4212-89c8-adb8c6a09a6d.jpg", "kind": "official"},
+        {"url": "https://cdn.tbank.ru/nfs-imgproxy/compressed/plain/https://extranet-cdn.tinkoff.ru/b14/extranet/1024x768/12009/1dea31c5-02e6-4ba1-ac4b-3a31b606bb5c.jpg", "kind": "official"},
+        {"url": "https://cdn.tbank.ru/nfs-imgproxy/compressed/plain/https://extranet-cdn.tinkoff.ru/b21/extranet/1024x768/12009/abce77d2-3456-4e6a-9be9-b53923eafa19.jpg", "kind": "official"}
+      ],
+      "facilities": ["Ванна"],
+      "locationSummary": "улица Максима Горького, д.121, Нижний Новгород",
+      "detailsUrl": "https://www.tbank.ru/travel/hotels/new/hotels/1437676",
+      "reviewDigest": {
+        "sampleSize": 10,
+        "sort": "date",
+        "sortType": "desc",
+        "dateFrom": "2025-11-01",
+        "dateTo": "2026-09-02",
+        "pros": ["сервис, тишина и кровать", "чистота и персонал"],
+        "cons": ["ресторан бывает закрыт под свадьбы", "несоответствие номера описанию у части гостей"],
+        "suitableFor": "тем, кто готов доплатить за 5* и спа, не требуя гарантии ресторана вечером",
+        "summary": "По 10 последним отзывам отель хвалят за сервис и тишину; спорные места — ресторан и заявленный балкон."
+      }
+    }
+  ],
+  "selectedHotelId": "h-minin",
+  "budget": [
+    {
+      "component": "transport",
+      "recommendedRub": 30347.17,
+      "rangeMinRub": 30347.17,
+      "rangeMaxRub": 30347.17,
+      "basis": "live_offers",
+      "sampleSize": 2,
+      "confidence": "medium",
+      "explanation": "Сумма выбранных bookable-рейсов туда и обратно для 1 взрослого: 14868.67 + 15478.50 ₽. На второго взрослого билет считается отдельно."
+    },
+    {
+      "component": "hotel",
+      "recommendedRub": 18875.25,
+      "rangeMinRub": 15180.09,
+      "rangeMaxRub": 21836.78,
+      "basis": "live_offers",
+      "sampleSize": 3,
+      "confidence": "low",
+      "explanation": "Рекомендация — сбалансированный «Минин» с завтраком на 2 взрослых за 2 ночи. Банковской истории отелей нет (нет сессии). Явный запрос: хорошие, не супердорогие, завтрак."
+    },
+    {
+      "component": "onsite",
+      "recommendedRub": null,
+      "basis": "insufficient_data",
+      "sampleSize": 0,
+      "confidence": "none",
+      "explanation": "Билеты на матч, такси и ужины через MCP не тарифицированы. Афиша T-Bank недоступна без сессии. Не включайте только авиа+отель в «полную цену поездки»."
+    },
+    {
+      "component": "total",
+      "recommendedRub": null,
+      "basis": "insufficient_data",
+      "sampleSize": 0,
+      "confidence": "none",
+      "explanation": "Итог не складывается: на месте нет подтверждённой суммы. Ориентир только авиа 1 взрослого + отель 2 взрослых ≈ 49222 ₽ без матча и питания в городе."
+    }
+  ],
+  "personalization": {
+    "budgetBasis": "Живые предложения T-Bank; trip_personalization_profile недоступен без сессии.",
+    "eventBasis": "no_history",
+    "explanation": "Банковский профиль поездок не читался: login в travel-mcp нет. Уровень отеля задан запросом «хорошие, не супер дорогие, завтраки».",
+    "travelSampleSize": 0,
+    "eventSampleSize": 0
+  },
+  "events": [],
+  "venues": [
+    {
+      "id": "v-meteor",
+      "kind": "restaurant",
+      "name": "Метеор",
+      "coordinates": {"latitude": 56.3235866, "longitude": 44.0011226},
+      "openstreetmapUrl": "https://www.openstreetmap.org/node/12134213802",
+      "source": "OpenStreetMap",
+      "categories": ["restaurant", "italian;russian"],
+      "openingHours": "Su-Th 12:00-23:00; Fr-Sa 12:00-00:00"
+    },
+    {
+      "id": "v-majiang",
+      "kind": "restaurant",
+      "name": "Маджонг",
+      "coordinates": {"latitude": 56.3245621, "longitude": 44.0027933},
+      "openstreetmapUrl": "https://www.openstreetmap.org/node/8401828719",
+      "source": "OpenStreetMap",
+      "categories": ["restaurant", "asian"],
+      "openingHours": "Fr-Sa 12:00-00:00; Mo-Th,Su 12:00-23:00"
+    },
+    {
+      "id": "v-ceylon",
+      "kind": "restaurant",
+      "name": "Цейлон",
+      "address": "Большая Покровская улица 15, Нижний Новгород",
+      "coordinates": {"latitude": 56.3234771, "longitude": 44.0014739},
+      "openstreetmapUrl": "https://www.openstreetmap.org/node/5841444906",
+      "source": "OpenStreetMap",
+      "categories": ["fast_food", "indian"],
+      "openingHours": "Fr-Sa 12:00-22:00; Mo-Th,Su 12:00-21:00"
+    },
+    {
+      "id": "v-georgia",
+      "kind": "restaurant",
+      "name": "Джорджиано",
+      "address": "Большая Покровская улица 2, Нижний Новгород",
+      "coordinates": {"latitude": 56.3252282, "longitude": 44.0039662},
+      "openstreetmapUrl": "https://www.openstreetmap.org/node/7044286351",
+      "source": "OpenStreetMap",
+      "categories": ["restaurant", "georgian"],
+      "openingHours": "Fr-Sa 12:00-24:00; Mo 12:00-20:00; Tu-Th,Su 12:00-22:00"
+    },
+    {
+      "id": "v-cuba",
+      "kind": "bar",
+      "name": "Bar Cuba Leal",
+      "coordinates": {"latitude": 56.3245543, "longitude": 44.0021748},
+      "openstreetmapUrl": "https://www.openstreetmap.org/node/5716030522",
+      "source": "OpenStreetMap",
+      "categories": ["bar"],
+      "openingHours": "Mo-Su 14:00-02:00"
+    },
+    {
+      "id": "v-berloga",
+      "kind": "bar",
+      "name": "Берлога",
+      "coordinates": {"latitude": 56.3227914, "longitude": 44.0008746},
+      "openstreetmapUrl": "https://www.openstreetmap.org/node/2451466125",
+      "source": "OpenStreetMap",
+      "categories": ["pub"],
+      "openingHours": "Mo-Th 10:00-00:00; Fr-Sa 11:00-02:00; Su 11:00-00:00"
+    }
+  ],
+  "mapPoints": [
+    {"refId": "h-minin", "kind": "hotel"},
+    {"refId": "v-meteor", "kind": "restaurant"},
+    {"refId": "v-majiang", "kind": "restaurant"},
+    {"refId": "v-ceylon", "kind": "restaurant"},
+    {"refId": "v-georgia", "kind": "restaurant"},
+    {"refId": "v-cuba", "kind": "bar"},
+    {"refId": "v-berloga", "kind": "bar"}
+  ],
+  "plans": [
+    {
+      "style": "balanced",
+      "title": "Матч и центр без спешки",
+      "summary": "Заезд 24-го после рейса, день игры вокруг отеля «Минин» и Большой Покровской, вылет поздним вечером 26-го.",
+      "days": [
+        {
+          "date": "2026-11-24",
+          "title": "Прилёт и ужин",
+          "stops": [
+            {"startsAt": "2026-11-24T12:30:00+03:00", "endsAt": "2026-11-24T14:00:00+03:00", "refId": "h-minin", "note": "Заселение после прибытия GOJ 10:50"},
+            {"startsAt": "2026-11-24T18:00:00+03:00", "endsAt": "2026-11-24T20:30:00+03:00", "refId": "v-meteor", "note": "Ужин рядом с отелем"}
+          ]
+        },
+        {
+          "date": "2026-11-25",
+          "title": "День матча",
+          "stops": [
+            {"startsAt": "2026-11-25T12:30:00+03:00", "endsAt": "2026-11-25T14:30:00+03:00", "refId": "v-majiang", "note": "Обед до выезда на КРК «Нагорный»"},
+            {"startsAt": "2026-11-25T15:00:00+03:00", "endsAt": "2026-11-25T16:00:00+03:00", "refId": "h-minin", "note": "Матч 19:00 на «Нагорном» в карточке T-Bank Афиши нет; билеты — у клуба. Координаты арены OSM не отдал."}
+          ]
+        },
+        {
+          "date": "2026-11-26",
+          "title": "Вылет",
+          "stops": [
+            {"startsAt": "2026-11-26T10:00:00+03:00", "endsAt": "2026-11-26T11:30:00+03:00", "refId": "v-georgia", "note": "Поздний завтрак/ранний обед после выезда"},
+            {"startsAt": "2026-11-26T18:30:00+03:00", "endsAt": "2026-11-26T20:30:00+03:00", "refId": "h-minin", "note": "Трансфер в аэропорт к рейсу 21:30"}
+          ]
+        }
+      ]
+    },
+    {
+      "style": "culture",
+      "title": "Покровская и Кремль пешком",
+      "summary": "Держимся пешеходной улицы у отеля: грузинская кухня и индийский Цейлон, без поздних баров.",
+      "days": [
+        {
+          "date": "2026-11-24",
+          "title": "Прогулка после прилёта",
+          "stops": [
+            {"startsAt": "2026-11-24T13:00:00+03:00", "endsAt": "2026-11-24T15:00:00+03:00", "refId": "h-minin"},
+            {"startsAt": "2026-11-24T16:00:00+03:00", "endsAt": "2026-11-24T18:00:00+03:00", "refId": "v-ceylon"}
+          ]
+        },
+        {
+          "date": "2026-11-25",
+          "title": "Перед игрой",
+          "stops": [
+            {"startsAt": "2026-11-25T13:00:00+03:00", "endsAt": "2026-11-25T15:00:00+03:00", "refId": "v-georgia"},
+            {"startsAt": "2026-11-25T16:00:00+03:00", "endsAt": "2026-11-25T17:00:00+03:00", "refId": "h-minin", "note": "Запас времени на дорогу к 19:00 на «Нагорный»"}
+          ]
+        },
+        {
+          "date": "2026-11-26",
+          "title": "Утро и вылет",
+          "stops": [
+            {"startsAt": "2026-11-26T11:00:00+03:00", "endsAt": "2026-11-26T12:30:00+03:00", "refId": "v-meteor"}
+          ]
+        }
+      ]
+    },
+    {
+      "style": "food_nightlife",
+      "title": "Ужин и бар после игры",
+      "summary": "День приезда — грузинская кухня, после матча — бар у Покровской, вылет 26-го вечером.",
+      "days": [
+        {
+          "date": "2026-11-24",
+          "title": "Первый вечер",
+          "stops": [
+            {"startsAt": "2026-11-24T19:00:00+03:00", "endsAt": "2026-11-24T21:30:00+03:00", "refId": "v-georgia"}
+          ]
+        },
+        {
+          "date": "2026-11-25",
+          "title": "После сирены",
+          "stops": [
+            {"startsAt": "2026-11-25T12:00:00+03:00", "endsAt": "2026-11-25T14:00:00+03:00", "refId": "v-majiang"},
+            {"startsAt": "2026-11-25T22:00:00+03:00", "endsAt": "2026-11-26T00:30:00+03:00", "refId": "v-cuba", "note": "После матча; климат конца ноября холодный — лучше indoor"}
+          ]
+        },
+        {
+          "date": "2026-11-26",
+          "title": "Прощальный бар не нужен",
+          "stops": [
+            {"startsAt": "2026-11-26T14:00:00+03:00", "endsAt": "2026-11-26T16:00:00+03:00", "refId": "v-berloga"}
+          ]
+        }
+      ]
+    }
+  ],
+  "sources": [
+    {"name": "ХК Торпедо, календарь КХЛ 2026/27", "url": "https://www.hctorpedo.ru/season/matches/2026-2027-regular/torpedo-sibir-2026-11-25/", "checkedAt": "2026-09-04T08:14:00Z"},
+    {"name": "T-Bank Avia", "checkedAt": "2026-09-04T08:15:07Z"},
+    {"name": "T-Bank Hotels", "checkedAt": "2026-09-04T08:15:52Z"},
+    {"name": "OpenStreetMap", "url": "https://www.openstreetmap.org/", "checkedAt": "2026-09-04T08:18:21Z"},
+    {"name": "Open-Meteo ERA5 climate", "checkedAt": "2026-09-04T08:17:22Z"}
+  ],
+  "warnings": [
+    "ЖД Новосибирск—Нижний 24.11 прибывает только 26.11 утром — на матч 25-го не успевает. Выбран самолёт.",
+    "IATA OVB и GOJ проверены geodata_by_code: сессии flight_history не было.",
+    "Цены авиа и отелей меняются; проверка 2026-09-04T08:15Z. Бронь через MCP невозможна.",
+    "Ссылки T-Bank на конкретные рейсы источник не вернул.",
+    "Афиша T-Bank и персональный бюджет недоступны без login. Билеты на хоккей — у клуба, не через MCP.",
+    "Погода на даты поездки — климат ERA5 1991–2020, не прогноз: около −7…−2 °C, осадки ~30% дней.",
+    "Карточка T-Bank события матча не построена: afisha_catalog требует сессию. Координаты КРК «Нагорный» OSM/Nominatim не нашёл.",
+    "hotel_details не вернул описание и часы заезда/выезда. Условия питания/отмены взяты из hotel_rates с isFinalPrice по latest_offers.",
+    "Поезд 009Н/010Н найден, но для окна «день до / день после игры» непригоден."
+  ],
+  "checkedAt": "2026-09-04T08:18:21Z"
+}

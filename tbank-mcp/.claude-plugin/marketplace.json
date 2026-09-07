@@ -5,18 +5,18 @@
     "url": "https://github.com/icyberdeveloper"
   },
   "metadata": {
-    "description": "Единый T-Bank MCP: счета, операции, платежи, переводы, travel, Афиша, отели, авиа и ЖД.",
+    "description": "Travel Nova MCP: travel-only поиск и страницы поездок без платежей и бронирования.",
     "version": "0.3.0"
   },
   "plugins": [
     {
-      "name": "tbank",
+      "name": "travel-nova",
       "source": "./",
-      "description": "Единый T-Bank MCP для банковских и travel-сценариев + 12 skills",
+      "description": "Travel-only MCP + 3 индексируемых travel skills",
       "version": "0.3.0",
       "keywords": [
-        "finance",
-        "banking",
+        "travel",
+        "hotels",
         "mcp",
         "russian",
         "tinkoff"

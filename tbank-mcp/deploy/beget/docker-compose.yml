@@ -1,0 +1,32 @@
+services:
+  travel-mcp:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: travel-mcp:local
+    container_name: travel-mcp
+    restart: unless-stopped
+    environment:
+      TRAVEL_MCP_TRANSPORT: http
+      TRAVEL_MCP_HOST: 0.0.0.0
+      TRAVEL_MCP_PORT: "8765"
+      TRAVEL_MCP_PUBLIC_HOST: ${TRAVEL_MCP_PUBLIC_HOST}
+    expose:
+      - "8765"
+    networks:
+      - n8n_default
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=n8n_default
+      - traefik.http.routers.travel-mcp.rule=Host(`${TRAVEL_MCP_PUBLIC_HOST}`) && PathPrefix(`${TRAVEL_MCP_PATH_PREFIX}`)
+      - traefik.http.routers.travel-mcp.entrypoints=websecure
+      - traefik.http.routers.travel-mcp.tls=true
+      - traefik.http.routers.travel-mcp.tls.certresolver=mytlschallenge
+      - traefik.http.routers.travel-mcp.priority=200
+      - traefik.http.middlewares.travel-mcp-strip.stripprefix.prefixes=${TRAVEL_MCP_PATH_PREFIX}
+      - traefik.http.routers.travel-mcp.middlewares=travel-mcp-strip
+      - traefik.http.services.travel-mcp.loadbalancer.server.port=8765
+
+networks:
+  n8n_default:
+    external: true

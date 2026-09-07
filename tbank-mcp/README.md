@@ -4,13 +4,13 @@
 
 ## Features
 
-- **One MCP surface**: accounts, cards, documents, operations, grocery ordering,
-  cinema and concert tickets, flight/rail/hotel search, orders, transfers
-  (including payment by bank requisites and scanned invoice QR), messenger and
-  investments are published by the same server
-- **12 skills**, entered through the `tbank` router skill: grocery order, tickets,
-  travel search, hotel search, transfer, bill pay, cards & documents, messenger,
-  budget analysis, invest advisor, login
+- **Two MCP surfaces**: `tbank-mcp` publishes the complete banking + travel set;
+  `travel-mcp` publishes only modular read-only travel/event search, comparisons,
+  personalization and local page rendering. Money, cards, grocery checkout and
+  booking/payment tools are absent from the travel-only `tools/list`.
+- **3 indexed travel skills**: a short `tbank` travel router, standalone hotel
+  search, and composed travel search. Retired banking guidance is preserved under
+  `archive/banking-guidance/` with `SKILL.md.disabled` filenames.
 - **Pinned CA trust**: system store + the Russian Trusted Root CA (Минцифры), which no
   OS ships and every `*.t-bank-app.ru` host needs — that is most of the 23 hosts this
   MCP talks to. Shipped in `ca/roots/`, pinned by SHA-256. Leaf/intermediate rotation
@@ -44,27 +44,22 @@ npx -y @travel-growth-inspiration/mcp install-browser
 Public travel context comes from T-Bank Railways, OpenStreetMap/Nominatim and
 Open-Meteo. See [docs/MCP_DISTRIBUTION.md](docs/MCP_DISTRIBUTION.md).
 
-### As a Claude Code plugin (server + all 12 skills in one step)
+### As a Claude Code plugin (travel-only server + 3 travel skills)
 
 ```bash
 /plugin marketplace add icyberdeveloper/tbank-mcp
-/plugin install tbank@tbank-mcp
+/plugin install travel-nova@tbank-mcp
 /reload-plugins
 ```
 
 There is no store to be admitted to — a marketplace is just a git repo with a
 `.claude-plugin/marketplace.json`, and anyone can host one.
 
-The venv and the Python dependencies are created on the server's first start by
-`bin/tbank-mcp`: a plugin manifest cannot run install steps (`install` is not a
+The venv and Python dependencies are created on first start by
+`bin/travel-mcp`: a plugin manifest cannot run install steps (`install` is not a
 field in the schema), so the launcher does it once and every later start goes
-straight to the server. Only the grocery checkout needs a browser, and 150 MB is
-not something to download behind your back — install it yourself if you want that
-flow:
-
-```bash
-~/.claude/plugins/*/tbank/.venv/bin/python -m playwright install chromium
-```
+straight to the modular travel-only server. This surface has no grocery checkout
+and never downloads Chromium during startup.
 
 ### Manually (clone, no plugin)
 
@@ -75,8 +70,11 @@ python -m venv .venv && . .venv/bin/activate
 pip install -e .
 python -m playwright install chromium
 
-# MCP server:
+# Complete banking + travel MCP:
 claude mcp add tbank -- ./.venv/bin/python -m src.server
+
+# Or the separate travel-only surface:
+claude mcp add travel -- ./bin/travel-mcp
 
 # Skills — a COPY, so it does not follow the repo. Re-run after every pull, or
 # the installed skills quietly describe an older version of these tools:

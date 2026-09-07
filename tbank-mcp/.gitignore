@@ -48,6 +48,7 @@ build/
 # misc
 *.log
 .DS_Store
+deploy/.env
 
 # CA certs regenerated/derivable at runtime
 ca/*.pem

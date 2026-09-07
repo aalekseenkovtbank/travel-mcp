@@ -544,10 +544,9 @@ do not use it as a station resolver.
    `hotel_search()` используй id локации, не придумывай его по названию.
 2. `hotel_search(destination_id, checkin_date, checkout_date, adults,
    children_ages)` → доступность и цены. Даты — `YYYY-MM-DD`, возраста детей —
-   строка `5,12` или JSON `[5,12]`. MCP использует текущую production-цепочку:
-   v2 `searchHotelPoints`, затем `getHotelStaticInfo`; первый набор предложений с
-   ценами уже пригоден для сравнения, даже если поставщики продолжают обогащать
-   выдачу в фоне.
+   строка `5,12` или JSON `[5,12]`. Сервер ждёт `isLoadingCompleted`, обновляет
+   нефинальные офферы и возвращает не больше 50 карточек. Это каталог отелей
+   (страницы по 50), не поток из сотен тысяч тарифов.
 3. `hotel_search_filters(location_id, checkin_date, checkout_date, adults,
    children_ages, filters, map_frame_input, favorite_hotel_ids, language)` →
    availability-aware фильтры и `filteredHotelsCount` для этих дат и гостей.

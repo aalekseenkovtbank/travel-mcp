@@ -20,9 +20,9 @@
 1. Явные инструкции пользователя для текущей задачи.
 2. [`AGENTS.md`](../AGENTS.md) — общие правила всего репозитория.
 3. Исполняемый контракт: JSON Schema, валидаторы, сигнатуры и annotations MCP
-   tools, в частности
-   [`trip_page.py`](../tbank-mcp/src/trip_page.py) и
-   [`server.py`](../tbank-mcp/src/server.py).
+   tools, в частности [`trip_page.py`](../tbank-mcp/src/trip_page.py), полный
+   [`server.py`](../tbank-mcp/src/server.py) и модульные travel-регистрации
+   [`travel_mcp/tools`](../tbank-mcp/src/travel_mcp/tools).
 4. Обязательный предметный flow или выбранный task-specific skill.
 5. Справочные документы, README и примеры.
 
@@ -37,32 +37,28 @@
 | Любое изменение репозитория | [`AGENTS.md`](../AGENTS.md) | README соответствующего пакета |
 | Отдельный поиск отелей | [`TRAVEL_OUTPUT_MODES.md`](../tbank-mcp/docs/TRAVEL_OUTPUT_MODES.md), [`tbank-hotel-search`](../tbank-mcp/skills/tbank-hotel-search/SKILL.md) | Раздел Hotels в [`FLOWS.md`](../tbank-mcp/docs/FLOWS.md) |
 | Поиск транспорта, отелей и досуга с готовой страницей поездки | [`TRIP_GENERATION.md`](../tbank-mcp/docs/TRIP_GENERATION.md), [`TRAVEL_OUTPUT_MODES.md`](../tbank-mcp/docs/TRAVEL_OUTPUT_MODES.md) | [`MCP_DISTRIBUTION.md`](../tbank-mcp/docs/MCP_DISTRIBUTION.md) |
-| Изменение единого MCP, его дистрибуции или renderer | [`MCP_DISTRIBUTION.md`](../tbank-mcp/docs/MCP_DISTRIBUTION.md), [`TRIP_GENERATION.md`](../tbank-mcp/docs/TRIP_GENERATION.md), [`TRAVEL_OUTPUT_MODES.md`](../tbank-mcp/docs/TRAVEL_OUTPUT_MODES.md) | [`server.py`](../tbank-mcp/src/server.py), [`trip_page.py`](../tbank-mcp/src/trip_page.py) |
+| Изменение полного или travel-only MCP, их дистрибуции или renderer | [`MCP_DISTRIBUTION.md`](../tbank-mcp/docs/MCP_DISTRIBUTION.md), [`TRIP_GENERATION.md`](../tbank-mcp/docs/TRIP_GENERATION.md), [`TRAVEL_OUTPUT_MODES.md`](../tbank-mcp/docs/TRAVEL_OUTPUT_MODES.md) | [`server.py`](../tbank-mcp/src/server.py), [`travel_mcp`](../tbank-mcp/src/travel_mcp), [`trip_page.py`](../tbank-mcp/src/trip_page.py) |
 | Любая задача T-Bank MCP | router-skill [`tbank`](../tbank-mcp/skills/tbank/SKILL.md), затем один узкий skill | Нужный раздел [`FLOWS.md`](../tbank-mcp/docs/FLOWS.md) |
 | Точная цепочка MCP-вызовов или диагностика flow | Соответствующий skill | Нужный раздел [`FLOWS.md`](../tbank-mcp/docs/FLOWS.md), не весь документ |
 | Изменение MCP tool или prompt | Сигнатура, docstring и annotations в [`server.py`](../tbank-mcp/src/server.py) | Связанный skill и `FLOWS.md` |
 | Изменение формата страницы поездки | [`TRIP_GENERATION.md`](../tbank-mcp/docs/TRIP_GENERATION.md), [`trip_page.py`](../tbank-mcp/src/trip_page.py) | [`trip_personalization.py`](../tbank-mcp/src/trip_personalization.py) |
 | Выгрузка корпоративной API-документации из Confluence | Локальный skill [`confluence-doc-extract`](../.nessy/skills/auto-skill-confluence-doc-extract/SKILL.md) | Правила корпоративной wiki |
 
-## Skills T-Bank MCP
+## Skills Travel MCP
 
-Router-skill [`tbank`](../tbank-mcp/skills/tbank/SKILL.md) выбирает один из
-предметных skills. Каждый `SKILL.md` содержит триггеры, доступные инструменты,
-порядок действий и ограничения своей области.
+Travel-router [`tbank`](../tbank-mcp/skills/tbank/SKILL.md) выбирает один из двух
+активных предметных skills. Только эти активные travel-каталоги остаются под
+`tbank-mcp/skills/` и могут индексироваться агентом.
 
 | Область | Канонический skill |
 |---|---|
-| Отдельный поиск отелей с фотографиями | [`tbank-hotel-search`](../tbank-mcp/skills/tbank-hotel-search/SKILL.md) |
-| Составная поездка, авиа, ЖД, погода, места и маркетплейс | [`tbank-travel-search`](../tbank-mcp/skills/tbank-travel-search/SKILL.md) |
-| Переводы людям, по СБП, реквизитам или QR | [`tbank-transfer-money`](../tbank-mcp/skills/tbank-transfer-money/SKILL.md) |
-| Счета, ЖКХ, штрафы, налоги и пополнение телефона | [`tbank-bill-pay`](../tbank-mcp/skills/tbank-bill-pay/SKILL.md) |
-| Продукты, корзина и оформление заказа | [`tbank-grocery-order`](../tbank-mcp/skills/tbank-grocery-order/SKILL.md) |
-| Кино, концерты, театр и выставки | [`tbank-tickets`](../tbank-mcp/skills/tbank-tickets/SKILL.md) |
-| Анализ расходов, бюджета и подписок | [`tbank-budget-analyzer`](../tbank-mcp/skills/tbank-budget-analyzer/SKILL.md) |
-| Инвестиционный портфель и доходность | [`tbank-invest-advisor`](../tbank-mcp/skills/tbank-invest-advisor/SKILL.md) |
-| Карты, реквизиты и документы | [`tbank-cards-documents`](../tbank-mcp/skills/tbank-cards-documents/SKILL.md) |
-| Чаты и поддержка банка | [`tbank-messenger`](../tbank-mcp/skills/tbank-messenger/SKILL.md) |
-| Вход и управление сессией | [`tbank-login`](../tbank-mcp/skills/tbank-login/SKILL.md) |
+| Отдельный поиск и сравнение авиабилетов | [`tbank-flight-search`](../tbank-mcp/skills/tbank-flight-search/SKILL.md) |
+| Отдельный поиск отелей, shortlist и тарифы | [`tbank-hotel-search`](../tbank-mcp/skills/tbank-hotel-search/SKILL.md) |
+| ЖД, погода и составная поездка | [`tbank-travel-search`](../tbank-mcp/skills/tbank-travel-search/SKILL.md) |
+
+Банковские skills сохранены без потери содержимого в
+`tbank-mcp/archive/banking-guidance/`. Их файлы называются `SKILL.md.disabled`,
+поэтому skill-сканеры их не индексируют; это архив, а не действующая инструкция.
 
 ## Карта хранилищ
 
@@ -71,7 +67,8 @@ Router-skill [`tbank`](../tbank-mcp/skills/tbank/SKILL.md) выбирает од
 | [`AGENTS.md`](../AGENTS.md) | Автоматически обнаруживаемая корневая инструкция | Каноническая входная точка |
 | [`docs/AGENT_RULES.md`](AGENT_RULES.md) | Навигация, глоссарий и приоритеты | Канонический каталог |
 | [`tbank-mcp/docs`](../tbank-mcp/docs) | Предметные flows и документация MCP | Читать по маршруту |
-| [`tbank-mcp/skills`](../tbank-mcp/skills) | Task-specific инструкции T-Bank | Выбирать через router-skill |
+| [`tbank-mcp/skills`](../tbank-mcp/skills) | Только активные travel-инструкции | Выбирать через travel-router |
+| `tbank-mcp/archive/banking-guidance` | Отключённый архив банковских skills (`SKILL.md.disabled`) | Не индексировать и не применять |
 | MCP Resources `travel-nova://instructions/*` | Производная runtime-поставка канонических инструкций вне checkout | Вход через `travel-nova://instructions/index` |
 | [`.cursor/rules`](../.cursor/rules) | Адаптер правил для Cursor | Должен ссылаться на `AGENTS.md` |
 | [`.nessy/skills`](../.nessy/skills) | Локальные автоматически извлечённые skills | Не хранится в Git |
@@ -82,8 +79,9 @@ Router-skill [`tbank`](../tbank-mcp/skills/tbank/SKILL.md) выбирает од
 **Корневая инструкция** — `AGENTS.md`, автоматически обнаруживаемый файл общих
 правил репозитория.
 
-**Router-skill** — короткая точка выбора предметного skill. Для T-Bank это
-`tbank-mcp/skills/tbank/SKILL.md`.
+**Router-skill** — короткая точка выбора предметного skill. В текущей
+travel-only конфигурации `tbank-mcp/skills/tbank/SKILL.md` направляет только в
+hotel-search или общий travel-search.
 
 **Task-specific skill** — инструкция для одной области: переводов, отелей,
 билетов, продуктов и так далее. Загружается только когда задача соответствует её
@@ -97,17 +95,22 @@ Router-skill [`tbank`](../tbank-mcp/skills/tbank/SKILL.md) выбирает од
 значения и поведение инструмента. Он сильнее описательного примера в Markdown.
 
 **MCP prompt** — опубликованный сервером шаблон задачи. Prompt
-`personalized_weekend_landing` определён в `tbank-mcp/src/server.py` и действует
-только при его явном выборе клиентом.
+`personalized_weekend_landing` определён в полном `tbank-mcp/src/server.py` и в
+travel-only `tbank-mcp/src/travel_mcp/app.py`; действует только при явном выборе
+клиентом.
 
 **MCP instruction resource** — поставляемая сервером производная копия
 канонического документа. Короткое поле `initialize.instructions` ведёт в
 `travel-nova://instructions/index`, а индекс маршрутизирует к отдельным ресурсам;
 клиент сам решает, добавлять ли их в контекст модели.
 
-**Единый T-Bank MCP** — одна серверная поверхность для банковских и
-travel-операций. Travel Nova ограничивает свои вызовы клиентским allowlist;
-сервер, запуск и дистрибуция описаны в `MCP_DISTRIBUTION.md`.
+**Полный T-Bank MCP** — поверхность банковских и travel-операций в
+`src.server`, сохранённая для банковских сценариев и обратной совместимости.
+
+**Travel MCP** — отдельная поверхность `src.travel_mcp.server`. Её allowlist
+задаётся server-side регистрацией `src/travel_mcp/tools/*.py`; денежные,
+карточные и бронирующие инструменты в ней отсутствуют. Запуск и дистрибуция обеих
+поверхностей описаны в `MCP_DISTRIBUTION.md`.
 
 **Checkout-ссылка** — переход к дальнейшему оформлению пользователем; она сама
 не означает бронь или оплату.

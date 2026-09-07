@@ -132,15 +132,26 @@ _DOCUMENTS = (
     _skill_document(
         "tbank-travel-search",
         "tbank-travel-search",
-        "Поиск транспорта и составной поездки",
-        "Авиа, ЖД, отели в составе поездки, погода и места — "
-        "без оформления.",
+        "Поиск поездов, погоды и составной поездки",
+        "ЖД и другие компоненты поездки без отдельного авиа/hotel flow и без оформления.",
+    ),
+    _skill_document(
+        "tbank-trip-generation",
+        "tbank-trip-generation",
+        "Составление поездки и дайджест",
+        "Начни с этого skill для составной поездки: предпочтения, гости, даты, narrow skills и итоговый дайджест.",
+    ),
+    _skill_document(
+        "tbank-flight-search",
+        "tbank-flight-search",
+        "Поиск и сравнение авиабилетов",
+        "Инструкция по поиску авиабилетов для любых маршрутов и составлению конкретных вариантов перелёта.",
     ),
     _skill_document(
         "tbank-hotel-search",
         "tbank-hotel-search",
         "Самостоятельный поиск отелей",
-        "Отдельный hotel-flow с актуальными тарифами и фотографиями.",
+        "Инструкции по поиску отелей и выбору актуальных тарифов в любой точке мира.",
     ),
     _mcp_document(
         "flows",
@@ -149,65 +160,11 @@ _DOCUMENTS = (
         "Точные последовательности вызовов по предметным "
         "сценариям.",
     ),
-    _skill_document(
-        "tbank-grocery-order",
-        "tbank-grocery-order",
-        "Заказ продуктов",
-        "Поиск товаров, корзина, подтверждение и оформление.",
-    ),
-    _skill_document(
-        "tbank-tickets",
-        "tbank-tickets",
-        "Билеты и Афиша",
-        "Кино, концерты, места, бронирование и оплата.",
-    ),
-    _skill_document(
-        "tbank-transfer-money",
-        "tbank-transfer-money",
-        "Переводы",
-        "Переводы людям, по СБП, реквизитам и QR.",
-    ),
-    _skill_document(
-        "tbank-bill-pay",
-        "tbank-bill-pay",
-        "Оплата счетов",
-        "ЖКХ, налоги, штрафы, связь и другие провайдеры.",
-    ),
-    _skill_document(
-        "tbank-budget-analyzer",
-        "tbank-budget-analyzer",
-        "Анализ бюджета",
-        "Траты, подписки и агрегированные рекомендации.",
-    ),
-    _skill_document(
-        "tbank-invest-advisor",
-        "tbank-invest-advisor",
-        "Инвестиционный портфель",
-        "Позиции, доходность и безопасный анализ портфеля.",
-    ),
-    _skill_document(
-        "tbank-cards-documents",
-        "tbank-cards-documents",
-        "Карты и документы",
-        "Карты, лимиты, реквизиты и документы клиента.",
-    ),
-    _skill_document(
-        "tbank-messenger",
-        "tbank-messenger",
-        "Чаты и поддержка",
-        "Чтение чатов и отправка сообщений.",
-    ),
-    _skill_document(
-        "tbank-login",
-        "tbank-login",
-        "Вход и сессия",
-        "Авторизация и восстановление банковской сессии.",
-    ),
 )
 
 
 def instruction_documents() -> tuple[InstructionDocument, ...]:
-    """Return the stable, ordered catalogue for the single MCP surface."""
+    """Return the active catalogue; archived banking skills are excluded."""
     return _DOCUMENTS
 
 

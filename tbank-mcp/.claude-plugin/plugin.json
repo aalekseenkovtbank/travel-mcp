@@ -1,8 +1,8 @@
 {
-  "name": "tbank",
-  "displayName": "T-Bank MCP",
+  "name": "travel-nova",
+  "displayName": "Travel Nova MCP",
   "version": "0.3.0",
-  "description": "Единый T-Bank MCP: счета, операции, платежи, переводы, travel, Афиша, отели, авиа и ЖД.",
+  "description": "Travel-only MCP: отели, авиа, ЖД, Афиша, погода, места и страницы поездок — без платежей и бронирования.",
   "author": {
     "name": "icyberdeveloper",
     "url": "https://github.com/icyberdeveloper"
@@ -11,15 +11,15 @@
   "repository": "https://github.com/icyberdeveloper/tbank-mcp",
   "license": "MIT",
   "keywords": [
-    "finance",
-    "banking",
+    "travel",
+    "hotels",
     "mcp",
     "russian",
     "tinkoff"
   ],
   "mcpServers": {
-    "tbank": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/bin/tbank-mcp",
+    "travel": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/travel-mcp",
       "cwd": "${CLAUDE_PLUGIN_ROOT}"
     }
   }
