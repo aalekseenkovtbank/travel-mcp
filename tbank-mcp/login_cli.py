@@ -129,12 +129,7 @@ def login(phone):
 
     # Check if we already have a session (OTP was enough)
     if s.access_token:
-        srv._session = s
-        if not srv._save_session(s):
-            return _save_failed()
-        print(f"\n[3/3] Сессия создана. sessionid={s.mobile_sessionid[:12]}…")
-        _success()
-        return 0
+        return _finish_login(s)
 
     # Step 3: password (if bank asked)
     if os.environ.get("TBANK_PASSWORD"):
@@ -163,9 +158,31 @@ def login(phone):
             print(f"    ОШИБКА: {e}")
             return 1
 
+    return _finish_login(s)
+
+
+def _finish_login(s):
+    """Persist the mobile session, then enrich it with the Hotels web ssoId."""
     srv._session = s
     if not srv._save_session(s):
         return _save_failed()
+
+    print("    Получаю web SSO для персональных методов отелей.")
+    try:
+        s.session_status()
+    except Exception as e:
+        print(f"    ОШИБКА web SSO: {e}")
+        print("    Основная банковская сессия сохранена, но персональные методы "
+              "отелей могут быть недоступны.")
+        return 1
+    if not s.sso_id:
+        print("    ОШИБКА web SSO: session_status не вернул ssoId.")
+        print("    Основная банковская сессия сохранена, но персональные методы "
+              "отелей могут быть недоступны.")
+        return 1
+    if not srv._save_session(s):
+        return _save_failed()
+
     print(f"\n[3/3] Сессия создана. sessionid={s.mobile_sessionid[:12]}…")
     _success()
     return 0

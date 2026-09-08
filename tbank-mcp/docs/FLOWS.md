@@ -540,6 +540,17 @@ do not use it as a station resolver.
 
 ## 16. Hotels — public read-only search
 
+0. `hotel_favorites(response_format)` → избранные отели авторизованного
+   SSO-пользователя: `hotels[]` с обязательным `hotelId`, опциональным
+   `collectionId` и лимит `maxCount`. Запрос только читает данные; нужен Hotels
+   web SSO-сеанс, Bearer и банковский sessionid не отправляются.
+0.1. `hotel_similar(hotel_id, date_from, date_to, guests, children_ages,
+   response_format)` → до 15 карточек похожих отелей в порядке рекомендательной
+   модели. Даты передаются только парой; с датами карточка может содержать
+   `priceHint` за весь период. Это ориентир, не оферта: актуальные цену и
+   доступность проверяй через `hotel_latest_offers()` или `hotel_rates()`.
+   Пустой список — штатный результат; исходный отель в выдачу не входит.
+   Запрос идёт через Hotels web gateway `hotels.tbank.ru/bff/api/v1/i2i/`.
 1. `hotel_autocomplete(query)` → локации и конкретные отели с их id. Для
    `hotel_search()` используй id локации, не придумывай его по названию.
 2. `hotel_search(destination_id, checkin_date, checkout_date, adults,
@@ -575,9 +586,11 @@ do not use it as a station resolver.
 9. `hotel_filters()` → общий каталог фильтров для UI/rates; он не учитывает
    конкретные даты, гостей и доступность предложений.
 
-Все hotel-запросы идут через публичный production proxy
-`www.tbank.ru/api/hotels/` без `Authorization`, `Cookie`, `sessionid` и других
-банковских credentials. Транспортный тест закрепляет это как инвариант. MCP не
+Hotel-поиск идёт через публичный production proxy `www.tbank.ru/api/hotels/`
+без Bearer и банковского `sessionid`; при доступной авторизации его поисковая
+цепочка использует только изолированную Hotels web SSO-сессию.
+`hotel_favorites()` обращается к `hotels.tbank.ru/search-api/v1/favorites` и
+требует ту же SSO-сессию, потому что избранное принадлежит пользователю. MCP не
 создаёт гостиничную бронь и не вызывает оплату: он может только построить ссылку,
 а оформление остаётся на странице T-Bank.
 

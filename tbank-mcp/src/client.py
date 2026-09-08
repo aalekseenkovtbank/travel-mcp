@@ -63,6 +63,8 @@ class MobileSession(
     tmsg_session_id: str = ""       # messenger JWT cookie (tm.t-bank-app.ru)
     trains_cookie: str = ""         # rail host cookie (trains.t-bank-app.ru)
     trains_cookie_at: float = 0.0   # when it was minted (unix seconds)
+    hotels_cookie: str = ""         # isolated cookies learned from Hotels web SSO
+    hotels_cookie_at: float = 0.0   # when the Hotels cookie set was last updated
     token_url: str = DEFAULT_TOKEN_URL
     read_templates: dict = field(default_factory=dict)
     base_url: str = MOBILE_BASE
@@ -437,12 +439,28 @@ class MobileSession(
         if not tpl.get("no_bearer"):
             headers["Authorization"] = "Bearer " + self.access_token
         # Public facades must never inherit the normal bank/session cookie set.
-        # A template may explicitly allow a small optional subset (Hotels uses
-        # only ssoId for personalized search when the SSO login already supplied
-        # it). No other credential is forwarded.
+        # A template may explicitly allow a small optional subset. Public Hotels
+        # reads use only ssoId; authenticated favorites opts into its separate,
+        # narrowly-built web SSO cookie profile. No implicit credential is sent.
         if tpl.get("no_cookie"):
-            allowed = tuple(tpl.get("optional_cookie_names") or ())
-            cookie = self._optional_cookies(allowed) if allowed else ""
+            if tpl.get("hotels_sso_session"):
+                cookie = self._hotels_sso_cookie()
+                if self.sso_id:
+                    headers.setdefault("x-tcs-sso-id", self.sso_id)
+            elif tpl.get("optional_hotels_sso_session"):
+                cookie = ""
+                if self.access_token or self.refresh_token:
+                    try:
+                        cookie = self._hotels_sso_cookie()
+                    except (TbankApiError, requests.RequestException):
+                        # Search is public: failed optional auth only removes
+                        # personalization and must not fail the search itself.
+                        cookie = ""
+                if cookie and self.sso_id:
+                    headers.setdefault("x-tcs-sso-id", self.sso_id)
+            else:
+                allowed = tuple(tpl.get("optional_cookie_names") or ())
+                cookie = self._optional_cookies(allowed) if allowed else ""
         else:
             cookie = self._cookie_for(host)
         if cookie:
@@ -499,6 +517,8 @@ class MobileSession(
             r = http.put(url, params=params, headers=headers, timeout=30)
         else:
             r = http.get(url, params=params, headers=headers, timeout=30)
+        if tpl.get("optional_hotels_sso_session") or tpl.get("hotels_sso_session"):
+            self._remember_hotels_sso_cookies(http)
         if return_response:
             # The caller wants the response itself, not a parsed body: a download
             # whose FILENAME lives in the headers, not in the bytes. Status handling
@@ -951,6 +971,8 @@ class MobileSession(
         # public web identity into the new session; session_status() will learn
         # and persist the matching ssoId on its next call.
         self.sso_id = ""
+        self.hotels_cookie = ""
+        self.hotels_cookie_at = 0.0
         # NOT the whole jar. sso_login_cookie keeps every cookie because
         # silent_relogin replays it against id.t-bank-app.ru, which is the one host
         # that issued SSO_SESSION and the one host that should ever see it again.
