@@ -395,14 +395,29 @@ def normalize_flight_inventory(result: dict[str, Any], *, only_bookable: bool) -
         departure = segments[0].get("departure") or {}
         arrival = segments[-1].get("arrival") or {}
         carrier = (segments[0].get("carriers") or {}).get("marketing") or ""
+        hops = []
+        for seg in segments:
+            dep = seg.get("departure") or {}
+            arr = seg.get("arrival") or {}
+            hops.append({
+                "departureAt": str(dep.get("time") or ""),
+                "arrivalAt": str(arr.get("time") or ""),
+                "fromAirport": str(dep.get("airport") or ""),
+                "toAirport": str(arr.get("airport") or ""),
+                "marketingCode": str((seg.get("carriers") or {}).get("marketing") or ""),
+                "flightNumber": str(seg.get("number") or ""),
+            })
         return {
             "carrier": str(names.get(carrier, carrier) or ""),
+            "marketingCode": str(carrier or ""),
+            "flightNumber": str(segments[0].get("number") or ""),
             "fromAirport": str(departure.get("airport") or ""),
             "toAirport": str(arrival.get("airport") or ""),
             "departureAt": str(departure.get("time") or ""),
             "arrivalAt": str(arrival.get("time") or ""),
             "durationMinutes": int(flight.get("duration") or 0),
             "stops": max(0, len(segments) - 1),
+            "hops": hops,
         }
 
     rows: list[dict[str, Any]] = []
@@ -504,6 +519,7 @@ def normalize_hotel_inventory(hotels: list[dict[str, Any]]) -> list[dict[str, An
                                if rate.get("availableRoomsCount") is not None else None),
             "latitude": latitude,
             "longitude": longitude,
+            "isFinalPrice": rate.get("isFinalPrice") is True,
         }
         if image_url:
             row["imageUrl"] = image_url

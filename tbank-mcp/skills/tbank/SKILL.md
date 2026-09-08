@@ -1,108 +1,45 @@
 ---
 name: tbank
 description: |
-  Точка входа в T-Bank MCP: что банк умеет через агента и каким тулом это делать.
-  Используй когда пользователь говорит про Т-Банк, банк, свои счета, карты, деньги,
-  финансы, поезд, самолёт, рейс, авиабилет, отель, гостиница, маркетплейс — или
-  спрашивает, что тут вообще можно. Отсюда уходи в узкий скил, если задача попадает в него; если нет —
-  здесь названы тулы для остального.
+  Travel-only router for the standalone Travel Nova MCP. Use for T-Bank travel,
+  flights, trains, hotels, weather, comparisons and generated trip pages.
+  Banking, money, cards, venue search and booking/payment actions are unavailable.
 ---
 
-# T-Bank MCP — с чего начать
+# Travel Nova MCP — router
 
-MCP работает с **настоящим банковским счётом пользователя**. Читающие тулы
-безопасны, пишущие двигают реальные деньги. Сессия обновляется сама — вручную
-`refresh_session` вызывать не нужно, пока тул не вернул `SESSION EXPIRED`.
+This checkout is configured to use only the standalone `travel-mcp` surface.
+It searches and compares travel inventory and returns ready HTML page markup
+and Markdown replies (in memory, no disk files), but it cannot book, buy or pay
+for anything.
 
-## Куда идти за задачей
+## Pick one narrow skill
 
-| Задача | Скил |
+| Request | Skill |
 |---|---|
-| Заказать продукты, собрать корзину, КБЖУ | `tbank-grocery-order` |
-| Билеты в кино, на концерт, афиша | `tbank-tickets` |
-| Отели с актуальными ценами, отзывами и HTML по умолчанию | `tbank-hotel-search` + `travel-output-modes` |
-| Поезда, самолёты, маркетплейс или составной travel-поиск — без оформления | `tbank-travel-search` |
-| Готовая персональная страница поездки | `trip_personalization_profile()` → поиск → `nearby_search()` → `render_travel_page()` |
-| Перевести деньги человеку, между своими счетами, юрлицу по реквизитам или по QR со счёта | `tbank-transfer-money` |
-| Оплатить счёт — ЖКХ, налог, штраф, интернет; пополнить телефон | `tbank-bill-pay` |
-| Анализ трат, подписки, экономия | `tbank-budget-analyzer` |
-| Портфель, бумаги, доходность | `tbank-invest-advisor` |
-| Карты, лимиты, реквизиты, паспорт и документы | `tbank-cards-documents` |
-| Чаты и поддержка банка | `tbank-messenger` |
-| Первый вход, проблемы с сессией | `tbank-login` |
+| Standalone flight search, comparisons, direct alternatives and flight links | `tbank-flight-search` |
+| Standalone hotel search, shortlist, rates, reviews, photos | `tbank-hotel-search` |
+| Composed trip, document, digest or page | `tbank-trip-generation` |
+| Trains, weather or generic travel components | `tbank-travel-search` |
 
-## Если скила нет
+Do not load both narrow skills unless the request genuinely combines their
+scenarios. Follow the selected skill and the published Travel Nova instruction
+resources.
 
-Не всё покрыто скилами. Вот тулы для остального — вызывай напрямую:
+## Surface boundaries
 
-- **Счета и операции:** `list_accounts()` → `list_operations(account_id, days, limit)`,
-  `spending_categories(account_id, days)`, `operations_histogram(...)`.
-- **Страница поездки:** `trip_personalization_profile()` возвращает только агрегаты
-  бюджета и предпочтений; после поиска дороги, отелей, Афиши и заведений через
-  `nearby_search()` собери `trip-page/v2` и вызови `render_travel_page()`.
-  Результат — готовый HTML и JSON, без React/Vite и без бронирования.
-- **Заказы:** `orders(kind)` — продукты, кино, концерты, авиа, поезда, отели в одной
-  выдаче; `order_details(order_id)` — места и код брони;
-  `travel_order_details(order_id)` — детали по отелю; для авиа и ж/д отдаётся только
-  сводка из orders() — не потому что «банк закрыл», а потому что MCP пока не строит
-  нужную web/cookie-сессию; тул объясняет, чего именно не хватает.
-- **Чек по платежу:** `payment_receipt(payment_id)` — PDF. `payment_id` берётся из
-  ответов `transfer()`, `pay_bill()`, `ticket_pay()` или из `orders()`, потом его
-  взять негде.
-- **Поиск по приложению:** `search_app(query, screen)` — `screen` строгий enum:
-  `services`, `afisha`, `movie_main`, `concerts_main`, `spectacle_main`,
-  `exhibition_main`, `grocery`. Неверное значение = 400, не пустой ответ.
-- **Кредиты, вклады, справки и прочее:** `get_data(section)` — десятки разделов,
-  список в описании тула. Шесть секций (`providers`, `requisites`, `statements`,
-  `account_details`, `full_debt_amount`, `statement_exist`) — фильтры и требуют
-  второй аргумент; без него тул поднимает ошибку, а не отдаёт пустой ответ.
-- **Отладка самого MCP:** `debug_report()` — как этим MCP пользовались: какие тулы
-  звали, в каком порядке, что получили в ответ, где повторяли один и тот же вызов,
-  не поняв ответа. Нужен, когда чинишь MCP, а не когда выполняешь просьбу
-  пользователя.
-- **Диагностика:** `diagnostics()` — что происходило в последних попытках оплаты,
-  без секретов. `flows(topic)` — порядок вызовов по конкретной теме
-  («перевод», «продукты», «билеты», «карты», «заказы», «кбжу», «поиск»).
-
-## Правила, которые действуют везде
-
-1. **Деньги — только после подтверждения конкретной суммы.** Списывают
-   по-настоящему ровно шесть тулов: `transfer`, `transfer_requisites`, `pay_bill`,
-   `grocery_checkout`, `ticket_pay` и `confirm_payment` (он завершает платёж, который
-   банк держит на втором факторе). Просьба «купи»,
-   «переведи», «закажи» — это **запрос**, а не подтверждение. Подтверждение — ответ
-   пользователя на показанную сумму с конкретным получателем или составом.
-2. **Не выдумывай данные.** Нет КБЖУ у товара — скажи «не указано». Нет провайдера
-   в каталоге `payment_providers` — скажи, что оплатить нельзя, а не бери похожего.
-   Выдуманное число или id хуже отсутствия.
-3. **Магазин задаётся явно.** Все grocery-тулы требуют `app_id` и `point_id` из
-   `grocery_stores()`, одинаковые на всей цепочке. Без них — `NO_STORE_CONTEXT`.
-4. **Идентификаторы не взаимозаменяемы.** У карты есть `id` (для операций) и `ucid`
-   (для лимитов и реквизитов). У сеанса — `slotId` и `objectId`, нужны оба.
-5. **Обрезанный ответ помечен.** Если в выводе «показано N из M», «ОТВЕТ ОБРЕЗАН»
-   или «…» в конце строки — не считай по нему итогов, запроси остальное: тул сам
-   называет нужный аргумент (`limit`, `offset`, `page`, `pages`, `max_chars`,
-   `desc_len`; 0 обычно значит «всё»).
-6. **Неизвестный исход ≠ неудача.** Если тул написал «ИСХОД НЕИЗВЕСТЕН» или
-   «НЕ подтверждена» — деньги могли уйти. Не повторяй вслепую: сначала проверь
-   `list_operations` или `orders()`.
-7. **ТРЕБУЕТСЯ ПОДТВЕРЖДЕНИЕ (WAITING_CONFIRMATION).** Крупный или рискованный платёж
-   банк принимает, но держит до второго фактора: `transfer` / `transfer_requisites` /
-   `pay_bill` вернут «ТРЕБУЕТСЯ ПОДТВЕРЖДЕНИЕ». Деньги ещё НЕ ушли, но платёж уже висит
-   на стороне банка — **не повторяй перевод** (создашь второй висящий платёж). Возьми
-   код из SMS/пуша у пользователя и вызови `confirm_payment(attempt_id, otp)` с
-   `attemptId` из того ответа; проверить исход — `payment_status(attempt_id)` или
-   `list_operations`. `confirm_otp` — это код ЛОГИНА, платёж им не подтвердить.
-
-## Чего банк через MCP не умеет
-
-Скажи это сразу, а не после нескольких попыток:
-
-- **покупка ЖД-билета, авиабилета, бронирование отеля, оформление заказа в маркетплейсе** — только
-  поиск, до оплаты ни одна из четырёх вертикалей не доходит; подробности и флоу —
-  `tbank-travel-search`;
-- бронирование концертов со свободной рассадкой — только просмотр, оформить
-  через MCP нельзя;
-- отмена билета работает не для всякого заказа: `ticket_cancel` сначала смотрит
-  `isCancelAvailable` и, если банк отменять не даёт, честно об этом говорит, не
-  тратя запрос.
+- No transfer, bill payment, card, account, raw operation, grocery checkout or
+  ticket purchase tools are registered.
+- Transport and hotel operations stop at search/comparison; page rendering is in memory.
+- `hotel_checkout_url()` only returns a user hand-off link; it does not reserve or
+  pay for a room.
+- `get_trip_report()` returns the requested HTML or Markdown digest in memory;
+  it writes no files. Local files exist only for developer CLI commands.
+- Public hotel, flight, railway and weather search needs no bank login.
+  Session-backed history/profile tools may use an existing local `session.json`,
+  but this MCP exposes no login or money operations.
+- Never invent prices, ids, schedules, availability, photos or source results.
+- Executable tool schemas and validators take precedence over prose examples.
+- If the host hides MCP resources and prompts (typical for ChatGPT), call
+  `list_instructions()`, `read_instruction(slug)` and `get_travel_prompt()`
+  before searching. The Markdown is the same as `travel-nova://instructions/*`.

@@ -1,0 +1,23 @@
+#!/bin/sh
+# Standalone travel-only MCP launcher.
+# Shares the tbank-mcp venv and Python transport/client implementation, but starts
+# only src.travel_mcp: no banking, money, grocery checkout or ticket-write tools.
+set -e
+
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+VENV="$ROOT/.venv"
+PY="$VENV/bin/python"
+
+if [ ! -x "$PY" ]; then
+    echo "travel-mcp: creating venv at $VENV" >&2
+    "${TBANK_PYTHON:-python3}" -m venv "$VENV" >&2
+fi
+
+if ! "$PY" -c 'import importlib.util; raise SystemExit(importlib.util.find_spec("mcp") is None)' >/dev/null 2>&1; then
+    echo "travel-mcp: installing dependencies (first run only)" >&2
+    "$PY" -m pip install --quiet --upgrade pip >&2
+    "$PY" -m pip install --quiet -e "$ROOT" >&2
+fi
+
+cd "$ROOT"
+exec "$PY" -m src.travel_mcp "$@"

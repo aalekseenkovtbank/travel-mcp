@@ -28,7 +28,8 @@ from mcp.types import ClientCapabilities, ElicitationCapability, ToolAnnotations
 
 from .tbank_urls import (afisha_event_url as _afisha_event_url,
                          hotel_details_url as _hotel_details_url,
-                         safe_tbank_url as _safe_tbank_url)
+                         safe_tbank_url as _safe_tbank_url,
+                         with_leading_tbank_url as _with_leading_tbank_url)
 from pydantic import BaseModel
 from . import client, trace
 from .client import (MobileSession, TbankApiError, SessionExpired,
@@ -50,9 +51,8 @@ from .travel_compare import (
     normalize_hotel_inventory, normalize_train_inventory, price_delta, rub_number,
     sort_flights, sort_hotels, sort_trains,
 )
-from .trip_page import (RenderTravelPageResult, RenderTripPageResult,
-                        TravelPageDocument, TripPageDocumentV1,
-                        render_travel_page_files, render_trip_page_files)
+from .trip_page import (RenderPageResult, TravelPageDocument, TripPageDocumentV1,
+                        format_inventory_reply_json, render_page_content)
 from .trip_personalization import (TripPersonalizationProfile,
                                    build_personalization_profile)
 from .weather import weather_report as _weather_report
@@ -84,8 +84,8 @@ FORMER_TRAVEL_TOOL_NAMES = frozenset({
     "concert_schedule", "concert_hall",
     # Public no-key context sources.
     "nearby_search", "weather",
-    # Local static artifact generation.
-    "render_trip_page", "render_travel_page",
+    # In-memory HTML rendering.
+    "render_trip_page", "render_travel_page", "format_trip_reply",
 })
 
 mcp = FastMCP(
@@ -157,9 +157,11 @@ def personalized_weekend_landing(
         else "Отель не задан: подбери ровно три варианта и выбери средний по цене как рекомендуемый."
     )
     output_part = (
-        "Собери trip-page/v2, вызови render_travel_page(document) и верни htmlPath и jsonPath."
+        "Собери trip-page/v2, вызови render_travel_page(document) и покажи "
+        "поля html и replyMarkdown пользователю. Не пиши файлы и не ссылайся на пути."
         if output_mode == "html"
-        else "Ответь только в чате: не вызывай renderer и не создавай локальные файлы."
+        else "Ответь только в чате: не вызывай renderer. После каждой карточки "
+        "вставь tbankUrl или строку «Ссылка T-Bank недоступна»."
     )
     return f"""Подготовь персональный лендинг для поездки в {city} с {date_from} по {date_to}.
 Состав карточки поездки: {adults} взрослых. Поисковые квоты фиксированы и не зависят
@@ -332,8 +334,9 @@ TOOL_KINDS: dict[str, tuple[str, str]] = {
     "flows": ("Порядок вызовов по теме", READ),
     "diagnostics": ("События последних оплат", READ),
     "debug_report": ("Как использовали этот MCP", READ),
-    "render_trip_page": ("Создание HTML-страницы поездки", WRITE),
-    "render_travel_page": ("Создание HTML-страницы Travel Nova", WRITE),
+    "format_trip_reply": ("Готовый Markdown с ссылками T-Bank", READ),
+    "render_trip_page": ("HTML-страница поездки", READ),
+    "render_travel_page": ("HTML-страница Travel Nova", READ),
 }
 
 
@@ -344,9 +347,7 @@ def _annotations_for(name: str) -> ToolAnnotations:
             f"(nothing changes), WRITE (changes something, costs nothing) or "
             f"MONEY (debits an account) — see the note above the table.")
     title, kind = TOOL_KINDS[name]
-    # The renderer only writes a local, explicitly named artifact. Every other
-    # tool either talks to the bank or to a public/commercial context provider.
-    local_renderers = {"render_trip_page", "render_travel_page"}
+    local_renderers = {"render_trip_page", "render_travel_page", "format_trip_reply"}
     ann = {"title": title, "openWorldHint": name not in local_renderers}
     if kind == READ:
         ann.update(readOnlyHint=True, destructiveHint=False, idempotentHint=True)
@@ -411,39 +412,44 @@ def trip_personalization_profile(
 
 
 @mcp.tool()
-def render_trip_page(
-    document: TripPageDocumentV1,
-    output_dir: str = "",
-    basename: str = "",
-    overwrite: bool = False,
-) -> RenderTripPageResult:
-    """Создать готовые HTML и JSON страницы поездки на локальном диске.
+def render_trip_page(document: TripPageDocumentV1) -> RenderPageResult:
+    """Вернуть HTML и Markdown страницы поездки trip-page/v1. Файлы не пишет.
 
-    По умолчанию пишет в ~/.local/share/tbank-mcp/trip-pages. Существующие файлы
-    не заменяет; overwrite=true — единственный явный способ перезаписи. Шаблон,
-    стили и Leaflet встроены в HTML; удалёнными остаются только фотографии и
-    тайлы OpenStreetMap. Инструмент не бронирует и не оплачивает ничего.
+    Покажи `html` как визуальную страницу (артефакт, canvas или блок ```html)
+    без ожидания просьбы. Затем вставь `replyMarkdown`. Не бронирует и не оплачивает.
     """
-    return render_trip_page_files(
-        document, output_dir=output_dir, basename=basename, overwrite=overwrite)
+    return render_page_content(document)
 
 
 @mcp.tool()
-def render_travel_page(
-    document: TravelPageDocument,
-    output_dir: str = "",
-    basename: str = "",
-    overwrite: bool = False,
-) -> RenderTravelPageResult:
-    """Создать готовые HTML и JSON для trip-page/v2 или hotel-page/v1.
+def render_travel_page(document: TravelPageDocument) -> RenderPageResult:
+    """Вернуть HTML и Markdown для trip-page/v2 или hotel-page/v1. Файлы не пишет.
 
-    Обе страницы используют единый UI Travel Nova. По умолчанию файлы пишутся в
-    ~/.local/share/tbank-mcp/travel-pages; существующие файлы не заменяются без
-    overwrite=true. Инструмент только создаёт локальный артефакт и ничего не
-    бронирует и не оплачивает.
+    Режим по умолчанию. Покажи `html` сразу как готовую страницу. Скопируй
+    `replyMarkdown` в видимый ответ. Не бронирует и не оплачивает.
     """
-    return render_travel_page_files(
-        document, output_dir=output_dir, basename=basename, overwrite=overwrite)
+    return render_page_content(document)
+
+
+@mcp.tool()
+def format_trip_reply(
+    hotels_json: str = "[]",
+    flights_json: str = "[]",
+    trains_json: str = "[]",
+    events_json: str = "[]",
+    title: str = "",
+) -> str:
+    """Собрать Markdown с обязательной ссылкой T-Bank после каждой карточки.
+
+    Передай JSON из уже полученных поисков. Не выдумывает URL. Для полной
+    страницы вызывай render_travel_page.
+    """
+    try:
+        return format_inventory_reply_json(
+            hotels_json=hotels_json, flights_json=flights_json,
+            trains_json=trains_json, events_json=events_json, title=title)
+    except Exception as exc:
+        return _formatted_error(exc, "text", source="Travel Nova")
 
 
 def _threaded_tool(fn):
@@ -989,26 +995,22 @@ def _hotel_inventory_call(session: MobileSession, destination_id: int,
     complete = False
     last_data: dict = {}
     with _COMPARE_HOTEL_SLOTS:
-        for attempt in range(3):
-            last_data = session.hotel_search(
-                int(destination_id), window.checkin_date, window.checkout_date,
-                adults=adults, children_ages=children_ages, limit=50,
-            )
-            for hotel in last_data.get("hotels") or []:
-                if isinstance(hotel, dict):
-                    key = str(hotel.get("hotelId") or "")
-                    if key:
-                        by_id[key] = hotel
-            complete = last_data.get("isLoadingCompleted") is not False
-            if complete or attempt == 2:
-                break
-            time.sleep(0.25 if attempt == 0 else 0.5)
+        last_data = session.hotel_search(
+            int(destination_id), window.checkin_date, window.checkout_date,
+            adults=adults, children_ages=children_ages, limit=50,
+        )
+        for hotel in last_data.get("hotels") or []:
+            if isinstance(hotel, dict):
+                key = str(hotel.get("hotelId") or "")
+                if key:
+                    by_id[key] = hotel
+        complete = last_data.get("isLoadingCompleted") is True
     return {
         "rows": normalize_hotel_inventory(list(by_id.values())),
         "complete": complete,
         "checkedAt": _checked_at(),
         "warnings": ([] if complete else
-                     [f"Отели {window.key}: выдача осталась неполной после трёх срезов."]),
+                     [f"Отели {window.key}: выдача не закрылась за ожидание поиска."]),
         "source": "T-Bank Hotels",
     }
 
@@ -5803,18 +5805,19 @@ def hotel_autocomplete(query: str, limit: int = 10,
 
 @_threaded_tool
 def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
-                 adults: int = 1, children_ages: str = "", limit: int = 100,
+                 adults: int = 1, children_ages: str = "", limit: int = 50,
                  response_format: str = "text") -> str:
     """Поиск доступных отелей и цен.
 
     destination_id бери из hotel_autocomplete(); даты — YYYY-MM-DD; adults —
     1..6; children_ages — возраста через запятую (например ``5,12``) или JSON
-    ``[5,12]``. По умолчанию поиск возвращает до 100 отелей; меньшее значение
-    можно задать через limit. Запрос read-only: при доступной Hotels web
-    SSO-сессии выдача персонализируется, без неё поиск работает анонимно. Bearer
-    и банковский sessionid не отправляются. MCP не бронирует и не оплачивает
-    отель — здесь только поиск и сравнение. Перед окончательным сравнением вызови
-    hotel_latest_offers(); для availability-aware фильтров — hotel_search_filters().
+    ``[5,12]``. Тул сам ждёт, пока поставщики закончат формировать выдачу, затем
+    обновляет нефинальные цены через getLatestHotelOffer и возвращает не больше
+    50 карточек (limit, по умолчанию 50). Это не 300k тарифов: upstream отдаёт
+    каталог отелей страницами по 50. Запрос read-only и уходит без банковских
+    credentials. MCP не бронирует и не оплачивает отель. Для комнат/bookHash
+    одного отеля вызови hotel_rates(); для availability-aware фильтров —
+    hotel_search_filters().
     """
     try:
         fmt = _response_format(response_format)
@@ -5822,6 +5825,8 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
             raise TbankApiError("BAD_DESTINATION", "destination_id должен быть положительным.")
         if not 1 <= adults <= 6:
             raise TbankApiError("BAD_GUESTS", "adults должен быть от 1 до 6.")
+        if not 1 <= int(limit) <= 50:
+            raise TbankApiError("BAD_LIMIT", "limit должен быть от 1 до 50.")
         start = _hotel_date(checkin_date, "checkin_date")
         end = _hotel_date(checkout_date, "checkout_date")
         if end <= start:
@@ -5835,29 +5840,42 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
         total = data.get("filteredHotelsCount")
         if not isinstance(total, int):
             total = len(hotels)
+        loading_completed = data.get("isLoadingCompleted") is True
+        prices_final = data.get("pricesFinal") is True
         if fmt == "json":
             normalized = normalize_hotel_inventory(hotels)
-            for row in normalized:
-                tbank_url = _hotel_details_url(row.get("hotelId"))
-                if tbank_url:
-                    row["tbankUrl"] = tbank_url
-            shown = normalized[:limit] if limit > 0 else normalized
-            rows = [{key: value for key, value in row.items()
-                     if key not in ("priceDecimal",)} for row in shown]
+            shown = normalized[:limit]
+            rows = [
+                _with_leading_tbank_url(
+                    {key: value for key, value in row.items()
+                     if key not in ("priceDecimal", "tbankUrl")},
+                    _hotel_details_url(row.get("hotelId")),
+                )
+                for row in shown
+            ]
             warnings = []
-            if data.get("isLoadingCompleted") is False:
-                warnings.append("Отельная выдача ещё формируется; получен первый срез.")
-            if len(shown) < len(hotels):
-                warnings.append(f"Показано {len(shown)} из {len(hotels)} полученных карточек.")
+            if not loading_completed:
+                warnings.append(
+                    "Выдача не успела закрыться за ожидание; карточки — лучший "
+                    "успевший срез, не весь каталог.")
+            if not prices_final:
+                warnings.append(
+                    "Часть цен осталась нефинальной (isFinalPrice=false); питание, "
+                    "отмену и оплату по ним не подтверждай.")
+            if isinstance(total, int) and total > len(shown):
+                warnings.append(
+                    f"В каталоге {total} отелей; в ответ попали первые {len(shown)} "
+                    "после завершения (или таймаута) поиска.")
             return _json_envelope({
                 "destinationId": int(destination_id),
                 "checkinDate": checkin_date,
                 "checkoutDate": checkout_date,
-                "isLoadingCompleted": data.get("isLoadingCompleted") is not False,
+                "isLoadingCompleted": loading_completed,
+                "pricesFinal": prices_final,
                 "total": total,
                 "hotels": rows,
             }, source="T-Bank Hotels", warnings=warnings,
-               meta={"complete": data.get("isLoadingCompleted") is not False})
+               meta={"complete": loading_completed and prices_final})
         if not hotels:
             return (f"Доступных отелей для destination_id={destination_id} на "
                     f"{checkin_date}—{checkout_date} не найдено.")
@@ -5872,6 +5890,7 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
             stars = int(hotel.get("starRating") or 0)
             bits = [
                 f"- {_flat(hotel.get('hotelName') or '?')} {'★' * stars}",
+                _hotel_details_url(hotel.get("hotelId")) or "Ссылка T-Bank недоступна",
                 f"{price:.0f} {currency or '₽'}" if price else "цена не указана",
             ]
             address = _hotel_address(hotel)
@@ -5886,18 +5905,18 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
             if rooms is not None:
                 bits.append(f"номеров {rooms}")
             bits.append(f"hotel_id={hotel.get('hotelId')}")
-            details_url = _hotel_details_url(hotel.get("hotelId"))
-            bits.append(details_url or "Ссылка T-Bank недоступна")
             return " | ".join(bits)
 
         out = _rows_out(hotels, render, limit=limit, total=total,
                         header=f"Отели {checkin_date}—{checkout_date}",
                         order_note="в порядке выдачи API",
-                        more_hint=(f"API вернул {len(hotels)} карточек; "
-                                   f"передай limit={len(hotels)}, чтобы показать их все."))
-        if data.get("isLoadingCompleted") is False:
-            out += ("\n⚠️ API пометил выдачу как ещё формирующуюся; это первый "
-                    "полученный срез, а не гарантия полного списка.")
+                        more_hint=(f"В ответ не больше 50 карточек; в каталоге {total}."))
+        if not loading_completed:
+            out += ("\n⚠️ Выдача не закрылась за ожидание; это лучший успевший "
+                    "срез, не весь каталог.")
+        if not prices_final:
+            out += ("\n⚠️ Часть цен нефинальная; питание, отмену и оплату по ним "
+                    "не подтверждай.")
         out += "\nБронирование и оплата через MCP не выполняются."
         return out
     except Exception as e:

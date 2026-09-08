@@ -1,134 +1,117 @@
-# T-Bank MCP: единый сервер и дистрибуция
+# Travel Nova MCP: поверхности и дистрибуция
 
-В репозитории существует одна MCP-поверхность: `src.server`. Она одновременно
-публикует банковские операции, заказы, переводы, Афишу, travel-поиск,
-персонализацию поездки и локальный renderer. Все методы регистрируются одним
-сервером и возвращаются в одном `tools/list`; серверных профилей инструментов нет.
+В репозитории остаются две поверхности:
 
-Исполняемый список инструментов возвращает `tools/list`; сигнатуры, схемы,
-валидаторы и annotations в `src/server.py` имеют приоритет над перечислениями в
-документации.
+- `src.server` / `tbank-mcp` — полный совместимый сервер с исходной банковской и
+  travel-функциональностью;
+- `src.travel_mcp.server` / `travel-mcp` — отдельная travel-only поверхность,
+  описанная ниже.
+
+## Travel-only allowlist
+
+`travel-mcp` регистрирует ровно 29 read-only инструментов:
+
+```text
+compare_flight_prices
+compare_train_prices
+compare_hotel_prices
+compare_flight_hotel_prices
+get_trip_report
+flight_search
+flight_price_calendar
+flight_price_forecast
+flight_schedule
+geodata_by_code
+flight_checkout_url
+search_iata_code
+hotel_autocomplete
+hotel_search
+hotel_search_filters
+hotel_latest_offers
+hotel_details
+hotel_rates
+hotel_checkout_url
+hotel_reviews
+hotel_filters
+train_stations
+train_search
+train_calendar
+weather
+trip_personalization_profile
+list_instructions
+read_instruction
+get_travel_prompt
+```
+
+Авторитетный источник списка — server-side import и `tools/list`; allowlist и
+короткие descriptions поддерживаются в `src/travel_mcp/app.py`. Реализации
+отключённых модулей не удаляются, но их импорт не является частью этой
+поверхности.
+
+Все активные инструменты read-only. Поисковые методы, сравнение, персонализация
+и рендер не бронируют и не оплачивают; `hotel_checkout_url()` и
+`flight_checkout_url()` только возвращают hand-off URL, который пользователь
+открывает и проверяет самостоятельно.
 
 ## Запуск
 
-Из Python checkout:
+```bash
+python -m src.travel_mcp.server
+# или
+./bin/travel-mcp
+```
+
+По умолчанию используется stdio. Streamable HTTP на loopback:
 
 ```bash
-python -m src.server
+./bin/travel-mcp --http --host 127.0.0.1 --port 8765
 ```
 
-Через npm-bootstrap:
+MCP-клиент указывает `http://127.0.0.1:8765/mcp`. Удалённый HTTP с per-user auth
+остаётся отдельной задачей. npm launcher может подготовить Python окружение и
+запустить тот же `src.travel_mcp.server`.
 
-```bash
-npx -y @travel-growth-inspiration/mcp login
-npx -y @travel-growth-inspiration/mcp serve
-```
+## Инструкции MCP
 
-Конфигурация MCP-клиента:
+При инициализации travel-only сервер возвращает короткое `instructions` и ресурс
+`travel-nova://instructions/index`. Через `resources/list`/`resources/read` или
+fallback-инструменты `list_instructions()`, `read_instruction(slug)` и
+`get_travel_prompt()` доступны только travel-документы.
 
-```json
-{
-  "mcpServers": {
-    "tbank": {
-      "command": "npx",
-      "args": ["-y", "@travel-growth-inspiration/mcp", "serve"]
-    }
-  }
-}
-```
+Критические ограничения также закреплены в схемах, валидаторах, descriptions и
+annotations. Клиент сам решает, добавлять ли instructions/resources в контекст.
 
-`login` запрашивает номер телефона, SMS-код, пароль и PIN напрямую в терминале.
-Секретный ввод скрыт и не проходит через модель. Сессия сохраняется в
-`~/.local/share/tbank-mcp/session.json` с правами `0600`.
+## Источники и фактические границы
 
-Node.js используется только для доставки: launcher создаёт или обновляет Python
-venv и затем делает `exec` единого FastMCP-процесса. Для grocery checkout нужен
-Chromium; он не скачивается неявно при старте MCP. Установка выполняется отдельно:
+`search_iata_code`, `flight_search`, `flight_price_calendar`,
+`flight_price_forecast`, `flight_schedule` и `geodata_by_code` используются для
+публичного авиа-поиска. Прогноз принимает `searchId` уже выполненного
+`flight_search`; календарь читает кэш и не заменяет живой поиск.
 
-```bash
-npx -y @travel-growth-inspiration/mcp install-browser
-```
+`train_stations` резолвит пользовательский текст в числовой `searchCode`, а
+`train_search` использует его для расписаний, цен и мест. `train_calendar` сообщает
+доступные даты, но не заменяет резолвер.
 
-## Инструкции, поставляемые через MCP
+Hotel-инструменты работают с публичной выдачей: autocomplete, search,
+availability-aware filters, latest offers, details, rates, reviews и общий
+каталог фильтров. При `price.isFinalPrice=false` условия не считаются
+подтверждёнными. `hotel_checkout_url` принимает `bookHash` из `hotel_rates()` и может сразу вернуть
+hand-off URL; бронь и оплату он не создаёт.
 
-При инициализации сервер возвращает короткое поле `instructions`, которое ведёт
-в MCP Resource `travel-nova://instructions/index`. Индекс содержит порядок чтения
-и URI канонических правил, router-skill, всех task-specific skills,
-`TRIP_GENERATION.md`, этого документа и `FLOWS.md`.
+`compare_*` выполняют bounded fan-out и возвращают метаданные полноты. `lowest
+observed` означает минимум среди фактически полученных вариантов. Сумма
+`compare_flight_hotel_prices` включает только два плеча перелёта и отель.
 
-Клиент получает список через `resources/list`, а содержимое — через
-`resources/read`. Runtime-копии входят в npm-поставку и не требуют checkout
-репозитория. Клиент сам решает, добавлять ли server instructions и resources в
-контекст модели, поэтому критические ограничения закреплены также в схемах,
-валидаторах, tool descriptions и annotations.
+`weather` возвращает прогноз Open-Meteo для ближайших 16 дней либо климатическую
+оценку ERA5 для более дальних дат; диапазон ограничен 30 днями.
 
-## Единая поверхность и безопасность
+## Дайджест поездки
 
-В одном `tools/list` находятся:
+`get_trip_report(request, output_mode="html"|"markdown")` принимает brief,
+выбранный транспорт, варианты и hotel ids, повторно проверяет предложения и
+возвращает готовый дайджест. `html` — JSON с HTML и metadata, `markdown` —
+текстовый дайджест. Файлы, бронирование и оплата не создаются.
 
-- счета, операции, карты, документы и банковские данные;
-- переводы, платежи, второй фактор и чеки;
-- продукты, корзина и grocery checkout;
-- кино, концерты, Афиша и билеты;
-- чаты, инвестиции, заказы и диагностика;
-- авиа, ЖД, отели, маркетплейс, погода и OpenStreetMap;
-- агрегированная персонализация, совместимый `render_trip_page` и единый
-  `render_travel_page` для новых страниц.
-
-Читающие инструменты помечены `readOnlyHint=true`. Восстанавливаемые изменения
-не помечаются destructive. Инструменты, которые списывают реальные деньги,
-имеют `destructiveHint=true` и `idempotentHint=false`; перед ними агент обязан
-получить подтверждение конкретной суммы и назначения.
-
-Travel Nova подключается к этому же единому серверу, а приложение сохраняет
-собственный клиентский allowlist read-only методов. Для travel-задач действуют
-ограничения `TRIP_GENERATION.md`: не вызывать денежные и бронирующие инструменты,
-не публиковать сырые банковские данные и создавать страницу только через
-`render_travel_page` (`render_trip_page` сохраняется для `trip-page/v1`).
-
-## Travel-источники
-
-`flight_search`, `flight_price_calendar`, `flight_price_forecast`,
-`flight_schedule` и `geodata_by_code` — публичные read-only методы и не требуют
-банковской сессии. Календарь возвращает кэш минимальных цен для выбора дат,
-расписание описывает выполняемые рейсы без гарантии живого тарифа, а прогноз
-принимает `searchId` уже выполненного `flight_search`. `flight_history` остаётся
-сессионной историей пользователя.
-
-`train_stations` резолвит город или вокзал через публичный fulltext T-Bank и
-возвращает числовой `searchCode`; `train_search` использует его для расписаний,
-цен и мест. Банковская сессия этим инструментам не нужна.
-
-`nearby_search` использует Nominatim и Overpass/OpenStreetMap, ищет в радиусе
-1,8 км и не требует ключа. `weather` использует Open-Meteo для ближайших 16 дней,
-а для остальных дат — климатическую оценку ERA5 за 1991–2020. Диапазон ограничен
-30 днями; неполный результат содержит `warnings`.
-
-Четыре `compare_*`-инструмента выполняют bounded fan-out, фильтрацию, стабильную
-сортировку и расчёт RUB/%-дельт внутри Python. `lowest observed` означает минимум
-только среди полученных вариантов. `compare_flight_hotel_prices` складывает
-только два перелёта и отель, без питания вне тарифа, трансферов, событий и
-ежедневных расходов.
-
-## Статические страницы Travel Nova
-
-Текущие публичные контракты — `trip-page/v2` для полной поездки и
-`hotel-page/v1` для отдельной подборки до пяти отелей. Они используют общий UI,
-общий CSS и единый `render_travel_page(document)`. Старый `trip-page/v1` и
-`render_trip_page(document)` сохранены без удаления для совместимости.
-
-JSON Schema и готовую пару файлов можно получить через единый launcher:
-
-```bash
-tbank-mcp page-schema --kind trip
-tbank-mcp page-schema --kind hotels
-tbank-mcp render-page page.json -o page.html
-```
-
-Совместимые команды `trip-page-schema` и `render-trip` продолжают работать для
-v1. Без `overwrite=true` существующие файлы не заменяются. HTML содержит
-встроенные CSS и минимальный JS; trip page также содержит Leaflet. Фотографии и
-тайлы OpenStreetMap загружаются по HTTPS.
-
-Checkout URL используется только если его вернул источник. Ссылка не означает
-бронь или оплату и лишь передаёт пользователя на дальнейшее оформление.
+Ссылка на объект или checkout не означает бронь или оплату. Не публикуй сырые
+персональные записи, credentials или токены и не выдумывай значения, которые не
+вернул источник.
