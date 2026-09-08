@@ -14,6 +14,71 @@ globals().update({
 class HotelMixin:
     """Hotel search and booking-read methods."""
 
+    def _hotels_sso_cookie(self) -> str:
+        """Narrow web session used only by authenticated Hotels endpoints.
+
+        ``ssoId`` identifies the user but is not, on its own, proof of an
+        authenticated web session. Prefer the distinct cookies actually issued
+        by Hotels; the mobile token aliases remain a compatibility fallback.
+        """
+        self.ensure_fresh()
+        if not self.sso_id:
+            self.session_status()
+        names = (
+            "__P__wuid", "api_sso_id", "sso_used", "ssoId", "sso_user_id",
+            "sso_api_session", "sessionID", "SSO_ID_TOKEN", "SSO_VALIDATION",
+            "_T_travel_session_id",
+        )
+        values = {}
+        actual = selected_cookies(self.hotels_cookie, names)
+        for part in actual.split(";"):
+            if "=" in part:
+                key, value = part.strip().split("=", 1)
+                if key in names and value:
+                    values[key] = value
+
+        fallback = {
+            "ssoId": self.sso_id,
+            "sso_user_id": self.sso_id,
+            "sso_api_session": self.access_token,
+            "sessionID": self.access_token,
+        }
+        wide = selected_cookies(self._wide_cookie(), names)
+        for part in wide.split(";"):
+            if "=" in part:
+                key, value = part.strip().split("=", 1)
+                if key in names and value:
+                    values.setdefault(key, value)
+        for key, value in fallback.items():
+            if value:
+                values.setdefault(key, value)
+        return "; ".join(
+            f"{name}={values[name]}" for name in names if values.get(name))
+
+    def _remember_hotels_sso_cookies(self, http) -> None:
+        """Persist only the allowlisted cookies issued by the Hotels web flow."""
+        names = (
+            "__P__wuid", "api_sso_id", "sso_used", "ssoId", "sso_user_id",
+            "sso_api_session", "sessionID", "SSO_ID_TOKEN", "SSO_VALIDATION",
+            "_T_travel_session_id",
+        )
+        jar = getattr(http, "cookies", None)
+        values = {}
+        for part in selected_cookies(self.hotels_cookie, names).split(";"):
+            if "=" in part:
+                key, value = part.strip().split("=", 1)
+                if key in names and value:
+                    values[key] = value
+        if jar is not None:
+            values.update({key: value for key, value in jar.get_dict().items()
+                           if key in names and value})
+        learned = "; ".join(
+            f"{name}={values[name]}" for name in names if values.get(name))
+        if learned and learned != self.hotels_cookie:
+            self.hotels_cookie = learned
+            self.hotels_cookie_at = time.time()
+            self._persist()
+
     def hotel_booking(self, booking_id: str) -> dict:
         """Full detail for a hotel booking: dates, hotel, room, guests, meals.
 
