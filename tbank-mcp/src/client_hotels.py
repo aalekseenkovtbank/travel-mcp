@@ -441,3 +441,36 @@ class HotelMixin:
             "hotel_reviews", overrides=query,
             path_override=f"/api/hotels/api/v2/review/{hotel_id}/feedback")
         return data if isinstance(data, dict) else {}
+
+
+    def hotel_favorites(self) -> dict:
+        """Favorite hotels and the configured per-user maximum (v1)."""
+        data = self._call_read("hotel_favorites")
+        return data if isinstance(data, dict) else {}
+
+
+    def hotel_similar(self, hotel_id: int, *, date_from: str = "",
+                      date_to: str = "", guests: int = 2,
+                      children_ages: list[int] | None = None) -> list[dict]:
+        """Ranked hotel-to-hotel recommendations from Hotels BFF."""
+        query = {"guests": int(guests)}
+        if date_from and date_to:
+            query.update({"dateFrom": date_from, "dateTo": date_to})
+        if children_ages:
+            query["childrenAges"] = ",".join(str(age) for age in children_ages)
+        try:
+            data = self._call_read(
+                "hotel_similar",
+                path_override=f"/bff/api/v1/i2i/{int(hotel_id)}",
+                overrides=query,
+                headers_override={"X-Request-Id": str(__import__("uuid").uuid4())},
+            )
+        except TbankApiError as exc:
+            # The recommendations contract defines 404 as an expected absence,
+            # equivalent for consumers to the ordinary 200 [] empty state.
+            if exc.result_code == "HTTP_404":
+                return []
+            raise
+        if not isinstance(data, list):
+            return []
+        return [item for item in data if isinstance(item, dict)]
