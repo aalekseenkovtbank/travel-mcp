@@ -17,7 +17,6 @@ dependencies = [
 [project.scripts]
 tbank-mcp = "src.server:main"
 travel-mcp = "src.travel_mcp.server:main"
-tbank-mcp-http = "src.http_server:main"
 tbank-trip-page = "src.trip_cli:main"
 
 [build-system]

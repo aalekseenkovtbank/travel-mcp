@@ -1,4 +1,4 @@
-"""Travel-only MCP server entrypoint.
+"""MCP server entrypoint for stdio and Streamable HTTP.
 
 Run: python -m src.travel_mcp
      python -m src.travel_mcp --http --port 8765
@@ -8,15 +8,17 @@ from __future__ import annotations
 import argparse
 import os
 
-from . import app as _app
-from .tools import (compare, compose, flights, hotels, meta,
-                    nearby_weather, pages, personalization, trains)  # noqa: F401
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
-# Deliberately not importing ``events`` (Afisha/cinema/place/search_app) or
-# ``shop`` (shop_search/shop_cart): their implementations remain in the tree,
-# but an import is the registration side effect in FastMCP.
+from ..server import mcp
 
-mcp = _app.mcp
+
+@mcp.custom_route("/", methods=["GET"], include_in_schema=False)
+@mcp.custom_route("/health", methods=["GET"], include_in_schema=False)
+async def health(_request: Request) -> JSONResponse:
+    """Expose the health endpoint used by the deployment platform."""
+    return JSONResponse({"ok": True, "service": "tbank-mcp"})
 
 _DEFAULT_HTTP_HOST = "127.0.0.1"
 _DEFAULT_HTTP_PORT = 8765
@@ -39,7 +41,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--port",
         type=int,
-        default=int(os.environ.get("TRAVEL_MCP_PORT", str(_DEFAULT_HTTP_PORT))),
+        default=int(os.environ.get(
+            "PORT", os.environ.get("TRAVEL_MCP_PORT", str(_DEFAULT_HTTP_PORT))
+        )),
     )
     return parser.parse_args(argv)
 
@@ -96,15 +100,15 @@ def _http_transport_security(bind_host: str) -> object | None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Serve the travel-only surface over stdio or Streamable HTTP."""
+    """Serve the registered MCP tools over stdio or Streamable HTTP."""
     args = _parse_args(argv)
     if _want_http(args):
-        _app.mcp.settings.host = args.host
-        _app.mcp.settings.port = args.port
-        _app.mcp.settings.transport_security = _http_transport_security(args.host)
-        _app.mcp.run(transport="streamable-http")
+        mcp.settings.host = args.host
+        mcp.settings.port = args.port
+        mcp.settings.transport_security = _http_transport_security(args.host)
+        mcp.run(transport="streamable-http")
         return
-    _app.mcp.run()
+    mcp.run()
 
 
 if __name__ == "__main__":
