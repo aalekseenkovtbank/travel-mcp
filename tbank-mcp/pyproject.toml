@@ -17,6 +17,7 @@ dependencies = [
 [project.scripts]
 tbank-mcp = "src.server:main"
 travel-mcp = "src.travel_mcp.server:main"
+tbank-mcp-http = "src.http_server:main"
 tbank-trip-page = "src.trip_cli:main"
 
 [build-system]
@@ -34,7 +35,7 @@ build-backend = "setuptools.build_meta"
 # "FLOWS.md not found" for the same reason.
 # Only `pip install -e` (what bin/tbank-mcp does) hid this; the console script
 # declared above is the path that did not work.
-packages = ["src", "src.travel_mcp", "src.travel_mcp.tools", "ca.roots", "docs"]
+packages = ["src", "src.travel_mcp", "ca.roots", "docs"]
 
 [tool.setuptools.package-data]
 "ca.roots" = ["*.pem", "*.crt"]
