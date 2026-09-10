@@ -800,6 +800,8 @@ def _entity_index(document: TripPageDocumentV1) -> dict[str, dict]:
             "selected": selected,
         }
     for event in document.events:
+        if event.coordinates is None:
+            continue
         index[event.id] = {
             "id": event.id, "kind": "event", "label": event.name,
             "lat": event.coordinates.latitude, "lon": event.coordinates.longitude,
@@ -1295,18 +1297,62 @@ def render_html(document: TripPageDocumentV1 | TripPageDocumentV2) -> str:
         [hotel.id for hotel in document.hotels]
         + [point.ref_id for point in document.map_points]
     ))
-    map_rows = [entities[entity_id] for entity_id in map_ids]
+    map_rows = [entities[entity_id] for entity_id in map_ids if entity_id in entities]
     map_json = json.dumps(map_rows, ensure_ascii=False, separators=(",", ":"))
     map_json = map_json.replace("<", "\\u003c").replace(">", "\\u003e")
     csp = _content_security_policy([leaflet_js, app_js])
-    entity_labels = {key: {"label": value["label"]} for key, value in entities.items()}
+    entity_labels = {
+        item.id: {"label": item.name}
+        for item in [*document.hotels, *document.events, *document.venues]
+    }
     # Transport is valid for a plan reference too, even though it is not mapped.
     entity_labels.update({leg.id: {"label": f"{leg.origin} → {leg.destination}"}
                           for leg in document.transport})
-    total_budget = next(item for item in document.budget if item.component == "total")
+    total_budget = next(
+        (item for item in document.budget if item.component == "total"), None)
     outbound = min(
         (leg for leg in document.transport if leg.direction == "outbound"),
         key=lambda leg: leg.departure_at,
+        default=None,
+    )
+    if total_budget is None:
+        budget_summary = (
+            '<span>Ориентир не рассчитан</span><strong>—</strong>'
+            '<small>Бюджет не передан</small>')
+    else:
+        budget_summary = (
+            f'<span>Комфортный ориентир</span>'
+            f'<strong>{_rub(total_budget.recommended_rub)}</strong>'
+            f'<small>{_rub(total_budget.range_min_rub)} — '
+            f'{_rub(total_budget.range_max_rub)}</small>')
+    if document.personalization is None:
+        profile_summary = (
+            '<div><b>—</b><small>профиль поездок</small></div>'
+            '<div><b>—</b><small>профиль Афиши</small></div>')
+        budget_explanation = "Детали расчёта указаны в карточках."
+    else:
+        profile_summary = (
+            f'<div><b>{document.personalization.travel_sample_size}</b>'
+            '<small>поездок в основе</small></div>'
+            f'<div><b>{document.personalization.event_sample_size}</b>'
+            '<small>заказов Афиши</small></div>')
+        budget_explanation = document.personalization.explanation
+    route_label = (f"{outbound.origin} → {outbound.destination}"
+                   if outbound is not None else document.trip.destination)
+    budget_section = (
+        '<section class="budget-section" id="budget"><div class="section-head">'
+        '<div><span>01</span><h2>Бюджет поездки</h2></div>'
+        f'<p>{_e(budget_explanation)}</p></div><div class="budget-grid">'
+        f'{_render_budget(document)}</div></section>'
+        if document.budget else ""
+    )
+    transport_section = (
+        '<section class="route-section" id="route"><div class="section-head">'
+        '<div><span>02</span><h2>Дорога туда и обратно</h2></div>'
+        '<p>Сравните способы добраться; оформление откроется в T-Bank '
+        'отдельно и не означает покупку.</p></div>'
+        f'{_render_transport_comparison(document)}</section>'
+        if document.transport or document.flight_options else ""
     )
     date_label = (f"{document.trip.date_from.strftime('%d.%m')}–"
                   f"{document.trip.date_to.strftime('%d.%m.%Y')}")
@@ -1318,10 +1364,10 @@ def render_html(document: TripPageDocumentV1 | TripPageDocumentV2) -> str:
     return f"""{head}
 <body>{header}
 <main>
-<section class="hero" id="top"><div class="hero-copy"><p class="hero-kicker">Персональный план поездки</p><h1>{_e(document.trip.title)}</h1><p class="hero-lede">{_e(document.trip.subtitle)}</p><div class="hero-meta"><span>{_e(outbound.origin)} → {_e(outbound.destination)}</span><span>{_e(document.trip.date_from.strftime('%d.%m'))} — {_e(document.trip.date_to.strftime('%d.%m.%Y'))}</span><span>{document.trip.travelers} чел.</span><span>Проверено {_e(_dt(document.checked_at))}</span></div></div>
-<aside class="trip-profile"><span>Комфортный ориентир</span><strong>{_rub(total_budget.recommended_rub)}</strong><small>{_rub(total_budget.range_min_rub)} — {_rub(total_budget.range_max_rub)}</small><div><b>{document.personalization.travel_sample_size}</b><small>поездок в основе</small></div><div><b>{document.personalization.event_sample_size}</b><small>заказов Афиши</small></div></aside></section>
-<section class="budget-section" id="budget"><div class="section-head"><div><span>01</span><h2>Бюджет поездки</h2></div><p>{_e(document.personalization.explanation)}</p></div><div class="budget-grid">{_render_budget(document)}</div></section>
-<section class="route-section" id="route"><div class="section-head"><div><span>02</span><h2>Дорога туда и обратно</h2></div><p>Сравните способы добраться; оформление откроется в T-Bank отдельно и не означает покупку.</p></div>{_render_transport_comparison(document)}</section>
+<section class="hero" id="top"><div class="hero-copy"><p class="hero-kicker">Персональный план поездки</p><h1>{_e(document.trip.title)}</h1><p class="hero-lede">{_e(document.trip.subtitle)}</p><div class="hero-meta"><span>{_e(route_label)}</span><span>{_e(document.trip.date_from.strftime('%d.%m'))} — {_e(document.trip.date_to.strftime('%d.%m.%Y'))}</span><span>{document.trip.travelers} чел.</span><span>Проверено {_e(_dt(document.checked_at))}</span></div></div>
+<aside class="trip-profile">{budget_summary}{profile_summary}</aside></section>
+{budget_section}
+{transport_section}
 <section class="hotels-section" id="hotels"><div class="section-head"><div><span>03</span><h2>Где остановиться</h2></div><p>Три уровня цены с конкретным номером, условиями тарифа, отзывами и ссылкой на карточку T-Bank.</p></div><div class="hotels">{_render_hotels(document)}</div><div class="hotel-comparison-block" id="comparison"><div class="subsection-head"><span>Сравнение</span><h3>Все условия рядом</h3><p>Резюме отзывов относится только к реально загруженной выборке.</p></div>{_render_hotel_comparison(document)}</div></section>
 <section class="events-section" id="events"><div class="section-head"><div><span>04</span><h2>Что посмотреть</h2></div><p>События ранжируются по безопасному профилю интересов без раскрытия истории покупок.</p></div><div class="card-grid events">{_render_events(document)}</div></section>
 <section class="venues-section" id="places"><div class="section-head"><div><span>05</span><h2>Рестораны и бары</h2></div><p>Заведения, категории и часы работы получены из OpenStreetMap через T-Bank MCP.</p></div><div class="card-grid venues">{_render_venues(document)}</div></section>
