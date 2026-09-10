@@ -150,6 +150,7 @@ class AfishaMixin:
         return lst if isinstance(lst, list) else []
 
 
+    @staticmethod
     def _date_bounds(date_from: str, date_to: str) -> dict:
         """{from, to} covering whole days. The +03:00 is a literal: the afisha runs
         on Moscow time and the captured bodies say so, so deriving it from the host
@@ -185,8 +186,9 @@ class AfishaMixin:
         if not v["catalog_key"]:
             raise TbankApiError(
                 "NO_CATALOG",
-                f"у вертикали «{kind}» нет каталога по датам; смотри "
-                "search_app(screen=\"afisha\") или place_schedule()")
+                f"у вертикали «{kind}» нет каталога по датам; "
+                "не подменяй его search_app. Если уже известен objectId "
+                "площадки, используй place_schedule()")
         cid = city_id_of(city, city_id)
         window = self._date_bounds(date_from, date_to)
         size = count if count > 0 else self.CATALOG_PAGE

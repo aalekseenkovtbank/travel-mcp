@@ -387,7 +387,8 @@ class MobileSession(
         # sending what the app does not send is not free.
         lean = bool(tpl.get("no_base_params"))
         if not lean:
-            params[tpl.get("session_param") or "sessionid"] = self.mobile_sessionid
+            if not tpl.get("no_session_param"):
+                params[tpl.get("session_param") or "sessionid"] = self.mobile_sessionid
             params["deviceId"] = self.device_id
             params["oldDeviceId"] = self.old_device_id or self.device_id
         elif tpl.get("session_param"):

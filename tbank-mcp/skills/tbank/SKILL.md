@@ -1,17 +1,16 @@
 ---
 name: tbank
 description: |
-  Travel-only router for the standalone Travel Nova MCP. Use for T-Bank travel,
-  flights, trains, hotels, weather, comparisons and generated trip pages.
-  Banking, money, cards, venue search and booking/payment actions are unavailable.
+  Travel router for T-Bank MCP. Use for flights, trains, hotels, Afisha events,
+  weather, comparisons and generated trip pages. Travel scenarios stay read-only:
+  do not book or pay even when the unified surface exposes those tools.
 ---
 
 # Travel Nova MCP — router
 
-This checkout is configured to use only the standalone `travel-mcp` surface.
-It searches and compares travel inventory and returns ready HTML page markup
-and Markdown replies (in memory, no disk files), but it cannot book, buy or pay
-for anything.
+The current HTTP launcher exposes the unified T-Bank MCP surface. Travel flows
+use only read-only search, comparison and report tools and return ready HTML page
+markup or Markdown in memory. Do not book, buy or pay within a travel scenario.
 
 ## Pick one narrow skill
 
@@ -28,16 +27,18 @@ resources.
 
 ## Surface boundaries
 
-- No transfer, bill payment, card, account, raw operation, grocery checkout or
-  ticket purchase tools are registered.
+- Do not call transfer, payment, booking, card, raw-operation or grocery checkout
+  tools while executing a travel flow, even if the unified MCP registers them.
 - Transport and hotel operations stop at search/comparison; page rendering is in memory.
+- For events in a trip, call public `afisha_catalog()` directly with city and
+  dates; do not use authenticated `search_app()` as a preliminary step.
 - `hotel_checkout_url()` only returns a user hand-off link; it does not reserve or
   pay for a room.
 - `get_trip_report()` returns the requested HTML or Markdown digest in memory;
   it writes no files. Local files exist only for developer CLI commands.
-- Public hotel, flight, railway and weather search needs no bank login.
+- Public hotel, flight, railway, weather and Afisha catalogue search needs no bank login.
   Session-backed history/profile tools may use an existing local `session.json`,
-  but this MCP exposes no login or money operations.
+  but missing authorization must not block public inventory searches.
 - Never invent prices, ids, schedules, availability, photos or source results.
 - Executable tool schemas and validators take precedence over prose examples.
 - If the host hides MCP resources and prompts (typical for ChatGPT), call

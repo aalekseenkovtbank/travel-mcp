@@ -7,9 +7,22 @@
 - `src.travel_mcp.server` / `travel-mcp` — отдельная travel-only поверхность,
   описанная ниже.
 
-## Travel-only allowlist
+## Актуальная HTTP-поверхность
 
-`travel-mcp` регистрирует ровно 29 read-only инструментов:
+Текущий HTTP entrypoint `src.travel_mcp.server` импортирует единый
+`src.server`. В этой поверхности доступны `get_trip_report`,
+`afisha_catalog`, `search_app`, `concert_schedule` и `cinema_schedule`.
+Сценарий событий начинается с прямого `afisha_catalog`, без
+предварительного `search_app`, и описан в
+[TRIP_GENERATION.md](TRIP_GENERATION.md#подбор-событий-в-поездке).
+
+## Историческая travel-only allowlist
+
+Этот раздел описывает отдельную модульную поверхность, а не текущий
+HTTP launcher.
+
+Историческая модульная конфигурация регистрировала ровно 29 read-only
+инструментов:
 
 ```text
 compare_flight_prices
@@ -88,6 +101,10 @@ annotations. Клиент сам решает, добавлять ли instructi
 публичного авиа-поиска. Прогноз принимает `searchId` уже выполненного
 `flight_search`; календарь читает кэш и не заменяет живой поиск.
 
+`afisha_catalog` публично читает каталоги кино, концертов и театра без
+обязательной банковской сессии. Запрос сохраняет обязательный
+app/device-контекст, но не отправляет Bearer, cookie или `sessionid`.
+
 `train_stations` резолвит пользовательский текст в числовой `searchCode`, а
 `train_search` использует его для расписаний, цен и мест. `train_calendar` сообщает
 доступные даты, но не заменяет резолвер.
@@ -107,10 +124,11 @@ observed` означает минимум среди фактически пол
 
 ## Дайджест поездки
 
-`get_trip_report(request, output_mode="html"|"markdown")` принимает brief,
-выбранный транспорт, варианты и hotel ids, повторно проверяет предложения и
-возвращает готовый дайджест. `html` — JSON с HTML и metadata, `markdown` —
-текстовый дайджест. Файлы, бронирование и оплата не создаются.
+`get_trip_report(request, output_mode="html"|"markdown")` принимает готовый
+`trip-page/v2` с транспортом, отелями и `events` либо `hotel-page/v1`.
+Предложения и расписания перепроверяются до вызова; report валидирует
+документ и возвращает готовый дайджест. `html` — JSON с HTML и metadata,
+`markdown` — текстовый дайджест. Файлы, бронирование и оплата не создаются.
 
 Ссылка на объект или checkout не означает бронь или оплату. Не публикуй сырые
 персональные записи, credentials или токены и не выдумывай значения, которые не

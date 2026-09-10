@@ -370,6 +370,15 @@ Travel is split by vertical, because each one authorizes differently:
 Full detail, including the confirmation wording, lives in the `tbank-tickets`
 skill. The order here is the part you must not improvise:
 
+> **Trip/event discovery without login.** `afisha_catalog(kind, city,
+> date_from, date_to, query, response_format="json")` is the first call for
+> events in a trip. It does not require bank authorization. Do not call
+> `search_app` first: use `query` on the catalogue for a specific title, then
+> verify selected showings with `cinema_schedule` or `concert_schedule`.
+> `search_app` remains an authenticated full-text helper for the separate ticket
+> flow; exhibitions have no date catalogue and must be reported as a limitation
+> when authorization is unavailable.
+
 1. `cinema_search(query, city)` → `eventId` (city-independent). For concerts,
    theatre and exhibitions use `search_app(query, screen="afisha")` instead.
 2. `cinema_schedule(event_id, date, cinema="каро 11", around="17:00", city)` →

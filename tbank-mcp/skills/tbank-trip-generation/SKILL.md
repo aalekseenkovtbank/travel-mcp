@@ -46,9 +46,19 @@ read_instruction("tbank-flight-search")
 или используй `tbank-flight-search`.
 
 Эти skills возвращают фактические варианты, цены, ids, тарифы и hand-off ссылки.
-Сохраняй их без изменений. Текущая travel-only поверхность не публикует
-Afisha, cinema, nearby-place или marketplace tools, поэтому события и места
-рядом не выдумывай.
+Сохраняй их без изменений.
+
+## Подбери события
+
+Для полной поездки сразу вызови `afisha_catalog` с городом и датами.
+Банковский вход для каталога необязателен; `search_app` как промежуточный
+шаг не нужен. Для названия передай `query` в `afisha_catalog`, затем
+проверь выбранные сеансы через `cinema_schedule` или `concert_schedule`.
+Передай фактические события в `request.events`.
+
+Полный flow, включая обработку неполной выдачи и недоступного
+расписания, описан в [TRIP_GENERATION.md](../../docs/TRIP_GENERATION.md) и доступен
+через `read_instruction("trip-generation")`.
 
 ## Собери конкретный выбор
 
@@ -84,47 +94,24 @@ Afisha, cinema, nearby-place или marketplace tools, поэтому событ
 
 ## Получи итоговый дайджест
 
-Вызови единственный публичный report-тул:
+Вызови канонический report-тул:
 
 ```text
 get_trip_report(request, output_mode="html" | "markdown")
 ```
 
-`request` содержит brief поездки и фактические данные выбора. Если hotel skill
-загрузил отзывы, передай его компактный `reviewDigest` внутри соответствующего
-hotel item; composer сохраняет digest, но сам `hotel_reviews` не вызывает:
-
-```json
-{
-  "title": "...",
-  "destination": "...",
-  "dateFrom": "YYYY-MM-DD",
-  "dateTo": "YYYY-MM-DD",
-  "travelers": 2,
-  "layout": "full",
-  "flights": [],
-  "flightOptions": [],
-  "hotels": [
-    {
-      "hotelId": "...",
-      "roomId": "...",
-      "reviewDigest": {
-        "sampleSize": 10,
-        "summary": "краткая сводка выборки",
-        "pros": ["..."],
-        "cons": ["..."],
-        "suitableFor": "кому подходит"
-      }
-    }
-  ],
-  "recommendedHotelId": "..."
-}
-```
+`request` — документ `trip-page/v2` по опубликованной схеме инструмента,
+с подтверждёнными транспортом, отелями, `events`, источниками и warnings.
+`get_trip_report` не перепроверяет поисковые данные: обнови их до вызова.
+Если hotel skill загрузил отзывы, передай `reviewDigest` внутри нужного hotel item.
+Минимальные актуальные JSON-примеры для `trip-page/v2` и `hotel-page/v1`
+находятся в [TRIP_GENERATION.md](../../docs/TRIP_GENERATION.md); не дублируй
+структуру моделей в этом skill.
 
 `output_mode="html"` возвращает JSON с готовой HTML-страницей, warnings и
 advice; Markdown в этом режиме не возвращается. `output_mode="markdown"`
-возвращает только Markdown-дайджест. `layout="compact|full"` влияет только на
-HTML.
+возвращает только Markdown-дайджест. Параметра `layout` в текущем
+контракте нет.
 
 Checkout URL — это hand-off пользователю, а не бронь и не оплата. Если точной
 ссылки нет, напиши «Ссылка T-Bank недоступна» и не создавай URL вручную.

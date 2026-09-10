@@ -1694,17 +1694,24 @@ BUILTIN_ENDPOINTS.update({
     # screenings that run on specific later dates). The time inside the bounds is
     # ignored; an evening window returns the whole day.
     #
+    # All three catalogues are public: verified live with the normal app/device
+    # context but without Authorization, Cookie or sessionid. Keep the non-secret
+    # context because a request with no app/device params returns a user error.
+    #
     # movie behaves differently from the other two and the difference is not
     # cosmetic: it ignores count/page and returns the vertical whole, and its slots
     # come back EMPTY — the showings are in schedule/movie. concert and spectacle
     # paginate server-side and do carry slots. There is no /api/events/exhibition
     # in any capture, so exhibitions have no catalogue of their own.
     "events_movie": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
-                     "path": "/api/events/movie", "params": {}},
+                     "path": "/api/events/movie", "params": {},
+                     "no_session_param": True, "no_bearer": True, "no_cookie": True},
     "events_concert": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
-                       "path": "/api/events/concert", "params": {}},
+                       "path": "/api/events/concert", "params": {},
+                       "no_session_param": True, "no_bearer": True, "no_cookie": True},
     "events_spectacle": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
-                         "path": "/api/events/spectacle", "params": {}},
+                         "path": "/api/events/spectacle", "params": {},
+                         "no_session_param": True, "no_bearer": True, "no_cookie": True},
 
     # ---- venues -----------------------------------------------------------
     # ?service=&cityId=&page=&count=&include=all — the venue directory, and the

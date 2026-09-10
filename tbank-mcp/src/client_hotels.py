@@ -14,6 +14,65 @@ globals().update({
 class HotelMixin:
     """Hotel search and booking-read methods."""
 
+    _HOTELS_SSO_COOKIE_NAMES = (
+        "__P__wuid", "api_sso_id", "sso_used", "ssoId", "sso_user_id",
+        "sso_api_session", "sessionID", "SSO_ID_TOKEN", "SSO_VALIDATION",
+        "_T_travel_session_id",
+    )
+
+    def _hotels_sso_cookie(self) -> str:
+        """Build the narrow web session used by SSO-aware Hotels endpoints."""
+        self.ensure_fresh()
+        if not self.sso_id:
+            self.session_status()
+
+        names = self._HOTELS_SSO_COOKIE_NAMES
+        values = {}
+        actual = selected_cookies(self.hotels_cookie, names)
+        for part in actual.split(";"):
+            if "=" in part:
+                key, value = part.strip().split("=", 1)
+                if key in names and value:
+                    values[key] = value
+
+        fallback = {
+            "ssoId": self.sso_id,
+            "sso_user_id": self.sso_id,
+            "sso_api_session": self.access_token,
+            "sessionID": self.access_token,
+        }
+        wide = selected_cookies(self._wide_cookie(), names)
+        for part in wide.split(";"):
+            if "=" in part:
+                key, value = part.strip().split("=", 1)
+                if key in names and value:
+                    values.setdefault(key, value)
+        for key, value in fallback.items():
+            if value:
+                values.setdefault(key, value)
+        return "; ".join(
+            f"{name}={values[name]}" for name in names if values.get(name))
+
+    def _remember_hotels_sso_cookies(self, http) -> None:
+        """Persist only allowlisted cookies learned from the Hotels web flow."""
+        names = self._HOTELS_SSO_COOKIE_NAMES
+        jar = getattr(http, "cookies", None)
+        values = {}
+        for part in selected_cookies(self.hotels_cookie, names).split(";"):
+            if "=" in part:
+                key, value = part.strip().split("=", 1)
+                if key in names and value:
+                    values[key] = value
+        if jar is not None:
+            values.update({key: value for key, value in jar.get_dict().items()
+                           if key in names and value})
+        learned = "; ".join(
+            f"{name}={values[name]}" for name in names if values.get(name))
+        if learned and learned != self.hotels_cookie:
+            self.hotels_cookie = learned
+            self.hotels_cookie_at = time.time()
+            self._persist()
+
     def hotel_booking(self, booking_id: str) -> dict:
         """Full detail for a hotel booking: dates, hotel, room, guests, meals.
 
@@ -376,3 +435,36 @@ class HotelMixin:
             "hotel_reviews", overrides=query,
             path_override=f"/api/hotels/api/v2/review/{hotel_id}/feedback")
         return data if isinstance(data, dict) else {}
+
+
+    def hotel_favorites(self) -> dict:
+        """Favorite hotels and the configured per-user maximum (v1)."""
+        data = self._call_read("hotel_favorites")
+        return data if isinstance(data, dict) else {}
+
+
+    def hotel_similar(self, hotel_id: int, *, date_from: str = "",
+                      date_to: str = "", guests: int = 2,
+                      children_ages: list[int] | None = None) -> list[dict]:
+        """Ranked hotel-to-hotel recommendations from Hotels BFF."""
+        query = {"guests": int(guests)}
+        if date_from and date_to:
+            query.update({"dateFrom": date_from, "dateTo": date_to})
+        if children_ages:
+            query["childrenAges"] = ",".join(str(age) for age in children_ages)
+        try:
+            data = self._call_read(
+                "hotel_similar",
+                path_override=f"/bff/api/v1/i2i/{int(hotel_id)}",
+                overrides=query,
+                headers_override={"X-Request-Id": str(__import__("uuid").uuid4())},
+            )
+        except TbankApiError as exc:
+            # The recommendations contract defines 404 as an expected absence,
+            # equivalent for consumers to the ordinary 200 [] empty state.
+            if exc.result_code == "HTTP_404":
+                return []
+            raise
+        if not isinstance(data, list):
+            return []
+        return [item for item in data if isinstance(item, dict)]

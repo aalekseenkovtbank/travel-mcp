@@ -52,7 +52,8 @@ from .travel_compare import (
     sort_flights, sort_hotels, sort_trains,
 )
 from .trip_page import (RenderPageResult, TravelPageDocument, TripPageDocumentV1,
-                        format_inventory_reply_json, render_page_content)
+                        format_document_reply, format_inventory_reply_json,
+                        render_page_content)
 from .trip_personalization import (TripPersonalizationProfile,
                                    build_personalization_profile)
 from .weather import weather_report as _weather_report
@@ -85,7 +86,7 @@ FORMER_TRAVEL_TOOL_NAMES = frozenset({
     # Public no-key context sources.
     "nearby_search", "weather",
     # In-memory HTML rendering.
-    "render_trip_page", "render_travel_page", "format_trip_reply",
+    "get_trip_report", "render_trip_page", "render_travel_page", "format_trip_reply",
 })
 
 mcp = FastMCP(
@@ -157,10 +158,10 @@ def personalized_weekend_landing(
         else "Отель не задан: подбери ровно три варианта и выбери средний по цене как рекомендуемый."
     )
     output_part = (
-        "Собери trip-page/v2, вызови render_travel_page(document) и покажи "
-        "поля html и replyMarkdown пользователю. Не пиши файлы и не ссылайся на пути."
+        "Собери request формата trip-page/v2, вызови get_trip_report(request) "
+        "и покажи готовый html пользователю. Не пиши файлы и не ссылайся на пути."
         if output_mode == "html"
-        else "Ответь только в чате: не вызывай renderer. После каждой карточки "
+        else "Ответь только в чате: вызови get_trip_report(request, output_mode=\"markdown\"). После каждой карточки "
         "вставь tbankUrl или строку «Ссылка T-Bank недоступна»."
     )
     return f"""Подготовь персональный лендинг для поездки в {city} с {date_from} по {date_to}.
@@ -174,7 +175,7 @@ def personalized_weekend_landing(
 1. Вызови trip_personalization_profile() для агрегированного бюджета и интересов. Не вызывай list_operations и order_details самостоятельно ради профиля: новый инструмент уже исключает переводы, отмены и сырые персональные данные.
 2. Подбери транспорт туда и обратно через flight_search или train_search, всегда явно передавая adults=1. Для сравнения дат в compare_flight_prices и compare_train_prices также всегда передавай adults=1. Это только поиск: не утверждай, что билеты куплены. Для пятничного вылета на выходные выбирай отправление не раньше 18:00 по местному времени, если пользователь явно не сказал, что пятница свободна. Передай найденные цены повторно в trip_personalization_profile(), если истории поездок недостаточно. Сохрани продавца в seller, подтверждённую ссылку объекта — в tbankUrl, а единый checkout маршрута — отдельно в transportBookingUrl, только если их вернул источник. Не конструируй транспортную ссылку и не подставляй общий раздел.
 3. Найди ровно три отеля через hotel_autocomplete, hotel_search, hotel_details и актуальные hotel_rates/hotel_latest_offers, всегда явно передавая adults=2 во все hotel-вызовы и сравнения. Не используй compare_flight_hotel_prices в этом шаблоне: у него один общий adults, поэтому он не может одновременно искать билет на одного и отель на двоих. Расположи отели по строго возрастающей полной цене: выгодный, сбалансированный и более комфортный. Уровень звёзд, рейтинг, расположение и условия не должны становиться хуже при росте цены; разница между соседними вариантами должна быть разумной, без резкого скачка класса. Заполни room, meal, cancellation, payment, reviewSummary и detailsUrl фактическими данными; detailsUrl строй только из настоящего hotelId. bookingUrl — отдельный checkout: hotel_checkout_url используй только после явного выбора тарифа и с подтверждённым book_hash; ссылка не создаёт бронь и не списывает деньги.
-4. Для {date_from}–{date_to} получи Афишу и перепроверь расписание. Ранжируй события по scoringWeights и агрегатам eventPreferences из профиля; сохраняй genres, ageRestriction и готовый sourceUrl из afisha_catalog(). Не транслитерируй неизвестные значения самостоятельно. Не бронируй места и не вызывай ticket_pay.
+4. Для {date_from}–{date_to} сразу вызови afisha_catalog(city="{city}", date_from="{date_from}", date_to="{date_to}", response_format="json") по подходящим категориям. search_app для этой цепочки не нужен. Для выбранных событий перепроверь сеансы через cinema_schedule/concert_schedule и включи фактические данные в request.events. Ранжируй события по scoringWeights и агрегатам eventPreferences из профиля; сохраняй genres, ageRestriction и готовый sourceUrl из afisha_catalog(). Не транслитерируй неизвестные значения самостоятельно. Не бронируй места и не вызывай ticket_pay.
 5. Вызови nearby_search() для ресторанов, баров и прогулочных точек. Используй карточки OpenStreetMap с координатами и sourceUrl; собери 4–8 заведений, минимум два ресторана и один бар. Не выдумывай отсутствующие фотографии, рейтинги, отзывы или часы работы.
 6. Следуй каноническому travel-output flow из MCP resource travel-nova://instructions/travel-output-modes. Для каждого финального отеля загрузи одну сопоставимую страницу hotel_reviews(sort="date", sort_type="desc", page_size=10), собери до трёх реальных фотографий и структурированный reviewDigest.
 7. Составь TripPageDocumentV2: mapPoints должны ссылаться на выбранный отель, события и заведения по ID; renderer автоматически покажет на карте и два альтернативных отеля. Добавь ровно три непротиворечивых плана balanced, culture и food_nightlife. Все остановки должны попадать в даты поездки и ссылаться на существующие ID.
@@ -335,6 +336,7 @@ TOOL_KINDS: dict[str, tuple[str, str]] = {
     "diagnostics": ("События последних оплат", READ),
     "debug_report": ("Как использовали этот MCP", READ),
     "format_trip_reply": ("Готовый Markdown с ссылками T-Bank", READ),
+    "get_trip_report": ("Готовый отчёт поездки", READ),
     "render_trip_page": ("HTML-страница поездки", READ),
     "render_travel_page": ("HTML-страница Travel Nova", READ),
 }
@@ -347,7 +349,7 @@ def _annotations_for(name: str) -> ToolAnnotations:
             f"(nothing changes), WRITE (changes something, costs nothing) or "
             f"MONEY (debits an account) — see the note above the table.")
     title, kind = TOOL_KINDS[name]
-    local_renderers = {"render_trip_page", "render_travel_page", "format_trip_reply"}
+    local_renderers = {"get_trip_report", "render_trip_page", "render_travel_page", "format_trip_reply"}
     ann = {"title": title, "openWorldHint": name not in local_renderers}
     if kind == READ:
         ann.update(readOnlyHint=True, destructiveHint=False, idempotentHint=True)
@@ -412,6 +414,32 @@ def trip_personalization_profile(
 
 
 @mcp.tool()
+def get_trip_report(
+    request: TravelPageDocument,
+    output_mode: Literal["html", "markdown"] = "html",
+) -> dict | str:
+    """Готовый отчёт из trip-page/v2 (с events Афиши) или hotel-page/v1.
+
+    До вызова получи события локации напрямую через
+    afisha_catalog(city=..., date_from=..., date_to=..., response_format="json");
+    search_app для этой цепочки не нужен. Перепроверь выбранные сеансы через
+    cinema_schedule/concert_schedule и передай фактические события в
+    request.events. request соответствует опубликованной схеме документа.
+
+    html возвращает JSON с готовой страницей и metadata без replyMarkdown;
+    markdown — только текст. Файлы, бронирование и оплата не создаются.
+    """
+    if output_mode == "markdown":
+        reply = format_document_reply(request)
+        if request.warnings:
+            reply += "\nПредупреждения:\n" + "\n".join(
+                f"- {warning}" for warning in request.warnings) + "\n"
+        return reply
+    return render_page_content(request).model_dump(
+        mode="json", by_alias=True, exclude={"reply_markdown"})
+
+
+@mcp.tool()
 def render_trip_page(document: TripPageDocumentV1) -> RenderPageResult:
     """Вернуть HTML и Markdown страницы поездки trip-page/v1. Файлы не пишет.
 
@@ -442,7 +470,7 @@ def format_trip_reply(
     """Собрать Markdown с обязательной ссылкой T-Bank после каждой карточки.
 
     Передай JSON из уже полученных поисков. Не выдумывает URL. Для полной
-    страницы вызывай render_travel_page.
+    страницы вызывай get_trip_report.
     """
     try:
         return format_inventory_reply_json(
@@ -611,9 +639,8 @@ _session: MobileSession | None = None
 # One stat() per call; the network is three orders of magnitude dearer. Ported from
 # the myt server (_require_myt), where this exact symptom was fixed first.
 _session_mtime: float | None = None
-# Lazily-built, credential-free fallback for the two avia tools that are
-# genuinely public per the Zubat spec (@useAuth(NoAuth), confirmed live: no
-# Bearer/Cookie/sessionid on the wire at all) — see _public_session().
+# Lazily-built, credential-free fallback for public travel reads confirmed live
+# with no Bearer/Cookie/sessionid on the wire — see _public_session().
 _public_flight_session: MobileSession | None = None
 _RECEIPTS_DIR = os.environ.get(
     "TBANK_RECEIPTS",
@@ -782,9 +809,10 @@ def _require():
 def _public_session():
     """A MobileSession for public travel reads that need no bank credential.
 
-    This covers Avia and Hotels facades confirmed to send no Bearer, bank Cookie
-    or mobile sessionid. A saved session is still preferred because Hotels may
-    use its separately allowlisted ssoId; an anonymous shell is enough otherwise.
+    This covers Avia, Hotels and the Afisha catalogue endpoints confirmed to send
+    no Bearer, bank Cookie or mobile sessionid. A saved session is still preferred
+    because Hotels may use its separately allowlisted ssoId; an anonymous shell is
+    enough otherwise.
 
     Goes through `_require()` FIRST, not a copy of its body: every test in
     this repo stubs a fake session by reassigning `server._require`, and a
@@ -803,7 +831,12 @@ def _public_session():
         if e.result_code != "NO_SESSION":
             raise
     if _public_flight_session is None:
-        _public_flight_session = MobileSession(mobile_sessionid="", refresh_token="")
+        _public_flight_session = MobileSession(
+            mobile_sessionid="", refresh_token="",
+            client_id="gorod-app", client_version="112.0.0",
+            vendor="t_ios", origin="mobile,ib5,loyalty,platform",
+            platform="ios", app_name="mobile", app_version=APP_VERSION,
+        )
     return _public_flight_session
 
 
@@ -4849,6 +4882,10 @@ def _search_rows(hits: list[dict]) -> tuple[list[dict], int]:
 def search_app(query: str, screen: str = "afisha", limit: int = 20) -> str:
     """Полнотекстовый поиск по разделу приложения.
 
+    Требует банковскую авторизацию. Для подбора событий в поездке этот
+    промежуточный шаг не нужен: сразу вызови afisha_catalog с городом,
+    датами и query при необходимости.
+
     screen — СТРОГИЙ enum, угадывать бесполезно (всё остальное → 400):
       afisha         — кино, концерты, театр, выставки, спектакли (по умолчанию);
                        отдаёт eventId, готовый для cinema_schedule/concert_schedule
@@ -5178,7 +5215,8 @@ def concert_schedule(event_id: str, kind: str = "concert",
 
     Даты в запросе нет: приходит всё будущее сразу, поэтому нужный день
     выбирай из напечатанного.
-    event_id — из search_app(query, screen="afisha")."""
+    event_id — из afisha_catalog(); для подбора по городу и датам
+    предварительный search_app не нужен."""
     try:
         fmt = _response_format(response_format)
         s = _require(); s.ensure_fresh()
@@ -7917,8 +7955,8 @@ def afisha_catalog(kind: str = "movie", city: str = "", date_from: str = "",
                    response_format: str = "text") -> str:
     """Афиша вертикали за ПЕРИОД дат: что идёт с date_from по date_to.
 
-    kind — "кино" | "концерт" | "театр". У выставок каталога по датам нет —
-    для них search_app(screen="afisha") или place_schedule().
+    kind — "кино" | "концерт" | "театр". У выставок каталога по датам нет;
+    без авторизации сообщи об этом ограничении и не делай fallback на search_app.
     city обязателен (или city_id числом), даты — YYYY-MM-DD; одна дата = один
     день.
 
@@ -7927,10 +7965,12 @@ def afisha_catalog(kind: str = "movie", city: str = "", date_from: str = "",
 
     У кино сеансы здесь НЕ приходят: их даёт cinema_schedule(event_id, date).
     У концертов и спектаклей ближайшие слоты видно сразу.
-    query — фильтр по названию, местный."""
+    query — фильтр по названию, местный. Банковский вход необязателен: каталог
+    работает без Bearer, cookie и sessionid, поэтому при отсутствии сессии не
+    вызывай search_app как промежуточный шаг."""
     try:
         fmt = _response_format(response_format)
-        s = _require(); s.ensure_fresh()
+        s = _public_session()
         events, scanned, amount = s.afisha_catalog(kind=kind, city=city, city_id=city_id,
                                           date_from=date_from, date_to=date_to,
                                           query=query, max_pages=pages)

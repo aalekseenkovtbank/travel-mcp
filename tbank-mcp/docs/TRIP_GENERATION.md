@@ -29,51 +29,152 @@ offerId/searchId и полученными ссылками.
 Если нужны отели — сначала следуй `tbank-hotel-search`. Передай в итоговый
 request реальные hotelId и выбранные параметры rate/room, если они есть.
 
-Текущий travel-only MCP не публикует events, Afisha, cinema, nearby-place или
-marketplace тулы. Не добавляй такие сущности в request и не выдумывай их.
+Если нужен досуг, перед сборкой request получи события из Афиши по flow
+ниже. Не добавляй события, если их не вернул источник.
+
+## Подбор событий в поездке
+
+1. Сразу вызови `afisha_catalog(city=destination, kind=...,
+   date_from=..., date_to=..., response_format="json")` на даты поездки.
+   Банковская авторизация для каталога необязательна; не вызывай
+   `search_app` для предварительного поиска или проверки доступности.
+   Для конкретного названия передай `query` в тот же вызов.
+2. Поддерживаются `кино`, `концерт`, `театр`; выбирай категории
+   по интересам. У выставок каталога по датам нет: сообщи об ограничении,
+   не подменяй каталог `search_app`.
+3. Сохрани warnings и `meta.complete`. Если выдача неполна, не выдавай
+   просмотренную часть за весь каталог.
+4. Для выбранных концертов и спектаклей вызови
+   `concert_schedule(event_id=..., kind=..., response_format="json")` и оставь
+   только сеансы нужного города и дат. Для кино вызови
+   `cinema_schedule(event_id=..., city=destination, date=...)` на выбранный день.
+   Если расписание недоступно без авторизации, не делай fallback на
+   `search_app`: сохрани кандидата в текстовой выдаче, но не включай его в
+   `request.events` без подтверждённого `startsAt`.
+5. Включи выбранные сеансы в `request.events`: `id`, `name`, `kind`,
+   `startsAt`, `venue`, `address`, `priceFromRub`, `sourceUrl`, `genres`,
+   `ageRestriction`, `matchReason`. Для `id` используй реальный eventId;
+   при нескольких сеансах одного события добавь реальный slotId для
+   уникальности. Покупку, бронь и оплату выполняет только пользователь.
 
 ## Request для get_trip_report
 
-Request содержит brief поездки и фактические результаты narrow flows:
+`request` — документ `trip-page/v2` (для отдельной подборки отелей —
+`hotel-page/v1`), соответствующий опубликованной JSON Schema инструмента.
+Основные поля поездки: `schemaVersion`, `trip`, `transport`,
+`flightOptions`, `hotels`, `selectedHotelId`, `events`, `sources`, `warnings`,
+`checkedAt`. Обязательные вложенные поля бери из схемы, а значения — из
+результатов поиска.
+
+`get_trip_report` валидирует готовый документ и формирует результат
+встроенным renderer. Он не выполняет повторный поиск: перепроверь цены,
+тарифы и расписания до вызова. Не передавай `bookHash` в request.
+
+Ниже — минимальные структурные примеры. Значения `replace-with-*`, нулевые
+цены и координаты — только JSON-заглушки: перед вызовом замени их фактическими
+значениями из инструментов. Не копируй их в пользовательский отчёт как данные
+поиска.
+
+### Минимальный `trip-page/v2`
+
+Событие в `events` должно быть получено через `afisha_catalog` и подтверждено
+расписанием согласно flow выше.
 
 ```json
 {
-  "title": "...",
-  "destination": "...",
-  "dateFrom": "YYYY-MM-DD",
-  "dateTo": "YYYY-MM-DD",
-  "travelers": 2,
-  "layout": "full",
-  "flights": [
-    {
-      "direction": "outbound|return",
-      "fromCode": "<код из flight_search>",
-      "toCode": "<код из flight_search>",
-      "date": "YYYY-MM-DD",
-      "carriers": ["<рейсы из flight_search>"]
-    }
-  ],
-  "flightOptions": [
-    {
-      "label": "<название альтернативы>",
-      "comment": "<фактические плюсы, минусы и сдвиг дат>",
-      "directions": ["<полная outbound + return пара>"]
-    }
-  ],
+  "schemaVersion": "trip-page/v2",
+  "trip": {
+    "title": "Поездка в replace-with-destination",
+    "destination": "replace-with-destination",
+    "dateFrom": "2030-01-01",
+    "dateTo": "2030-01-03",
+    "travelers": 2
+  },
+  "transport": [],
+  "flightOptions": [],
   "hotels": [
     {
-      "hotelId": "<id из hotel_search>",
-      "roomId": "<необязательно>",
-      "preferBreakfast": true
+      "id": "replace-with-hotel-id",
+      "name": "replace-with-hotel-name",
+      "address": "replace-with-hotel-address",
+      "coordinates": {
+        "latitude": 0,
+        "longitude": 0
+      },
+      "nightlyPriceRub": 0,
+      "totalPriceRub": 0
     }
   ],
-  "recommendedHotelId": "<необязательно>"
+  "selectedHotelId": "replace-with-hotel-id",
+  "events": [
+    {
+      "id": "replace-with-event-or-slot-id",
+      "name": "replace-with-event-name",
+      "kind": "concert",
+      "startsAt": "2030-01-02T19:00:00+03:00",
+      "venue": "replace-with-venue",
+      "address": "replace-with-event-address",
+      "genres": [],
+      "ageRestriction": "",
+      "matchReason": "replace-with-source-backed-reason"
+    }
+  ],
+  "sources": [
+    {
+      "name": "afisha_catalog",
+      "checkedAt": "2030-01-01T12:00:00+03:00"
+    }
+  ],
+  "warnings": [],
+  "checkedAt": "2030-01-01T12:00:00+03:00"
 }
 ```
 
-`get_trip_report` сам повторно проверяет доступные предложения, тарифы и ссылки,
-собирает бюджет и возвращает дайджест. Не передавай `bookHash` в request; rate
-flow принадлежит hotel skill.
+Если транспорт, ссылки, цены, фото или другие блоки получены от инструментов,
+добавь их по опубликованной JSON Schema. Пустой `transport` допустим только
+когда транспорт не входит в задачу или подтверждённых вариантов нет.
+
+### Минимальный `hotel-page/v1`
+
+Используй эту модель только для отдельной подборки отелей без полной поездки.
+
+```json
+{
+  "schemaVersion": "hotel-page/v1",
+  "search": {
+    "title": "Отели в replace-with-destination",
+    "destination": "replace-with-destination",
+    "dateFrom": "2030-01-01",
+    "dateTo": "2030-01-03",
+    "adults": 2,
+    "childrenAges": []
+  },
+  "hotels": [
+    {
+      "id": "replace-with-hotel-id",
+      "name": "replace-with-hotel-name",
+      "address": "replace-with-hotel-address",
+      "coordinates": {
+        "latitude": 0,
+        "longitude": 0
+      },
+      "nightlyPriceRub": 0,
+      "totalPriceRub": 0
+    }
+  ],
+  "selectedHotelId": "replace-with-hotel-id",
+  "sources": [
+    {
+      "name": "hotel_search",
+      "checkedAt": "2030-01-01T12:00:00+03:00"
+    }
+  ],
+  "warnings": [],
+  "checkedAt": "2030-01-01T12:00:00+03:00"
+}
+```
+
+При подборке короче пяти отелей валидатор добавит warning о неполном shortlist.
 
 ## Output mode
 
@@ -83,8 +184,8 @@ flow принадлежит hotel skill.
   режиме не возвращается;
 - `markdown` — только Markdown-дайджест для текстового ответа.
 
-`layout="compact|full"` влияет только на HTML. Для HTML-capable host выбирай
-`html`; для plain-text/chat ответа выбирай `markdown`.
+Для HTML-capable host выбирай `html`; для plain-text/chat ответа
+выбирай `markdown`. Параметра `layout` в текущем контракте нет.
 
 ## Контроль результата
 
