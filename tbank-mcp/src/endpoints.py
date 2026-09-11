@@ -1379,9 +1379,14 @@ BUILTIN_ENDPOINTS.update({
     "events_collection": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
                           "path": "/api/events/collection",
                           "params": {"service": "cinema", "page": "1", "count": "30"}},
-    # POST {"date","eventId","city","sort":{"by":"distance"},"location":{lat,lon}}
+    # POST {"date","eventId","city","sort":{"by":"distance"},"location":{lat,lon}}.
+    # Showtimes are public just like the Afisha catalogues: keep the normal
+    # app/device context, but do not attach bank credentials when a saved
+    # session happens to exist.
     "schedule_movie": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
-                       "path": "/api/schedule/movie", "params": {}},
+                       "path": "/api/schedule/movie", "params": {},
+                       "no_session_param": True, "no_bearer": True,
+                       "no_cookie": True},
 
     # ---- extras surfaced by captures2 -------------------------------------
     # bank-issued certificates (справки) — returns a BARE list, no envelope

@@ -98,7 +98,7 @@ Europe/Moscow**. Живые статусы источников в таблиц�
 | Вызов | Режим | Статус | Примечание |
 |---|:---:|:---:|---|
 | `cinema_search(query="", city="Москва")` | R | ✅ | Город обязателен; с городом отвечает |
-| `cinema_schedule(event_id, date, city=...)` | R | 🟡 | Нужен фильм/кинотеатр и дата |
+| `cinema_schedule(event_id, date, city=...)` | R | 🟡 | Нужен фильм/кинотеатр и дата; банковская авторизация необязательна |
 | `afisha_catalog(kind, city, date_from, date_to)` | R | ✅ | Город и даты обязательны; отвечает без банковской сессии |
 | `afisha_places(kind="movie", city="Москва")` | R | ✅ | Список площадок отвечает |
 | `place_schedule(object_id)` | R | 🟡 | Нужен ID площадки |

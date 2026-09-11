@@ -816,10 +816,10 @@ def _require():
 def _public_session():
     """A MobileSession for public travel reads that need no bank credential.
 
-    This covers Avia, Hotels and the Afisha catalogue endpoints confirmed to send
-    no Bearer, bank Cookie or mobile sessionid. A saved session is still preferred
-    because Hotels may use its separately allowlisted ssoId; an anonymous shell is
-    enough otherwise.
+    This covers Avia, Hotels, the Afisha catalogue and cinema schedule endpoints
+    confirmed to send no Bearer, bank Cookie or mobile sessionid. A saved session
+    is still preferred because Hotels may use its separately allowlisted ssoId;
+    an anonymous shell is enough otherwise.
 
     Goes through `_require()` FIRST, not a copy of its body: every test in
     this repo stubs a fake session by reassigning `server._require`, and a
@@ -4975,6 +4975,10 @@ def cinema_schedule(event_id: str = "", date: str = "", cinema: str = "",
                     city: str = "", object_id: str = "", limit: int = 20) -> str:
     """Сеансы кино на дату. date — YYYY-MM-DD.
 
+    Банковская авторизация необязательна: при наличии сохранённой сессии
+    используется её app/device-контекст, иначе запрос выполняется анонимно без
+    Bearer, cookie и sessionid.
+
     limit — сколько площадок/фильмов показать, 0 = все (по умолчанию 20).
     Городской режим (event_id+city, без cinema/around) может вернуть сотни
     кинотеатров разом — сузь cinema/around или подними limit, если нужно
@@ -5000,7 +5004,7 @@ def cinema_schedule(event_id: str = "", date: str = "", cinema: str = "",
     Отдаёт objectId площадки и slotId каждого сеанса — оба нужны для
     cinema_seats() и cinema_book(), поодиночке бесполезны."""
     try:
-        s = _require(); s.ensure_fresh()
+        s = _public_session()
         venues = s.cinema_schedule(event_id, date, city=city,
                                     object_id=object_id)
         want = cinema.lower().replace("ё", "е").split()

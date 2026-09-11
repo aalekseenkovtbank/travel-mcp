@@ -550,6 +550,11 @@ class TripPageDocumentV1(ContractModel):
     def _https_transport_booking_url(cls, value):
         return _require_tbank_url(value, "transportBookingUrl")
 
+    @field_validator("hotels")
+    @classmethod
+    def _hotels_by_total_price(cls, value):
+        return sorted(value, key=lambda item: item.total_price_rub)
+
     @model_validator(mode="after")
     def _cross_references_are_valid(self):
         # Optional blocks (budget, events, venues, mapPoints, plans,
@@ -569,9 +574,6 @@ class TripPageDocumentV1(ContractModel):
         hotel_ids = {item.id for item in self.hotels}
         if hotel_ids and self.selected_hotel_id not in hotel_ids:
             raise ValueError("selectedHotelId must reference a hotel")
-        prices = [item.total_price_rub for item in self.hotels]
-        if any(right <= left for left, right in zip(prices, prices[1:])):
-            raise ValueError("hotels must be ordered by strictly increasing totalPriceRub")
         if self.budget:
             budgets = {item.component: item for item in self.budget}
             if not set(budgets) <= {"transport", "hotel", "onsite", "total"}:
@@ -677,6 +679,11 @@ class HotelPageDocumentV1(ContractModel):
     sources: list[SourceReference] = Field(min_length=1, max_length=24)
     warnings: list[str] = Field(default_factory=list, max_length=24)
     checked_at: datetime
+
+    @field_validator("hotels")
+    @classmethod
+    def _hotels_by_total_price(cls, value):
+        return sorted(value, key=lambda item: item.total_price_rub)
 
     @model_validator(mode="after")
     def _hotel_references_are_valid(self):

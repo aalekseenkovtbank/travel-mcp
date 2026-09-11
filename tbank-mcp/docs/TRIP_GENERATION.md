@@ -48,9 +48,11 @@ request реальные hotelId и выбранные параметры rate/r
    `concert_schedule(event_id=..., kind=..., response_format="json")` и оставь
    только сеансы нужного города и дат. Для кино вызови
    `cinema_schedule(event_id=..., city=destination, date=...)` на выбранный день.
-   Если расписание недоступно без авторизации, не делай fallback на
-   `search_app`: сохрани кандидата в текстовой выдаче, но не включай его в
-   `request.events` без подтверждённого `startsAt`.
+   `cinema_schedule` не требует банковской авторизации. Если расписание всё же
+   недоступно из-за ошибки источника, а для концерта или спектакля — также из-за
+   отсутствия авторизации, не делай fallback на `search_app`: сохрани кандидата
+   в текстовой выдаче, но не включай его в `request.events` без подтверждённого
+   `startsAt`.
 5. Включи выбранные сеансы в `request.events`: `id`, `name`, `kind`,
    `startsAt`, `venue`, `address`, `priceFromRub`, `sourceUrl`, `genres`,
    `ageRestriction`, `matchReason`. Для `id` используй реальный eventId;

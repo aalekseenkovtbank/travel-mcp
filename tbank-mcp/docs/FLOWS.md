@@ -375,6 +375,8 @@ skill. The order here is the part you must not improvise:
 > events in a trip. It does not require bank authorization. Do not call
 > `search_app` first: use `query` on the catalogue for a specific title, then
 > verify selected showings with `cinema_schedule` or `concert_schedule`.
+> `cinema_schedule` also works without bank authorization; the separate
+> `concert_schedule` flow still uses an authenticated session.
 > `search_app` remains an authenticated full-text helper for the separate ticket
 > flow; exhibitions have no date catalogue and must be reported as a limitation
 > when authorization is unavailable.
@@ -385,7 +387,9 @@ skill. The order here is the part you must not improvise:
    showtimes per venue, filtered by venue-name substring and a time window
    (`window_min`). Pass the SAME `city` as in step 1 — it also anchors the
    distance sort, and a Petersburg schedule ordered from the centre of Moscow
-   looks plausible and is nonsense. Omitting both `city` and `object_id` is
+   looks plausible and is nonsense. Bank authorization is optional: the request
+   keeps the app/device context but sends no Bearer, cookie or sessionid.
+   Omitting both `city` and `object_id` is
    refused outright — `CITY_REQUIRED` — not silently defaulted to Moscow.
    Concerts: `concert_schedule(event_id)` — their showings are not date-keyed.
    Take **both** `slotId` and `objectId`; a `slotId` without its venue is useless.
