@@ -70,12 +70,28 @@ request реальные hotelId и выбранные параметры rate/r
 встроенным renderer. Он не выполняет повторный поиск: перепроверь цены,
 тарифы и расписания до вызова. Не передавай `bookHash` в request.
 
-Ниже — минимальные структурные примеры. Значения `replace-with-*`, нулевые
-цены и координаты — только JSON-заглушки: перед вызовом замени их фактическими
-значениями из инструментов. Не копируй их в пользовательский отчёт как данные
-поиска.
+Для каждого финального отеля до вызова обязательны `hotel_latest_offers`,
+`hotel_details`, `hotel_rates` и `hotel_reviews`. Передай `reviewCount`,
+`facilities`, `room`, `meal`, `cancellation`, `payment` и структурированный
+`reviewDigest`. Если источник не вернул часть сведений, сохрани конкретный
+warning для этого отеля. Renderer также добавляет такой warning и actionable
+`advice`, если enrichment был пропущен, поэтому неполная страница не выглядит
+полной молча. В HTML-ответе верхнеуровневое поле `schemaVersion` позволяет
+сверить опубликованный контракт с версией клиента.
 
-### Минимальный `trip-page/v2`
+Если передаёшь `plans`, в день приезда каждая остановка должна
+начинаться не раньше самого позднего `arrivalAt` выбранного outbound-транспорта,
+а в день отъезда — заканчиваться не позже самого раннего `departureAt` return-транспорта.
+Сравнивай timezone-aware timestamps, а не только локальные часы. Невалидная остановка
+из необязательного плана будет пропущена с warning и не должна скрывать
+остальные валидные части отчёта.
+
+Ниже — структурные примеры с полным hotel enrichment. Значения
+`replace-with-*`, числа, даты, цены и координаты — только JSON-заглушки: перед
+вызовом замени их фактическими значениями из инструментов. Не копируй их в
+пользовательский отчёт как данные поиска.
+
+### Структурный `trip-page/v2`
 
 Событие в `events` должно быть получено через `afisha_catalog` и подтверждено
 расписанием согласно flow выше.
@@ -97,12 +113,27 @@ request реальные hotelId и выбранные параметры rate/r
       "id": "replace-with-hotel-id",
       "name": "replace-with-hotel-name",
       "address": "replace-with-hotel-address",
+      "reviewCount": 10,
       "coordinates": {
         "latitude": 0,
         "longitude": 0
       },
       "nightlyPriceRub": 0,
-      "totalPriceRub": 0
+      "totalPriceRub": 0,
+      "room": "replace-with-room-from-hotel-rates",
+      "meal": "replace-with-meal-from-hotel-rates",
+      "cancellation": "replace-with-cancellation-from-hotel-rates",
+      "payment": "replace-with-payment-from-hotel-rates",
+      "facilities": ["replace-with-facility-from-hotel-details"],
+      "reviewDigest": {
+        "sampleSize": 10,
+        "sort": "date",
+        "sortType": "desc",
+        "pros": ["replace-with-repeated-pro-from-loaded-reviews"],
+        "cons": ["replace-with-repeated-con-or-insufficient-data"],
+        "suitableFor": "replace-with-source-backed-fit",
+        "summary": "replace-with-review-sample-summary"
+      }
     }
   ],
   "selectedHotelId": "replace-with-hotel-id",
@@ -121,6 +152,22 @@ request реальные hotelId и выбранные параметры rate/r
   ],
   "sources": [
     {
+      "name": "hotel_latest_offers",
+      "checkedAt": "2030-01-01T12:00:00+03:00"
+    },
+    {
+      "name": "hotel_details",
+      "checkedAt": "2030-01-01T12:00:00+03:00"
+    },
+    {
+      "name": "hotel_rates",
+      "checkedAt": "2030-01-01T12:00:00+03:00"
+    },
+    {
+      "name": "hotel_reviews",
+      "checkedAt": "2030-01-01T12:00:00+03:00"
+    },
+    {
       "name": "afisha_catalog",
       "checkedAt": "2030-01-01T12:00:00+03:00"
     }
@@ -134,7 +181,7 @@ request реальные hotelId и выбранные параметры rate/r
 добавь их по опубликованной JSON Schema. Пустой `transport` допустим только
 когда транспорт не входит в задачу или подтверждённых вариантов нет.
 
-### Минимальный `hotel-page/v1`
+### Структурный `hotel-page/v1`
 
 Используй эту модель только для отдельной подборки отелей без полной поездки.
 
@@ -154,18 +201,45 @@ request реальные hotelId и выбранные параметры rate/r
       "id": "replace-with-hotel-id",
       "name": "replace-with-hotel-name",
       "address": "replace-with-hotel-address",
+      "reviewCount": 10,
       "coordinates": {
         "latitude": 0,
         "longitude": 0
       },
       "nightlyPriceRub": 0,
-      "totalPriceRub": 0
+      "totalPriceRub": 0,
+      "room": "replace-with-room-from-hotel-rates",
+      "meal": "replace-with-meal-from-hotel-rates",
+      "cancellation": "replace-with-cancellation-from-hotel-rates",
+      "payment": "replace-with-payment-from-hotel-rates",
+      "facilities": ["replace-with-facility-from-hotel-details"],
+      "reviewDigest": {
+        "sampleSize": 10,
+        "sort": "date",
+        "sortType": "desc",
+        "pros": ["replace-with-repeated-pro-from-loaded-reviews"],
+        "cons": ["replace-with-repeated-con-or-insufficient-data"],
+        "suitableFor": "replace-with-source-backed-fit",
+        "summary": "replace-with-review-sample-summary"
+      }
     }
   ],
   "selectedHotelId": "replace-with-hotel-id",
   "sources": [
     {
-      "name": "hotel_search",
+      "name": "hotel_latest_offers",
+      "checkedAt": "2030-01-01T12:00:00+03:00"
+    },
+    {
+      "name": "hotel_details",
+      "checkedAt": "2030-01-01T12:00:00+03:00"
+    },
+    {
+      "name": "hotel_rates",
+      "checkedAt": "2030-01-01T12:00:00+03:00"
+    },
+    {
+      "name": "hotel_reviews",
       "checkedAt": "2030-01-01T12:00:00+03:00"
     }
   ],

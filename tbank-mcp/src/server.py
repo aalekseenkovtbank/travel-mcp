@@ -53,7 +53,7 @@ from .travel_compare import (
 )
 from .trip_page import (RenderPageResult, TravelPageDocument, TripPageDocumentV1,
                         format_document_reply, format_inventory_reply_json,
-                        render_page_content)
+                        prepare_report_document, render_page_content)
 from .trip_personalization import (TripPersonalizationProfile,
                                    build_personalization_profile)
 from .weather import weather_report as _weather_report
@@ -174,11 +174,11 @@ def personalized_weekend_landing(
 Работай по этому сценарию:
 1. Вызови trip_personalization_profile() для агрегированного бюджета и интересов. Не вызывай list_operations и order_details самостоятельно ради профиля: новый инструмент уже исключает переводы, отмены и сырые персональные данные.
 2. Подбери транспорт туда и обратно через flight_search или train_search, всегда явно передавая adults=1. Для сравнения дат в compare_flight_prices и compare_train_prices также всегда передавай adults=1. Это только поиск: не утверждай, что билеты куплены. Для пятничного вылета на выходные выбирай отправление не раньше 18:00 по местному времени, если пользователь явно не сказал, что пятница свободна. Передай найденные цены повторно в trip_personalization_profile(), если истории поездок недостаточно. Сохрани продавца в seller, подтверждённую ссылку объекта — в tbankUrl, а единый checkout маршрута — отдельно в transportBookingUrl, только если их вернул источник. Не конструируй транспортную ссылку и не подставляй общий раздел.
-3. Найди ровно три отеля через hotel_autocomplete, hotel_search, hotel_details и актуальные hotel_rates/hotel_latest_offers, всегда явно передавая adults=2 во все hotel-вызовы и сравнения. Не используй compare_flight_hotel_prices в этом шаблоне: у него один общий adults, поэтому он не может одновременно искать билет на одного и отель на двоих. Расположи отели по строго возрастающей полной цене: выгодный, сбалансированный и более комфортный. Уровень звёзд, рейтинг, расположение и условия не должны становиться хуже при росте цены; разница между соседними вариантами должна быть разумной, без резкого скачка класса. Заполни room, meal, cancellation, payment, reviewSummary и detailsUrl фактическими данными; detailsUrl строй только из настоящего hotelId. bookingUrl — отдельный checkout: hotel_checkout_url используй только после явного выбора тарифа и с подтверждённым book_hash; ссылка не создаёт бронь и не списывает деньги.
+3. Найди ровно три отеля через hotel_autocomplete, hotel_search, hotel_details и актуальные hotel_rates/hotel_latest_offers, всегда явно передавая adults=2 во все hotel-вызовы и сравнения. Не используй compare_flight_hotel_prices в этом шаблоне: у него один общий adults, поэтому он не может одновременно искать билет на одного и отель на двоих. Расположи отели по строго возрастающей полной цене: выгодный, сбалансированный и более комфортный. Уровень звёзд, рейтинг, расположение и условия не должны становиться хуже при росте цены; разница между соседними вариантами должна быть разумной, без резкого скачка класса. Заполни facilities, room, meal, cancellation, payment, reviewCount, reviewDigest и detailsUrl фактическими данными; detailsUrl строй только из настоящего hotelId. bookingUrl — отдельный checkout: hotel_checkout_url используй только после явного выбора тарифа и с подтверждённым book_hash; ссылка не создаёт бронь и не списывает деньги.
 4. Для {date_from}–{date_to} сразу вызови afisha_catalog(city="{city}", date_from="{date_from}", date_to="{date_to}", response_format="json") по подходящим категориям. search_app для этой цепочки не нужен. Для выбранных событий перепроверь сеансы через cinema_schedule/concert_schedule и включи фактические данные в request.events. Ранжируй события по scoringWeights и агрегатам eventPreferences из профиля; сохраняй genres, ageRestriction и готовый sourceUrl из afisha_catalog(). Не транслитерируй неизвестные значения самостоятельно. Не бронируй места и не вызывай ticket_pay.
 5. Вызови nearby_search() для ресторанов, баров и прогулочных точек. Используй карточки OpenStreetMap с координатами и sourceUrl; собери 4–8 заведений, минимум два ресторана и один бар. Не выдумывай отсутствующие фотографии, рейтинги, отзывы или часы работы.
 6. Следуй каноническому travel-output flow из MCP resource travel-nova://instructions/travel-output-modes. Для каждого финального отеля загрузи одну сопоставимую страницу hotel_reviews(sort="date", sort_type="desc", page_size=10), собери до трёх реальных фотографий и структурированный reviewDigest.
-7. Составь TripPageDocumentV2: mapPoints должны ссылаться на выбранный отель, события и заведения по ID; renderer автоматически покажет на карте и два альтернативных отеля. Добавь ровно три непротиворечивых плана balanced, culture и food_nightlife. Все остановки должны попадать в даты поездки и ссылаться на существующие ID.
+7. Составь TripPageDocumentV2: mapPoints должны ссылаться на выбранный отель, события и заведения по ID; renderer автоматически покажет на карте и два альтернативных отеля. Добавь ровно три непротиворечивых плана balanced, culture и food_nightlife. Все остановки должны попадать в даты поездки, ссылаться на существующие ID, начинаться не раньше последнего arrivalAt outbound-транспорта и заканчиваться не позже первого departureAt return-транспорта. Сравнивай полные timestamp с timezone offset.
 8. {output_part} Не пытайся собирать React/Vite-проект. В chat-режиме после каждой карточки отеля, билета и события выведи Markdown-ссылку на точный объект T-Bank, а при отсутствии подтверждённого URL — отдельную строку «Ссылка T-Bank недоступна».
 9. Не раскрывай имена, номера счетов, балансы, зарплату или отдельные операции. Не заявляй, что билет или отель забронирован. В бюджете и карточках явно подпиши, что цена транспорта получена для 1 взрослого, а цена отеля — для 2 взрослых. Не умножай цену билета на число гостей карточки. Цены всегда снабжай временем проверки."""
 
@@ -420,6 +420,12 @@ def get_trip_report(
 ) -> dict | str:
     """Готовый отчёт из trip-page/v2 (с events Афиши) или hotel-page/v1.
 
+    Для каждого финального отеля до вызова обязательны hotel_latest_offers,
+    hotel_details, hotel_rates и hotel_reviews. Передай facilities, room, meal,
+    cancellation, payment, reviewCount и reviewDigest. Если источник не вернул
+    часть сведений, сохрани явный warning; renderer также добавит диагностику
+    для каждого пропущенного блока.
+
     До вызова получи события локации напрямую через
     afisha_catalog(city=..., date_from=..., date_to=..., response_format="json");
     search_app для этой цепочки не нужен. Перепроверь выбранные сеансы через
@@ -429,6 +435,7 @@ def get_trip_report(
     html возвращает JSON с готовой страницей и metadata без replyMarkdown;
     markdown — только текст. Файлы, бронирование и оплата не создаются.
     """
+    request, _ = prepare_report_document(request)
     if output_mode == "markdown":
         reply = format_document_reply(request)
         if request.warnings:

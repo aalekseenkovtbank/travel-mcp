@@ -594,6 +594,12 @@ do not use it as a station resolver.
    `cursor` без изменений; `search_text="onlyPhotos"` оставляет отзывы с фото.
 9. `hotel_filters()` → общий каталог фильтров для UI/rates; он не учитывает
    конкретные даты, гостей и доступность предложений.
+10. Для итогового `get_trip_report()` передай по каждому финальному отелю
+    `reviewCount`, `facilities`, `room`, `meal`, `cancellation`, `payment` и
+    структурированный `reviewDigest`. Если любой блок отсутствует, report
+    сохранит страницу, но добавит видимый warning с hotel id и actionable
+    `advice`; пропускать обязательные вызовы enrichment из-за fail-soft режима
+    нельзя.
 
 Hotel-поиск идёт через публичный production proxy `www.tbank.ru/api/hotels/`
 без Bearer и банковского `sessionid`; при доступной авторизации его поисковая

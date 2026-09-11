@@ -46,15 +46,16 @@
 
 ## Skills Travel MCP
 
-Travel-router [`tbank`](../tbank-mcp/skills/tbank/SKILL.md) выбирает один из двух
-активных предметных skills. Только эти активные travel-каталоги остаются под
-`tbank-mcp/skills/` и могут индексироваться агентом.
+Travel-router [`tbank`](../tbank-mcp/skills/tbank/SKILL.md) выбирает активный
+предметный skill по сценарию. Только перечисленные ниже travel-каталоги остаются
+под `tbank-mcp/skills/` и могут индексироваться агентом.
 
 | Область | Канонический skill |
 |---|---|
 | Отдельный поиск и сравнение авиабилетов | [`tbank-flight-search`](../tbank-mcp/skills/tbank-flight-search/SKILL.md) |
 | Отдельный поиск отелей, shortlist и тарифы | [`tbank-hotel-search`](../tbank-mcp/skills/tbank-hotel-search/SKILL.md) |
-| ЖД, погода и составная поездка | [`tbank-travel-search`](../tbank-mcp/skills/tbank-travel-search/SKILL.md) |
+| Составная поездка и итоговый дайджест | [`tbank-trip-generation`](../tbank-mcp/skills/tbank-trip-generation/SKILL.md) |
+| ЖД, погода и общие travel-компоненты | [`tbank-travel-search`](../tbank-mcp/skills/tbank-travel-search/SKILL.md) |
 
 Банковские skills сохранены без потери содержимого в
 `tbank-mcp/archive/banking-guidance/`. Их файлы называются `SKILL.md.disabled`,

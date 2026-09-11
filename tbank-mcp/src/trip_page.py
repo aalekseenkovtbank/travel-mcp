@@ -605,21 +605,52 @@ class TripPageDocumentV1(ContractModel):
                              if leg.direction == "outbound"]
         return_departures = [leg.departure_at for leg in self.transport
                              if leg.direction == "return"]
+        valid_plans: list[TripPlan] = []
+        plan_warnings: list[str] = []
         for plan in self.plans:
+            valid_days: list[PlanDay] = []
             for day in plan.days:
                 if not self.trip.date_from <= day.date <= self.trip.date_to:
-                    raise ValueError("plan day is outside the trip dates")
+                    plan_warnings.append(
+                        f'День {day.date.isoformat()} из плана «{plan.title}» '
+                        "пропущен: он не входит в даты поездки.")
+                    continue
+                valid_stops: list[PlanStop] = []
                 for stop in day.stops:
                     if stop.ref_id not in all_ids:
-                        raise ValueError(f"unknown plan stop refId {stop.ref_id!r}")
+                        plan_warnings.append(
+                            f'Остановка {stop.ref_id!r} из плана «{plan.title}» '
+                            "пропущена: объекта нет в отчёте.")
+                        continue
                     if outbound_arrivals and stop.starts_at < max(outbound_arrivals):
-                        raise ValueError("plan stop falls before arrival")
+                        plan_warnings.append(
+                            f'Остановка {stop.ref_id!r} из плана «{plan.title}» '
+                            "пропущена: она начинается до прибытия.")
+                        continue
                     if return_departures and stop.ends_at > min(return_departures):
-                        raise ValueError("plan stop ends after departure")
+                        plan_warnings.append(
+                            f'Остановка {stop.ref_id!r} из плана «{plan.title}» '
+                            "пропущена: она заканчивается после обратного отправления.")
+                        continue
                     event = events_by_id.get(stop.ref_id)
                     if event and (stop.starts_at < event.starts_at
                                   or (event.ends_at and stop.ends_at > event.ends_at)):
-                        raise ValueError("event plan stop must fit the published event time")
+                        plan_warnings.append(
+                            f'Остановка {stop.ref_id!r} из плана «{plan.title}» '
+                            "пропущена: время не совпадает с расписанием события.")
+                        continue
+                    valid_stops.append(stop)
+                if valid_stops:
+                    valid_days.append(day.model_copy(update={"stops": valid_stops}))
+            if valid_days:
+                valid_plans.append(plan.model_copy(update={"days": valid_days}))
+        if plan_warnings:
+            # Plans are optional, model-authored presentation data. A bad stop
+            # must not hide otherwise valid source-backed transport and hotels.
+            self.plans = valid_plans
+            for warning in plan_warnings:
+                if warning not in self.warnings and len(self.warnings) < 24:
+                    self.warnings.append(warning)
         return self
 
 
@@ -690,6 +721,7 @@ PAGE_DISPLAY_HINT = (
 class RenderPageResult(ContractModel):
     """In-memory Travel Nova page for MCP hosts (no disk paths)."""
 
+    schema_version: Literal["trip-page/v1", "trip-page/v2", "hotel-page/v1"]
     html: str
     document_json: str
     reply_markdown: str
@@ -1052,6 +1084,18 @@ def _hotel_review_block(hotel: HotelOption) -> str:
     )
 
 
+_HOTEL_PAYMENT_LABELS = {
+    "now": "Оплата сейчас",
+    "hotel": "Оплата в отеле",
+}
+
+
+def _hotel_payment_label(value: str) -> str:
+    """Humanize stable Hotels API enum values without guessing unknown ones."""
+    text = str(value or "").strip()
+    return _HOTEL_PAYMENT_LABELS.get(text.casefold(), text)
+
+
 def _render_hotels(document: TripPageDocumentV1 | TripPageDocumentV2 | HotelPageDocumentV1) -> str:
     cards = []
     tier_labels = ("Выгодный", "Сбалансированный", "Больше комфорта")
@@ -1062,7 +1106,7 @@ def _render_hotels(document: TripPageDocumentV1 | TripPageDocumentV2 | HotelPage
             ("Номер", hotel.room),
             ("Питание", hotel.meal),
             ("Отмена", hotel.cancellation),
-            ("Оплата", hotel.payment),
+            ("Оплата", _hotel_payment_label(hotel.payment)),
             ("Заезд", getattr(hotel, "check_in_time", "")),
             ("Выезд", getattr(hotel, "check_out_time", "")),
         ]
@@ -1142,7 +1186,8 @@ def _render_hotel_comparison(
         ("Номер", lambda hotel: _e(hotel.room) if hotel.room else "—"),
         ("Питание", lambda hotel: _e(hotel.meal) if hotel.meal else "—"),
         ("Отмена", lambda hotel: _e(hotel.cancellation) if hotel.cancellation else "—"),
-        ("Оплата", lambda hotel: _e(hotel.payment) if hotel.payment else "—"),
+        ("Оплата", lambda hotel: (
+            _e(_hotel_payment_label(hotel.payment)) if hotel.payment else "—")),
         ("Удобства", lambda hotel: _comparison_list(
             list(getattr(hotel, "facilities", []) or [])[:6])),
         ("Плюсы по отзывам", lambda hotel: _comparison_list(
@@ -1641,7 +1686,7 @@ def _compact_hotel_card(hotel: HotelOptionV2, *, selected: bool,
     if hotel.cancellation:
         facts.append(_e(hotel.cancellation))
     if hotel.payment:
-        facts.append(_e(hotel.payment))
+        facts.append(_e(_hotel_payment_label(hotel.payment)))
     if hotel.location_summary:
         facts.append(_e(hotel.location_summary))
     facts_html = ("".join(f'<span class="fact">{fact}</span>' for fact in facts)
@@ -1959,8 +2004,76 @@ def _page_title(document) -> str:
     return document.trip.title
 
 
+def prepare_report_document(
+    document: TripPageDocumentV1 | TripPageDocumentV2 | HotelPageDocumentV1,
+) -> tuple[TripPageDocumentV1 | TripPageDocumentV2 | HotelPageDocumentV1, list[str]]:
+    """Attach visible, actionable warnings for incomplete hotel enrichment.
+
+    External hotel sources may legitimately fail, so report generation remains
+    fail-soft. Missing comparison facts must never be silent, though: callers
+    receive one warning per affected hotel plus a concrete retry instruction.
+    """
+    if not isinstance(document, (TripPageDocumentV2, HotelPageDocumentV1)):
+        return document, []
+
+    enrichment_warnings: list[str] = []
+    for hotel in document.hotels:
+        missing: list[str] = []
+        if hotel.review_count is None:
+            missing.append("число отзывов")
+        if not hotel.room:
+            missing.append("номер")
+        if not hotel.meal:
+            missing.append("питание")
+        if not hotel.cancellation:
+            missing.append("отмена")
+        if not hotel.payment:
+            missing.append("оплата")
+        if not hotel.facilities:
+            missing.append("удобства")
+
+        digest = hotel.review_digest
+        if digest is None:
+            missing.append("обзор отзывов")
+        elif digest.sample_size < 2:
+            missing.append("сопоставимая выборка отзывов")
+        else:
+            if not digest.pros:
+                missing.append("плюсы по отзывам")
+            if not digest.cons:
+                missing.append("минусы по отзывам")
+            if not digest.suitable_for:
+                missing.append("кому подходит")
+            if not digest.summary:
+                missing.append("резюме отзывов")
+
+        if missing:
+            enrichment_warnings.append(
+                f"Отель «{hotel.name}» ({hotel.id}): неполные данные — "
+                + ", ".join(missing)
+                + ". Перепроверь hotel_details, hotel_rates и hotel_reviews."
+            )
+
+    if not enrichment_warnings:
+        return document, []
+
+    warnings = list(document.warnings)
+    for warning in enrichment_warnings:
+        if warning not in warnings and len(warnings) < 24:
+            warnings.append(warning)
+    prepared = document.model_copy(update={"warnings": warnings})
+    advice = [
+        "До get_trip_report вызови hotel_latest_offers для shortlist, затем "
+        "hotel_details, hotel_rates и hotel_reviews для каждого финального отеля; "
+        "передай facilities, room, meal, cancellation, payment, reviewCount и "
+        "reviewDigest в hotel item."
+    ]
+    return prepared, advice
+
+
 def render_page_content(document) -> RenderPageResult:
     """Validate via the document model and return HTML + Markdown, no files."""
+    document, advice = prepare_report_document(document)
     if isinstance(document, (TripPageDocumentV2, HotelPageDocumentV1)):
         rendered = render_travel_html(document)
     else:
@@ -1969,6 +2082,7 @@ def render_page_content(document) -> RenderPageResult:
     if "apikey=" in payload.lower() or "apikey=" in rendered.lower():
         raise ValueError("generated artifacts contain an API credential")
     return RenderPageResult(
+        schema_version=document.schema_version,
         html=rendered,
         document_json=payload,
         reply_markdown=format_document_reply(document),
@@ -1976,6 +2090,7 @@ def render_page_content(document) -> RenderPageResult:
         title=_page_title(document),
         warnings=document.warnings,
         sources=[source.name for source in document.sources],
+        advice=advice,
     )
 
 

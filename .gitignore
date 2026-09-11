@@ -8,6 +8,7 @@ travel-api/data/
 travel-web/coverage/
 packages/contracts/dist/
 packages/tbank-mcp/vendor/
+docs/TIMEWEB_DEPLOY.local.md
 
 # TypeScript project references may emit the Vite config next to its source.
 travel-web/vite.config.js

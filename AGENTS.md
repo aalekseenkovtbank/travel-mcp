@@ -54,8 +54,8 @@
   [TRIP_GENERATION.md](tbank-mcp/docs/TRIP_GENERATION.md) и общие правила режимов
   [TRAVEL_OUTPUT_MODES.md](tbank-mcp/docs/TRAVEL_OUTPUT_MODES.md) до начала поиска.
 - Для работы с отдельным `travel-mcp` сначала прочитай travel-router
-  [tbank](tbank-mcp/skills/tbank/SKILL.md), затем один из двух активных узких
-  skills: hotel или общий travel-search.
+  [tbank](tbank-mcp/skills/tbank/SKILL.md), затем выбранный им task-specific
+  skill: flight, hotel, trip-generation или общий travel-search.
 - Для изменения MCP-контракта сверяйся с актуальными схемами, валидаторами и
   сигнатурами инструментов. Исполняемый контракт имеет приоритет над описательной
   документацией; расхождение нужно исправить или явно зафиксировать.

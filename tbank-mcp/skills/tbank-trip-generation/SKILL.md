@@ -68,8 +68,8 @@ read_instruction("tbank-flight-search")
 - альтернативные flight-пары в `flightOptions`, если пользователь просил другие
   даты, прямые рейсы или варианты;
 - shortlist отелей с реальными `hotelId`;
-- актуальные rates/room ids и условия, если они нужны для сравнения;
-- `reviewDigest` по каждому финальному отелю, если hotel skill загрузил отзывы;
+- актуальные rates/room ids, питание, отмена и оплата по каждому финальному отелю;
+- удобства из `hotel_details` и `reviewDigest` по каждому финальному отелю;
 - бюджет и warnings о неполных/нефинальных данных.
 
 Каждый элемент `flightOptions` содержит:
@@ -103,7 +103,11 @@ get_trip_report(request, output_mode="html" | "markdown")
 `request` — документ `trip-page/v2` по опубликованной схеме инструмента,
 с подтверждёнными транспортом, отелями, `events`, источниками и warnings.
 `get_trip_report` не перепроверяет поисковые данные: обнови их до вызова.
-Если hotel skill загрузил отзывы, передай `reviewDigest` внутри нужного hotel item.
+Для каждого финального отеля обязательно выполни `hotel_latest_offers`,
+`hotel_details`, `hotel_rates` и `hotel_reviews`, затем передай `facilities`,
+`room`, `meal`, `cancellation`, `payment`, `reviewCount` и `reviewDigest` внутри
+hotel item. Если источник не вернул часть сведений, добавь конкретный warning с
+названием отеля; не пропускай enrichment молча.
 Минимальные актуальные JSON-примеры для `trip-page/v2` и `hotel-page/v1`
 находятся в [TRIP_GENERATION.md](../../docs/TRIP_GENERATION.md); не дублируй
 структуру моделей в этом skill.
