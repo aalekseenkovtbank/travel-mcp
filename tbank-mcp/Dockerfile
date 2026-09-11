@@ -5,7 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     TRAVEL_MCP_TRANSPORT=http \
     TRAVEL_MCP_HOST=0.0.0.0 \
-    TRAVEL_MCP_PORT=8765
+    TRAVEL_MCP_PORT=8765 \
+    TRAVEL_MCP_RELAX_DNS_REBINDING=1
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
@@ -24,4 +25,4 @@ RUN pip install --no-cache-dir -e .
 
 EXPOSE 8765
 
-CMD ["python", "-m", "src.travel_mcp", "--http", "--host", "0.0.0.0", "--port", "8765"]
+CMD ["python", "-m", "src.travel_mcp"]
