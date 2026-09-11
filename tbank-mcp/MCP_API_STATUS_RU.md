@@ -104,7 +104,7 @@ Europe/Moscow**. Живые статусы источников в таблиц�
 | `place_schedule(object_id)` | R | 🟡 | Нужен ID площадки |
 | `place_info(object_id)` | R | 🟡 | Нужен ID площадки |
 | `cinema_seats(event_id, slot_id, object_id)` | R | 🟡 | Нужны IDs события, сеанса и площадки |
-| `concert_schedule(event_id, kind="concert")` | R | 🟡 | Нужен ID события |
+| `concert_schedule(event_id, kind="concert")` | R | 🟡 | Нужен ID события; банковская авторизация необязательна |
 | `concert_hall(event_id, slot_id, object_id)` | R | 🟡 | Нужны IDs из расписания |
 | `ticket_qr(order_id)` | R | 🟡 | Нужен оплаченный заказ |
 | `cinema_book(event_id, slot_id, object_id, seats)` | W | ⛔ | Создаёт бронь |

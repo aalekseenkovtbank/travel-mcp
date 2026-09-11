@@ -816,10 +816,10 @@ def _require():
 def _public_session():
     """A MobileSession for public travel reads that need no bank credential.
 
-    This covers Avia, Hotels, the Afisha catalogue and cinema schedule endpoints
-    confirmed to send no Bearer, bank Cookie or mobile sessionid. A saved session
-    is still preferred because Hotels may use its separately allowlisted ssoId;
-    an anonymous shell is enough otherwise.
+    This covers Avia, Hotels, the Afisha catalogue and public Afisha schedule
+    endpoints confirmed to send no Bearer, bank Cookie or mobile sessionid. A
+    saved session is still preferred because Hotels may use its separately
+    allowlisted ssoId; an anonymous shell is enough otherwise.
 
     Goes through `_require()` FIRST, not a copy of its body: every test in
     this repo stubs a fake session by reassigning `server._require`, and a
@@ -5227,10 +5227,10 @@ def concert_schedule(event_id: str, kind: str = "concert",
     Даты в запросе нет: приходит всё будущее сразу, поэтому нужный день
     выбирай из напечатанного.
     event_id — из afisha_catalog(); для подбора по городу и датам
-    предварительный search_app не нужен."""
+    предварительный search_app не нужен. Банковская авторизация необязательна."""
     try:
         fmt = _response_format(response_format)
-        s = _require(); s.ensure_fresh()
+        s = _public_session()
         venues = s.event_showings(event_id, kind=kind, object_id=object_id)
         if fmt == "json":
             shown_venues = venues[:limit] if limit > 0 else venues

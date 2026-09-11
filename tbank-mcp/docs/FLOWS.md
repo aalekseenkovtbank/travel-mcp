@@ -375,8 +375,8 @@ skill. The order here is the part you must not improvise:
 > events in a trip. It does not require bank authorization. Do not call
 > `search_app` first: use `query` on the catalogue for a specific title, then
 > verify selected showings with `cinema_schedule` or `concert_schedule`.
-> `cinema_schedule` also works without bank authorization; the separate
-> `concert_schedule` flow still uses an authenticated session.
+> Both schedule tools work without bank authorization and preserve only the
+> required app/device context, without Bearer, cookie or sessionid.
 > `search_app` remains an authenticated full-text helper for the separate ticket
 > flow; exhibitions have no date catalogue and must be reported as a limitation
 > when authorization is unavailable.

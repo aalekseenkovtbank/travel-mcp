@@ -36,8 +36,8 @@ resources.
   pay for a room.
 - `get_trip_report()` returns the requested HTML or Markdown digest in memory;
   it writes no files. Local files exist only for developer CLI commands.
-- Public hotel, flight, railway, weather, Afisha catalogue and cinema schedule
-  search needs no bank login.
+- Public hotel, flight, railway, weather, Afisha catalogue, cinema schedule and
+  concert/theatre schedule search needs no bank login.
   Session-backed history/profile tools may use an existing local `session.json`,
   but missing authorization must not block public inventory searches.
 - Never invent prices, ids, schedules, availability, photos or source results.

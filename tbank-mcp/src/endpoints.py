@@ -1609,9 +1609,13 @@ BUILTIN_ENDPOINTS.update({
     # free-seating venues answer here instead, as sectors with availableTickets
     "scheme_hall_concert": {"method": "GET", "host": "https://lifestyle.t-bank-app.ru",
                             "path": "/api/scheme/hall/concert", "params": {}},
-    # POST {"eventId"} — concert showings are not date-scoped like movies
+    # POST {"eventId"} — concert showings are not date-scoped like movies.
+    # Showings for concerts, theatre and exhibitions are public just like the
+    # Afisha catalogues: retain app/device context but never attach bank auth.
     "schedule_concert": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
-                         "path": "/api/schedule/concert", "params": {}},
+                         "path": "/api/schedule/concert", "params": {},
+                         "no_session_param": True, "no_bearer": True,
+                         "no_cookie": True},
     # POST {slotId, objectId, eventId, seats:[{id,type}]} → order + nfsPaymentToken.
     # Creates a RESERVATION, moves no money; unpaid orders expire on their own.
     "order_create_movie": {"method": "POST", "host": "https://lifestyle.t-bank-app.ru",
