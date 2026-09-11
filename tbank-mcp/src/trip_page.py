@@ -601,10 +601,6 @@ class TripPageDocumentV1(ContractModel):
             raise ValueError("unknown plan style")
         all_ids = set(ids)
         events_by_id = {item.id: item for item in self.events}
-        outbound_arrivals = [leg.arrival_at for leg in self.transport
-                             if leg.direction == "outbound"]
-        return_departures = [leg.departure_at for leg in self.transport
-                             if leg.direction == "return"]
         valid_plans: list[TripPlan] = []
         plan_warnings: list[str] = []
         for plan in self.plans:
@@ -621,16 +617,6 @@ class TripPageDocumentV1(ContractModel):
                         plan_warnings.append(
                             f'Остановка {stop.ref_id!r} из плана «{plan.title}» '
                             "пропущена: объекта нет в отчёте.")
-                        continue
-                    if outbound_arrivals and stop.starts_at < max(outbound_arrivals):
-                        plan_warnings.append(
-                            f'Остановка {stop.ref_id!r} из плана «{plan.title}» '
-                            "пропущена: она начинается до прибытия.")
-                        continue
-                    if return_departures and stop.ends_at > min(return_departures):
-                        plan_warnings.append(
-                            f'Остановка {stop.ref_id!r} из плана «{plan.title}» '
-                            "пропущена: она заканчивается после обратного отправления.")
                         continue
                     event = events_by_id.get(stop.ref_id)
                     if event and (stop.starts_at < event.starts_at
