@@ -443,21 +443,33 @@ class DiningVenue(ContractModel):
     rating: float | None = Field(default=None, ge=0)
     rating_scale: float | None = Field(default=None, gt=0)
     review_count: int | None = Field(default=None, ge=0)
-    openstreetmap_url: HttpsUrl
-    source: Literal["OpenStreetMap"] = "OpenStreetMap"
+    source_url: HttpsUrl | None = None
+    # Kept for backward compatibility with existing OSM-produced documents.
+    openstreetmap_url: HttpsUrl | None = None
+    source: Literal["OpenStreetMap", "Yandex Maps"] = "OpenStreetMap"
     categories: list[str] = Field(default_factory=list, max_length=12)
     opening_hours: str = ""
     price_level: str = ""
+    distance_meters: int | None = Field(default=None, ge=0)
 
     @field_validator("openstreetmap_url")
     @classmethod
     def _openstreetmap_https_url(cls, value):
+        if value is None:
+            return value
         host = str(value.host or "").lower()
         if value.scheme != "https" or not (
             host == "openstreetmap.org" or host.endswith(".openstreetmap.org")
         ):
             raise ValueError(
                 "openstreetmapUrl must be an HTTPS openstreetmap.org URL")
+        return value
+
+    @field_validator("source_url")
+    @classmethod
+    def _source_https_url(cls, value):
+        if value is not None and not safe_public_https_url(value):
+            raise ValueError("sourceUrl must be a public HTTPS URL")
         return value
 
     @model_validator(mode="after")
@@ -467,6 +479,17 @@ class DiningVenue(ContractModel):
         if (self.rating is not None and self.rating_scale is not None
                 and self.rating > self.rating_scale):
             raise ValueError("rating must not exceed ratingScale")
+        if self.source_url is None and self.openstreetmap_url is None:
+            raise ValueError("sourceUrl or openstreetmapUrl must be provided")
+        if self.source == "Yandex Maps":
+            host = str((self.source_url.host if self.source_url else "") or "").lower()
+            if not (host == "yandex.ru" or host.endswith(".yandex.ru")):
+                raise ValueError("Yandex Maps sourceUrl must use yandex.ru")
+        if self.source == "OpenStreetMap":
+            resolved = self.openstreetmap_url or self.source_url
+            host = str((resolved.host if resolved else "") or "").lower()
+            if not (host == "openstreetmap.org" or host.endswith(".openstreetmap.org")):
+                raise ValueError("OpenStreetMap venue URL must use openstreetmap.org")
         return self
 
 
@@ -1230,6 +1253,19 @@ def _render_events(document: TripPageDocumentV1) -> str:
                                          key=lambda event: -event.personalization_score), 1))
 
 
+def _venue_source_url(item: DiningVenue) -> str:
+    return str(item.source_url or item.openstreetmap_url or "")
+
+
+def _venue_source_label(item: DiningVenue) -> str:
+    return "Яндекс Карты" if item.source == "Yandex Maps" else item.source
+
+
+def _venue_sources_label(document: TripPageDocumentV1) -> str:
+    return " · ".join(
+        dict.fromkeys(_venue_source_label(item) for item in document.venues))
+
+
 def _render_venues(document: TripPageDocumentV1) -> str:
     cards = []
     for item in document.venues:
@@ -1238,7 +1274,7 @@ def _render_venues(document: TripPageDocumentV1) -> str:
             reviews = (f" · {item.review_count:n}" if item.review_count is not None else "")
             metric = f'<span class="card-match">★ {item.rating:g}{reviews}</span>'
         else:
-            metric = '<span class="card-match">OpenStreetMap</span>'
+            metric = f'<span class="card-match">{_e(_venue_source_label(item))}</span>'
         cards.append(f"""
           <article class="venue-card" id="entity-{_e(item.id)}">
             <div class="card-media">{_image(photo.url if photo else None, item.name, photo.attribution if photo else '')}{metric}</div>
@@ -1247,7 +1283,7 @@ def _render_venues(document: TripPageDocumentV1) -> str:
               <h3>{_e(item.name)}</h3><p>{_e(item.address)}</p>
               <p>{_e(', '.join(item.categories))}</p>
               {f'<small>{_e(item.opening_hours)}</small>' if item.opening_hours else ''}
-              {_link(item.openstreetmap_url, 'Открыть в OpenStreetMap')}
+              {_link(_venue_source_url(item), f'Открыть в {_venue_source_label(item)}')}
             </div>
           </article>""")
     return "".join(cards)
@@ -1408,7 +1444,7 @@ def render_html(document: TripPageDocumentV1 | TripPageDocumentV2) -> str:
 {transport_section}
 <section class="hotels-section" id="hotels"><div class="section-head"><div><span>03</span><h2>Где остановиться</h2></div><p>Три уровня цены с конкретным номером, условиями тарифа, отзывами и ссылкой на карточку T-Bank.</p></div><div class="hotels">{_render_hotels(document)}</div><div class="hotel-comparison-block" id="comparison"><div class="subsection-head"><span>Сравнение</span><h3>Все условия рядом</h3><p>Резюме отзывов относится только к реально загруженной выборке.</p></div>{_render_hotel_comparison(document)}</div></section>
 <section class="events-section" id="events"><div class="section-head"><div><span>04</span><h2>Что посмотреть</h2></div><p>События ранжируются по безопасному профилю интересов без раскрытия истории покупок.</p></div><div class="card-grid events">{_render_events(document)}</div></section>
-<section class="venues-section" id="places"><div class="section-head"><div><span>05</span><h2>Рестораны и бары</h2></div><p>Заведения, категории и часы работы получены из OpenStreetMap через T-Bank MCP.</p></div><div class="card-grid venues">{_render_venues(document)}</div></section>
+<section class="venues-section" id="places"><div class="section-head"><div><span>05</span><h2>Рестораны и бары</h2></div><p>Актуальные карточки заведений, категории, часы, рейтинги и отзывы получены из {_e(_venue_sources_label(document) or 'источника')}.</p></div><div class="card-grid venues">{_render_venues(document)}</div></section>
 <section class="map-section" id="map"><div class="section-head"><div><span>06</span><h2>Всё на карте</h2></div><p>Все три отеля, мероприятия и заведения. Нажмите маркер, чтобы перейти к карточке.</p></div><div id="trip-map" aria-label="Карта поездки OpenStreetMap"><div class="map-fallback">Карта появится при подключении к интернету.</div></div><div class="map-legend"><span class="hotel">Отели</span><span class="event">События</span><span class="restaurant">Рестораны</span><span class="bar">Бары</span></div></section>
 <section class="plans-section" id="plans"><div class="section-head"><div><span>07</span><h2>Три сценария поездки</h2></div><p>Выберите темп: сбалансированный, культурный или с акцентом на еду и вечернюю жизнь.</p></div><div class="plans">{_render_plans(document, entity_labels)}</div></section>
 {_fine_print(document)}</main>{_page_footer()}
@@ -1767,8 +1803,8 @@ def _compact_trip_page(document: TripPageDocumentV2) -> str:
         venue_rows.append(
             f'<div class="li-row"><b>{_e(venue.name)}</b>'
             f'<span class="small">{_e(meta)}</span>'
-            f'<a class="li-act small" href="{_e(venue.openstreetmap_url)}" target="_blank" '
-            f'rel="noopener noreferrer">OpenStreetMap</a></div>')
+            f'<a class="li-act small" href="{_e(_venue_source_url(venue))}" target="_blank" '
+            f'rel="noopener noreferrer">{_e(_venue_source_label(venue))}</a></div>')
     warnings = "".join(f"<li>{_e(item)}</li>" for item in document.warnings)
     sources = "".join(
         f"<li>{_e(item.name)}{(' · ' + _e(item.url)) if item.url else ''} · "
@@ -1791,7 +1827,7 @@ def _compact_trip_page(document: TripPageDocumentV2) -> str:
 {_flight_options_section(document) if (getattr(document, "flight_options", None) or []) else ''}
 {('<section><h2>Где остановиться · ' + _nights(nights) + ' · ' + _adults(trip.travelers) + '</h2>' + hotel_cards + '</section>') if hotel_cards else ''}
 {'<section><h2>Что посмотреть</h2>' + "".join(event_rows) + '</section>' if event_rows else ''}
-{'<section><h2>Рестораны и бары · OpenStreetMap</h2>' + "".join(venue_rows) + '</section>' if venue_rows else ''}
+{('<section><h2>Рестораны и бары · ' + _e(_venue_sources_label(document)) + '</h2>' + "".join(venue_rows) + '</section>') if venue_rows else ''}
 <div class="fine"><b>Важно знать</b><ul>{warnings or '<li>Цены и доступность могут измениться до оформления.</li>'}</ul>
 <b>Источники</b><ul>{sources}</ul>
 Страница собрана Travel Nova. Переход по ссылкам T-Bank открывает оформление у банка — MCP ничего не бронирует и не оплачивает.
@@ -1971,6 +2007,30 @@ def format_document_reply(document) -> str:
              else document.trip.title)
     reply = format_inventory_reply(
         title=title, hotels=hotels, flights=flights, trains=trains, events=events)
+    venues = list(getattr(document, "venues", []) or [])
+    if venues:
+        rows = ["", "## Рестораны"]
+        for venue in sorted(venues, key=lambda item: (item.kind, item.name)):
+            facts = []
+            if venue.rating is not None and venue.rating_scale is not None:
+                rating = f"★ {venue.rating:g}/{venue.rating_scale:g}"
+                if venue.review_count is not None:
+                    rating += f" · {venue.review_count:n} отзывов"
+                facts.append(rating)
+            if venue.price_level:
+                facts.append(venue.price_level)
+            if venue.distance_meters is not None:
+                facts.append(f"{venue.distance_meters:n} м от отеля")
+            rows.extend([f"\n**{venue.name}**", " · ".join(facts)])
+            if venue.address:
+                rows.append(venue.address)
+            if venue.categories:
+                rows.append(", ".join(venue.categories))
+            if venue.opening_hours:
+                rows.append(venue.opening_hours)
+            rows.append(
+                f"[Открыть в {_venue_source_label(venue)}]({_venue_source_url(venue)})")
+        reply = reply.rstrip() + "\n" + "\n".join(row for row in rows if row != "") + "\n"
     combined_rt = getattr(document, "combined_flight", None)
     if combined_rt is not None:
         price = _rub(combined_rt.price_rub)

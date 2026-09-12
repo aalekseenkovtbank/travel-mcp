@@ -35,7 +35,9 @@ resources.
 - `hotel_checkout_url()` only returns a user hand-off link; it does not reserve or
   pay for a room.
 - `get_trip_report()` returns the requested HTML or Markdown digest in memory;
-  it writes no files. Local files exist only for developer CLI commands.
+  it writes no files. For an empty trip `venues` block it performs a public
+  Yandex Maps `restaurant_search()` around the selected hotel. Local files
+  exist only for developer CLI commands.
 - Public hotel, flight, railway, weather, Afisha catalogue, cinema schedule and
   concert/theatre schedule search needs no bank login.
   Session-backed history/profile tools may use an existing local `session.json`,

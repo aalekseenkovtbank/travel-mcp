@@ -41,8 +41,9 @@ the browser implicitly:
 npx -y @travel-growth-inspiration/mcp install-browser
 ```
 
-Public travel context comes from T-Bank Railways, OpenStreetMap/Nominatim and
-Open-Meteo. See [docs/MCP_DISTRIBUTION.md](docs/MCP_DISTRIBUTION.md).
+Public travel context comes from T-Bank Railways, OpenStreetMap/Nominatim,
+Open-Meteo and the public Yandex Maps web search used for report restaurant
+cards. See [docs/MCP_DISTRIBUTION.md](docs/MCP_DISTRIBUTION.md).
 
 ### As a Claude Code plugin (travel-only server + 3 travel skills)
 
@@ -162,7 +163,8 @@ Read-only инструменты профиля и путешествий при
 `geodata_by_code`,
 `train_stations`, `train_search`, `hotel_autocomplete`, `hotel_search`,
 `hotel_favorites`, `hotel_similar`, `hotel_details`, `hotel_rates`, `hotel_reviews`, `afisha_catalog`,
-`afisha_places`, `concert_schedule`, `nearby_search` и `weather`.
+`afisha_places`, `concert_schedule`, `restaurant_search`, `nearby_search` и
+`weather`.
 
 JSON возвращается в едином конверте `ok`, `data`, `source`, `checkedAt`,
 `warnings`, `meta` и, при ошибке, `error`. По умолчанию остаётся `text`, поэтому
@@ -191,7 +193,7 @@ Russian and so is the person reading the answer.
 | **Afisha** | `afisha_catalog`, `afisha_places`, `place_schedule`, `place_info` |
 | **Tickets** | `cinema_search`, `cinema_schedule`, `cinema_seats`, `concert_schedule`, `concert_hall`, `cinema_book`, `ticket_pay`, `ticket_cancel`, `ticket_qr` |
 | **Search** | `search_app` |
-| **Travel search** | `train_stations`, `train_search`, `compare_train_prices`, `train_calendar`, `flight_search`, `flight_price_calendar`, `flight_price_forecast`, `flight_schedule`, `geodata_by_code`, `compare_flight_prices`, `flight_history`, `hotel_favorites`, `hotel_similar`, `hotel_autocomplete`, `hotel_search`, `hotel_search_filters`, `hotel_latest_offers`, `compare_hotel_prices`, `compare_flight_hotel_prices`, `hotel_details`, `hotel_rates`, `hotel_checkout_url`, `hotel_reviews`, `hotel_filters`, `nearby_search`, `weather`, `get_trip_report`, `render_travel_page`, `render_trip_page` |
+| **Travel search** | `train_stations`, `train_search`, `compare_train_prices`, `train_calendar`, `flight_search`, `flight_price_calendar`, `flight_price_forecast`, `flight_schedule`, `geodata_by_code`, `compare_flight_prices`, `flight_history`, `hotel_favorites`, `hotel_similar`, `hotel_autocomplete`, `hotel_search`, `hotel_search_filters`, `hotel_latest_offers`, `compare_hotel_prices`, `compare_flight_hotel_prices`, `hotel_details`, `hotel_rates`, `hotel_checkout_url`, `hotel_reviews`, `hotel_filters`, `restaurant_search`, `nearby_search`, `weather`, `get_trip_report`, `render_travel_page`, `render_trip_page` |
 | **Marketplace** | `shop_search`, `shop_cart` |
 | **Messenger** | `messenger_conversations`, `messenger_messages`, `messenger_file`, `messenger_send`, `messenger_unread` |
 | **Money** | `transfer_sbp_resolve`, `transfer`, `payment_qr`, `transfer_requisites`, `payment_commission`, `pay_bill`, `payment_providers`, `confirm_payment`, `payment_status` |

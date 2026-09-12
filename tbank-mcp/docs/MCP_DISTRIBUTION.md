@@ -11,7 +11,8 @@
 
 Текущий HTTP entrypoint `src.travel_mcp.server` импортирует единый
 `src.server`. В этой поверхности доступны `get_trip_report`,
-`afisha_catalog`, `search_app`, `concert_schedule` и `cinema_schedule`.
+`restaurant_search`, `afisha_catalog`, `search_app`, `concert_schedule` и
+`cinema_schedule`.
 Сценарий событий начинается с прямого `afisha_catalog`, без
 предварительного `search_app`, и описан в
 [TRIP_GENERATION.md](TRIP_GENERATION.md#подбор-событий-в-поездке).
@@ -123,13 +124,19 @@ observed` означает минимум среди фактически пол
 `weather` возвращает прогноз Open-Meteo для ближайших 16 дней либо климатическую
 оценку ERA5 для более дальних дат; диапазон ограничен 30 днями.
 
+`restaurant_search` читает публичную серверную выдачу Яндекс.Карт без банковской
+сессии и ключей, ограничивает результат заданным радиусом и возвращает
+report-ready карточки с прямыми sourceUrl. Данные не сохраняются на сервере.
+
 ## Дайджест поездки
 
 `get_trip_report(request, output_mode="html"|"markdown")` принимает готовый
 `trip-page/v2` с транспортом, отелями и `events` либо `hotel-page/v1`.
 Предложения и расписания перепроверяются до вызова; report валидирует
-документ и возвращает готовый дайджест. `html` — JSON с HTML и metadata,
-`markdown` — текстовый дайджест. Файлы, бронирование и оплата не создаются.
+документ и возвращает готовый дайджест. Для пустого `venues` в trip-page/v2 он
+автоматически загружает рестораны Яндекс.Карт рядом с выбранным отелем. `html` —
+JSON с HTML и metadata, `markdown` — текстовый дайджест с теми же ресторанами.
+Файлы, бронирование и оплата не создаются.
 HTML metadata содержит `schemaVersion`; неполный hotel enrichment отражается
 явными `warnings` и actionable `advice`, а не скрывается пустыми ячейками.
 

@@ -32,6 +32,12 @@ request реальные hotelId и выбранные параметры rate/r
 Если нужен досуг, перед сборкой request получи события из Афиши по flow
 ниже. Не добавляй события, если их не вернул источник.
 
+Если нужны рестораны до финального отчёта, вызови
+`restaurant_search(city=..., latitude=..., longitude=..., response_format="json")`
+с координатами выбранного отеля. Его `restaurants[]` уже соответствует
+`request.venues`. Если `venues` пуст, `get_trip_report()` выполнит тот же
+поиск Яндекс.Карт автоматически и добавит карточки в HTML или Markdown.
+
 ## Подбор событий в поездке
 
 1. Сразу вызови `afisha_catalog(city=destination, kind=...,
@@ -63,13 +69,14 @@ request реальные hotelId и выбранные параметры rate/r
 `request` — документ `trip-page/v2` (для отдельной подборки отелей —
 `hotel-page/v1`), соответствующий опубликованной JSON Schema инструмента.
 Основные поля поездки: `schemaVersion`, `trip`, `transport`,
-`flightOptions`, `hotels`, `selectedHotelId`, `events`, `sources`, `warnings`,
-`checkedAt`. Обязательные вложенные поля бери из схемы, а значения — из
-результатов поиска.
+`flightOptions`, `hotels`, `selectedHotelId`, `events`, `venues`, `sources`,
+`warnings`, `checkedAt`. Обязательные вложенные поля бери из схемы, а значения —
+из результатов поиска.
 
 `get_trip_report` валидирует готовый документ и формирует результат
-встроенным renderer. Он не выполняет повторный поиск: перепроверь цены,
-тарифы и расписания до вызова. Не передавай `bookHash` в request.
+встроенным renderer. Цены, тарифы и расписания он не перепроверяет; единственное
+автоматическое обогащение — рестораны Яндекс.Карт для пустого `venues`.
+Не передавай `bookHash` в request.
 
 Для каждого финального отеля до вызова обязательны `hotel_latest_offers`,
 `hotel_details`, `hotel_rates` и `hotel_reviews`. Передай `reviewCount`,

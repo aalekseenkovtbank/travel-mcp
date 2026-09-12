@@ -71,6 +71,7 @@ read_instruction("tbank-flight-search")
 - shortlist отелей с реальными `hotelId`;
 - актуальные rates/room ids, питание, отмена и оплата по каждому финальному отелю;
 - удобства из `hotel_details` и `reviewDigest` по каждому финальному отелю;
+- рестораны Яндекс.Карт из `restaurant_search()` рядом с выбранным отелем;
 - бюджет и warnings о неполных/нефинальных данных.
 
 Каждый элемент `flightOptions` содержит:
@@ -104,6 +105,9 @@ get_trip_report(request, output_mode="html" | "markdown")
 `request` — документ `trip-page/v2` по опубликованной схеме инструмента,
 с подтверждёнными транспортом, отелями, `events`, источниками и warnings.
 `get_trip_report` не перепроверяет поисковые данные: обнови их до вызова.
+Если `request.venues` пуст, report автоматически вызовет публичный
+`restaurant_search()` вокруг выбранного отеля и включит найденные рестораны в
+HTML и Markdown; ошибку источника перенесёт в warnings.
 Для каждого финального отеля обязательно выполни `hotel_latest_offers`,
 `hotel_details`, `hotel_rates` и `hotel_reviews`, затем передай `facilities`,
 `room`, `meal`, `cancellation`, `payment`, `reviewCount` и `reviewDigest` внутри

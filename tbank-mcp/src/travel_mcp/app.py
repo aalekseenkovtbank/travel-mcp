@@ -39,7 +39,8 @@ ACTIVE_TOOL_NAMES = frozenset({
     "hotel_autocomplete", "hotel_search", "hotel_search_filters",
     "hotel_latest_offers", "hotel_details", "hotel_rates", "hotel_checkout_url",
     "hotel_reviews", "hotel_filters", "train_stations", "train_search",
-    "train_calendar", "weather", "get_trip_report", "trip_personalization_profile",
+    "train_calendar", "weather", "restaurant_search", "get_trip_report",
+    "trip_personalization_profile",
     "list_instructions", "read_instruction", "get_travel_prompt",
 })
 
@@ -69,7 +70,9 @@ def _travel_server_instructions() -> str:
         "задаются output_mode у get_trip_report. "
         "Если resources скрыты, вызови list_instructions(), затем "
         "read_instruction(slug). "
-        "Основной путь сборки: get_trip_report(request, output_mode=\"html\" или "
+        "Рестораны ищет публичный restaurant_search из Яндекс.Карт; для пустого "
+        "venues get_trip_report запускает его автоматически. Основной путь "
+        "сборки: get_trip_report(request, output_mode=\"html\" или "
         "\"markdown\"). HTML или Markdown возвращаются из одного тула. "
         "Checkout-ссылки только передают управление пользователю: "
         "бронирование и оплата через MCP не выполняются. Не выдумывай цены, id, "
@@ -221,9 +224,10 @@ def personalized_weekend_landing(
 1. Вызови trip_personalization_profile() и используй только агрегированные рекомендации. Если профиль недоступен, продолжай по живым предложениям и добавь предупреждение.
 2. Подбери транспорт туда и обратно через flight_search или train_search. Для гибких дат используй соответствующий compare_*; для прогноза передай searchId из flight_search в flight_price_forecast(). Это только поиск: не утверждай, что билет куплен. Сохрани только URL и идентификаторы, которые вернул источник.
 3. Подбери отели через hotel_autocomplete, hotel_search, hotel_latest_offers, hotel_details, hotel_rates и hotel_reviews. Для финальной поездки собери до трёх выбранных вариантов с возрастающими полными ценами; конкретные условия подтверждай только финальной ценой. Для каждого варианта передай facilities, room, meal, cancellation, payment, reviewCount и reviewDigest. Если источник не вернул часть сведений, добавь warning с названием и id отеля. После hotel_rates() можно сразу получить hand-off URL через hotel_checkout_url() с неизменённым bookHash.
-4. Собери request только из фактических данных и передай его в get_trip_report(). Не добавляй необязательные данные без источника и не вызывай report до завершения обязательного hotel enrichment.
-5. {output_part} Не создавай отдельный HTML-проект и не пиши файлы. Checkout-ссылка не означает бронь или оплату.
-6. Не выдумывай цены, id, расписания, наличие, фотографии или URL. Цены снабжай временем проверки."""
+4. Вызови restaurant_search() с координатами выбранного отеля или оставь venues пустым: get_trip_report() выполнит тот же публичный поиск Яндекс.Карт автоматически.
+5. Собери request только из фактических данных и передай его в get_trip_report(). Не добавляй необязательные данные без источника и не вызывай report до завершения обязательного hotel enrichment.
+6. {output_part} Не создавай отдельный HTML-проект и не пиши файлы. Checkout-ссылка не означает бронь или оплату.
+7. Не выдумывай цены, id, расписания, наличие, фотографии или URL. Цены снабжай временем проверки."""
 
 _untraced_tool = mcp.tool
 
@@ -255,7 +259,8 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "compare_flight_hotel_prices": "Сравнивает два перелёта и отель по 1–3 окнам и возвращает bundleTotal с дельтами. Сумма включает только outbound, return и отель; фильтры и budget_rub ограничивают варианты. Дополнительные расходы поездки в сумму не входят.",
     "weather": "Возвращает forecast или climate по координатам и диапазону дат. city — подпись, latitude/longitude — координаты, date_from/date_to — YYYY-MM-DD с диапазоном до 30 дней; kind в результате различает прогноз и ERA5-оценку. Частичный ответ сопровождается warnings.",
     "trip_personalization_profile": "Считает агрегированные бюджетные ориентиры и предпочтения поездки без сырых операций. Вход задаёт транспорт, ночи, период и явные бюджеты; актуальные цены можно передать как fallback. Ответ содержит агрегаты и warnings, а не банковские записи.",
-    "get_trip_report": "Валидирует готовый request trip-page/v2 или hotel-page/v1 и возвращает html или markdown по output_mode. До вызова для каждого финального отеля обязательны hotel_latest_offers, hotel_details, hotel_rates и hotel_reviews; передай facilities, тарифные условия, reviewCount и reviewDigest. Пропущенный enrichment становится явным warning/advice. События получи прямым afisha_catalog и передай в request.events. Сам report-тул повторный поиск не выполняет; файлов, бронирования и оплаты нет.",
+    "restaurant_search": "Ищет рестораны в публичной выдаче Яндекс.Карт рядом с координатами или адресом. Возвращает report-ready карточки с рейтингом, числом отзывов, фото, часами и sourceUrl; банковская сессия не используется.",
+    "get_trip_report": "Валидирует готовый request trip-page/v2 или hotel-page/v1 и возвращает html или markdown по output_mode. До вызова для каждого финального отеля обязательны hotel_latest_offers, hotel_details, hotel_rates и hotel_reviews; передай facilities, тарифные условия, reviewCount и reviewDigest. Пропущенный enrichment становится явным warning/advice. События получи прямым afisha_catalog и передай в request.events. Для пустого venues report автоматически ищет рестораны Яндекс.Карт вокруг выбранного отеля; файлов, бронирования и оплаты нет.",
     "list_instructions": "Возвращает каталог travel-only инструкций, если клиент не показывает resources. Результат содержит доступные slug и порядок чтения; банковские и отключённые вертикали в каталог не входят.",
     "read_instruction": "Возвращает один travel-only документ по slug из list_instructions. Передай server, index или slug из каталога; неизвестный slug возвращает ошибку и каталог. Внешних действий нет.",
     "get_travel_prompt": "Возвращает параметризованный prompt для поиска транспорта, отелей и страницы поездки. city/date_from/date_to обязательны, adults 1–6, output_mode — html или chat; prompt только инструктирует агента и ничего не бронирует.",
@@ -289,6 +294,7 @@ TOOL_KINDS.update({
     "compare_hotel_prices": ("Сравнение отелей", READ),
     "compare_flight_hotel_prices": ("Сравнение перелёта и отеля", READ),
     "weather": ("Погода и климат", READ),
+    "restaurant_search": ("Рестораны Яндекс.Карт", READ),
     "trip_personalization_profile": ("Агрегированный профиль поездки", READ),
     "get_trip_report": ("Готовый дайджест поездки", READ),
     "list_instructions": ("Каталог инструкций", READ),
@@ -303,7 +309,7 @@ def _annotations_for(name: str) -> ToolAnnotations:
             f"(nothing changes), WRITE (changes something, costs nothing) or "
             f"MONEY (debits an account) — see the note above the table.")
     title, kind = TOOL_KINDS[name]
-    local_renderers = {"get_trip_report"}
+    local_renderers: set[str] = set()
     ann = {"title": title, "openWorldHint": name not in local_renderers}
     if kind == READ:
         ann.update(readOnlyHint=True, destructiveHint=False, idempotentHint=True)

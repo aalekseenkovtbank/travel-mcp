@@ -604,6 +604,13 @@ do not use it as a station resolver.
     сохранит страницу, но добавит видимый warning с hotel id и actionable
     `advice`; пропускать обязательные вызовы enrichment из-за fail-soft режима
     нельзя.
+11. Для ресторанного блока вызови `restaurant_search(city, latitude,
+    longitude, radius_meters=1800, limit=5, response_format="json")` с
+    координатами выбранного отеля и передай `data.restaurants` в `venues`.
+    Карточки уже содержат id, координаты, рейтинг, число отзывов, фото, часы и
+    прямой `sourceUrl` Яндекс.Карт. Если `venues` пуст, `get_trip_report()`
+    выполнит этот шаг автоматически; при отказе Яндекса вернёт warning и
+    сохранит остальной отчёт.
 
 Hotel-поиск идёт через публичный production proxy `www.tbank.ru/api/hotels/`
 без Bearer и банковского `sessionid`; при доступной авторизации его поисковая

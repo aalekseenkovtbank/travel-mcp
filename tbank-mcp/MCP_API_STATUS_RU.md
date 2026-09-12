@@ -189,7 +189,8 @@ travel-инструменты предназначены для поиска и 
 | `flows(topic="")` | R | ✅ | Подсказки по последовательностям вызовов |
 | `diagnostics(limit=40)` | R | ✅ | Локальные очищенные события платежных сценариев |
 | `debug_report(runs=0, top=6)` | R | ✅ | Локальная статистика использования MCP |
-| `get_trip_report(request, output_mode)` | R | 🟡 | Валидирует `trip-page/v2`/`hotel-page/v1`, возвращает HTML или Markdown и явно предупреждает о неполном hotel enrichment; события берутся из прямого `afisha_catalog` |
+| `restaurant_search(city, ...)` | R | ✅ | Публичный поиск ресторанов Яндекс.Карт; возвращает report-ready карточки без банковской сессии |
+| `get_trip_report(request, output_mode)` | R | 🟡 | Валидирует `trip-page/v2`/`hotel-page/v1`, автоматически заполняет пустой `venues` ресторанами Яндекс.Карт и возвращает HTML или Markdown; события берутся из прямого `afisha_catalog` |
 | `render_trip_page(document)` | R | ⛔ | Возвращает HTML + replyMarkdown в памяти (trip-page/v1); файлы не пишет |
 | `render_travel_page(document)` | R | ⛔ | Возвращает `trip-page/v2`/`hotel-page/v1` как готовый HTML + replyMarkdown в памяти; файлы не пишет |
 
