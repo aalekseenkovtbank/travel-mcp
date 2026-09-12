@@ -108,6 +108,10 @@ get_trip_report(request, output_mode="html" | "markdown")
 Если `request.venues` пуст, report автоматически вызовет публичный
 `restaurant_search()` вокруг выбранного отеля и включит найденные рестораны в
 HTML и Markdown; ошибку источника перенесёт в warnings.
+Для `trip-page/v2` report нормализует блок программы до трёх сценариев
+`balanced`, `culture` и `food_nightlife`: сохраняет переданные стили и собирает
+недостающие из транспорта, выбранного отеля, событий и заведений — от прибытия
+и заселения до выселения и обратного отправления.
 Для каждого финального отеля обязательно выполни `hotel_latest_offers`,
 `hotel_details`, `hotel_rates` и `hotel_reviews`, затем передай `facilities`,
 `room`, `meal`, `cancellation`, `payment`, `reviewCount` и `reviewDigest` внутри

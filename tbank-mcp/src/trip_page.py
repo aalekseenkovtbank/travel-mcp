@@ -15,7 +15,7 @@ import os
 import re
 import tempfile
 import types
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -502,6 +502,9 @@ class PlanStop(ContractModel):
     starts_at: datetime
     ends_at: datetime
     ref_id: NonEmpty
+    title: str = Field(
+        default="", max_length=160,
+        description="Visible action label; refId still links it to a report entity.")
     note: str = ""
 
     @model_validator(mode="after")
@@ -563,7 +566,12 @@ class TripPageDocumentV1(ContractModel):
     events: list[EventOption] = Field(default_factory=list, max_length=16)
     venues: list[DiningVenue] = Field(default_factory=list, max_length=16)
     map_points: list[MapPoint] = Field(default_factory=list, max_length=32)
-    plans: list[TripPlan] = Field(default_factory=list, max_length=6)
+    plans: list[TripPlan] = Field(
+        default_factory=list, max_length=6,
+        description=(
+            "Optional authored scenarios. get_trip_report preserves supplied styles "
+            "and generates any missing balanced, culture and food_nightlife plans "
+            "from transport, selected hotel, events and venues."))
     sources: list[SourceReference] = Field(min_length=1, max_length=24)
     warnings: list[str] = Field(default_factory=list, max_length=24)
     checked_at: datetime
@@ -1296,7 +1304,7 @@ def _render_plans(document: TripPageDocumentV1, entities: dict[str, dict]) -> st
         for day in plan.days:
             stops = "".join(f"""
               <li><time>{_e(stop.starts_at.strftime('%H:%M'))}–{_e(stop.ends_at.strftime('%H:%M'))}</time>
-              <div><a href="#entity-{_e(stop.ref_id)}">{_e(entities[stop.ref_id]['label'])}</a>
+              <div><a href="#entity-{_e(stop.ref_id)}">{_e(stop.title or entities[stop.ref_id]['label'])}</a>
               {f'<p>{_e(stop.note)}</p>' if stop.note else ''}</div></li>""" for stop in day.stops)
             days.append(f'<div class="plan-day"><h4>{_e(day.date.strftime("%d.%m"))} · {_e(day.title)}</h4><ol>{stops}</ol></div>')
         blocks.append(f"""
@@ -1526,6 +1534,17 @@ h2{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--mut)
 .li-row:last-child{border-bottom:0}
 .li-date{white-space:nowrap;color:var(--mut);font-size:12px}
 .li-act{margin-left:auto;padding-left:10px;white-space:nowrap}
+.plan{background:#fff;border:1px solid var(--line);border-radius:15px;margin-bottom:10px;overflow:hidden}
+.plan summary{cursor:pointer;display:flex;gap:10px;align-items:flex-start;padding:14px 16px}
+.plan summary::marker{color:var(--deep)}
+.plan summary b{display:block}
+.plan summary span{color:var(--mut);font-size:12px}
+.plan-days{border-top:1px solid var(--line);padding:2px 16px 12px}
+.plan-day{margin-top:12px}
+.plan-day h3{font-size:13px;margin:0 0 5px}
+.plan-stop{display:grid;grid-template-columns:92px 1fr;gap:8px;padding:7px 0;border-top:1px dashed var(--line)}
+.plan-stop time{color:var(--mut);font-size:12px;white-space:nowrap}
+.plan-stop small{display:block;color:var(--mut)}
 a{color:var(--deep)}
 """
 
@@ -1734,6 +1753,39 @@ def _compact_hotel_card(hotel: HotelOptionV2, *, selected: bool,
 </article>"""
 
 
+def _compact_plans_section(document: TripPageDocumentV2) -> str:
+    if not document.plans:
+        return ""
+    labels = {
+        item.id: item.name
+        for item in [*document.hotels, *document.events, *document.venues]
+    }
+    labels.update({leg.id: f"{leg.origin} → {leg.destination}"
+                   for leg in document.transport})
+    plans = []
+    for index, plan in enumerate(document.plans):
+        days = []
+        for day in plan.days:
+            stops = []
+            for stop in day.stops:
+                label = stop.title or labels.get(stop.ref_id, stop.ref_id)
+                note = f"<small>{_e(stop.note)}</small>" if stop.note else ""
+                stops.append(
+                    '<div class="plan-stop">'
+                    f'<time>{_e(stop.starts_at.strftime("%H:%M"))}–'
+                    f'{_e(stop.ends_at.strftime("%H:%M"))}</time>'
+                    f'<div><b>{_e(label)}</b>{note}</div></div>')
+            days.append(
+                f'<div class="plan-day"><h3>{day.date.strftime("%d.%m")} · '
+                f'{_e(day.title)}</h3>{"".join(stops)}</div>')
+        plans.append(
+            f'<details class="plan"{" open" if index == 0 else ""}>'
+            f'<summary><b>{index + 1:02d}</b><div><b>{_e(plan.title)}</b>'
+            f'<span>{_e(plan.summary)}</span></div></summary>'
+            f'<div class="plan-days">{"".join(days)}</div></details>')
+    return '<section><h2>Три сценария поездки</h2>' + "".join(plans) + "</section>"
+
+
 def _compact_trip_page(document: TripPageDocumentV2) -> str:
     trip = document.trip
     nights = (trip.date_to - trip.date_from).days
@@ -1828,6 +1880,7 @@ def _compact_trip_page(document: TripPageDocumentV2) -> str:
 {('<section><h2>Где остановиться · ' + _nights(nights) + ' · ' + _adults(trip.travelers) + '</h2>' + hotel_cards + '</section>') if hotel_cards else ''}
 {'<section><h2>Что посмотреть</h2>' + "".join(event_rows) + '</section>' if event_rows else ''}
 {('<section><h2>Рестораны и бары · ' + _e(_venue_sources_label(document)) + '</h2>' + "".join(venue_rows) + '</section>') if venue_rows else ''}
+{_compact_plans_section(document)}
 <div class="fine"><b>Важно знать</b><ul>{warnings or '<li>Цены и доступность могут измениться до оформления.</li>'}</ul>
 <b>Источники</b><ul>{sources}</ul>
 Страница собрана Travel Nova. Переход по ссылкам T-Bank открывает оформление у банка — MCP ничего не бронирует и не оплачивает.
@@ -1879,6 +1932,7 @@ def render_travel_compact_html(
     """Return a compact, self-contained chat-ready page (no disk writes)."""
     if isinstance(document, HotelPageDocumentV1):
         return _compact_hotel_page(document)
+    document = _ensure_trip_plans(document)
     return _compact_trip_page(document)
 
 
@@ -2057,6 +2111,290 @@ def _page_title(document) -> str:
     return document.trip.title
 
 
+_PLAN_STYLE_COPY = {
+    "balanced": (
+        "Сбалансированный маршрут",
+        "Спокойный темп: дорога, отель, прогулки, события и заведения распределены без лишней спешки.",
+        time(10, 30), 75, time(18, 30),
+    ),
+    "culture": (
+        "Больше прогулок и впечатлений",
+        "Акцент на пеших отрезках и мероприятиях, с паузами на отдых и еду.",
+        time(10, 0), 120, time(17, 30),
+    ),
+    "food_nightlife": (
+        "Рестораны и вечерняя программа",
+        "Дневная прогулка дополняется ресторанами и, когда они есть в отчёте, барами после основной программы.",
+        time(16, 0), 60, time(20, 0),
+    ),
+}
+
+
+def _clock_from_hotel(value: str) -> time | None:
+    match = re.search(r"(?<!\d)([01]?\d|2[0-3]):([0-5]\d)(?!\d)", str(value or ""))
+    if not match:
+        return None
+    return time(int(match.group(1)), int(match.group(2)))
+
+
+def _trip_plan_timezone(document: TripPageDocumentV2):
+    moments = [
+        *(leg.arrival_at for leg in document.transport),
+        *(leg.departure_at for leg in document.transport),
+        *(event.starts_at for event in document.events),
+        document.checked_at,
+    ]
+    return next((moment.tzinfo for moment in moments if moment.tzinfo is not None),
+                datetime.now().astimezone().tzinfo)
+
+
+def _plan_slot(
+    stops: list[PlanStop], preferred: datetime, duration: timedelta,
+    earliest: datetime, latest: datetime,
+) -> tuple[datetime, datetime] | None:
+    """Find a non-overlapping suggested slot after ``preferred``."""
+    cursor = max(preferred, earliest)
+    for stop in sorted(stops, key=lambda item: item.starts_at):
+        if stop.ends_at <= cursor:
+            continue
+        if cursor + duration <= stop.starts_at:
+            return cursor, cursor + duration
+        cursor = max(cursor, stop.ends_at + timedelta(minutes=15))
+    if cursor + duration <= latest:
+        return cursor, cursor + duration
+    return None
+
+
+def _plan_slot_before(
+    stops: list[PlanStop], preferred_end: datetime, duration: timedelta,
+    earliest: datetime, latest: datetime,
+) -> tuple[datetime, datetime] | None:
+    """Find a non-overlapping suggested slot ending before ``preferred_end``."""
+    cursor = min(preferred_end, latest)
+    for stop in sorted(stops, key=lambda item: item.starts_at, reverse=True):
+        if stop.starts_at >= cursor:
+            continue
+        if cursor - duration >= stop.ends_at:
+            return cursor - duration, cursor
+        cursor = min(cursor, stop.starts_at - timedelta(minutes=15))
+    if cursor - duration >= earliest:
+        return cursor - duration, cursor
+    return None
+
+
+def _append_plan_stop(rows: dict[date, list[PlanStop]], stop: PlanStop) -> bool:
+    day_rows = rows.setdefault(stop.starts_at.date(), [])
+    if any(stop.starts_at < current.ends_at and current.starts_at < stop.ends_at
+           for current in day_rows):
+        return False
+    day_rows.append(stop)
+    day_rows.sort(key=lambda item: item.starts_at)
+    return True
+
+
+def _generated_trip_plan(document: TripPageDocumentV2, style: str) -> TripPlan:
+    title, summary, walk_clock, walk_minutes, venue_clock = _PLAN_STYLE_COPY[style]
+    trip = document.trip
+    tzinfo = _trip_plan_timezone(document)
+    selected_hotel = next(
+        hotel for hotel in document.hotels if hotel.id == document.selected_hotel_id)
+    outbound = max(
+        (leg for leg in document.transport if leg.direction == "outbound"),
+        key=lambda leg: leg.arrival_at, default=None)
+    returning = min(
+        (leg for leg in document.transport if leg.direction == "return"),
+        key=lambda leg: leg.departure_at, default=None)
+    rows: dict[date, list[PlanStop]] = {}
+
+    def within(day: date) -> bool:
+        return trip.date_from <= day <= trip.date_to
+
+    def day_bounds(day: date) -> tuple[datetime, datetime]:
+        start = datetime.combine(day, time(8, 0), tzinfo=tzinfo)
+        end = datetime.combine(day, time(23, 30), tzinfo=tzinfo)
+        if outbound is not None and outbound.arrival_at.date() == day:
+            start = max(start, outbound.arrival_at + timedelta(minutes=30))
+        if returning is not None and returning.departure_at.date() == day:
+            end = min(end, returning.departure_at - timedelta(minutes=30))
+        return start, end
+
+    # Source-timed journey milestones are identical in every scenario.
+    if outbound is not None and within(outbound.arrival_at.date()):
+        arrival_label = ("Прилёт" if outbound.mode == "flight"
+                         else "Прибытие поезда")
+        _append_plan_stop(rows, PlanStop(
+            starts_at=outbound.arrival_at,
+            ends_at=outbound.arrival_at + timedelta(minutes=25),
+            ref_id=outbound.id,
+            title=f"{arrival_label} · {trip.destination}",
+            note=(f"{outbound.carrier}"
+                  + (f" · {outbound.service_number}" if outbound.service_number else "")),
+        ))
+    if returning is not None and within(returning.departure_at.date()):
+        departure_label = ("Вылет" if returning.mode == "flight"
+                           else "Отправление поезда")
+        _append_plan_stop(rows, PlanStop(
+            starts_at=returning.departure_at - timedelta(minutes=30),
+            ends_at=returning.departure_at,
+            ref_id=returning.id,
+            title=f"{departure_label} · {trip.destination}",
+            note=(f"{returning.carrier}"
+                  + (f" · {returning.service_number}" if returning.service_number else "")),
+        ))
+
+    check_in_day = (outbound.arrival_at.date() if outbound is not None
+                    and within(outbound.arrival_at.date()) else trip.date_from)
+    first_start, first_end = day_bounds(check_in_day)
+    check_in_clock = _clock_from_hotel(selected_hotel.check_in_time)
+    check_in_preferred = datetime.combine(
+        check_in_day, check_in_clock or time(14, 0), tzinfo=tzinfo)
+    if outbound is not None and outbound.arrival_at.date() == check_in_day:
+        check_in_preferred = max(
+            check_in_preferred, outbound.arrival_at + timedelta(minutes=45))
+    check_in_slot = _plan_slot(
+        rows.get(check_in_day, []), check_in_preferred, timedelta(minutes=45),
+        first_start, first_end)
+    if check_in_slot:
+        check_in_note = (f"Время заезда по карточке отеля: {selected_hotel.check_in_time}."
+                         if check_in_clock else
+                         "После прибытия; точное время заезда нужно подтвердить у отеля.")
+        _append_plan_stop(rows, PlanStop(
+            starts_at=check_in_slot[0], ends_at=check_in_slot[1],
+            ref_id=selected_hotel.id,
+            title=f"Заселение в {selected_hotel.name}", note=check_in_note))
+
+    check_out_day = (returning.departure_at.date() if returning is not None
+                     and within(returning.departure_at.date()) else trip.date_to)
+    last_start, last_end = day_bounds(check_out_day)
+    check_out_clock = _clock_from_hotel(selected_hotel.check_out_time)
+    check_out_end = datetime.combine(
+        check_out_day, check_out_clock or time(11, 0), tzinfo=tzinfo)
+    if check_out_day == check_in_day and check_in_slot:
+        check_out_end = max(
+            check_out_end, check_in_slot[1] + timedelta(hours=2))
+    if returning is not None and returning.departure_at.date() == check_out_day:
+        check_out_end = min(check_out_end, returning.departure_at - timedelta(hours=2))
+    check_out_slot = _plan_slot_before(
+        rows.get(check_out_day, []), check_out_end, timedelta(minutes=30),
+        last_start, last_end)
+    if check_out_slot:
+        check_out_note = (f"Время выезда по карточке отеля: {selected_hotel.check_out_time}."
+                          if check_out_clock else
+                          "Выселение; точное время нужно подтвердить у отеля.")
+        _append_plan_stop(rows, PlanStop(
+            starts_at=check_out_slot[0], ends_at=check_out_slot[1],
+            ref_id=selected_hotel.id,
+            title=f"Выселение из {selected_hotel.name}", note=check_out_note))
+
+    # Events keep their verified timestamps. An absent end time is presented as
+    # a two-hour planning window, not as a source claim.
+    events_by_day: dict[date, list[EventOption]] = {}
+    for event in sorted(document.events, key=lambda item: item.starts_at):
+        if not within(event.starts_at.date()):
+            continue
+        event_end = event.ends_at or event.starts_at + timedelta(hours=2)
+        stop = PlanStop(
+            starts_at=event.starts_at, ends_at=event_end, ref_id=event.id,
+            title=f"Посещение: {event.name}",
+            note=" · ".join(part for part in (event.venue, event.address) if part))
+        if _append_plan_stop(rows, stop):
+            events_by_day.setdefault(event.starts_at.date(), []).append(event)
+
+    restaurants = [venue for venue in document.venues if venue.kind == "restaurant"]
+    bars = [venue for venue in document.venues if venue.kind == "bar"]
+    if style == "food_nightlife":
+        venue_order = [*restaurants, *bars]
+        offset = 2
+    elif style == "culture":
+        venue_order = [*restaurants, *bars]
+        offset = 1
+    else:
+        venue_order = [*restaurants, *bars]
+        offset = 0
+
+    day_count = (trip.date_to - trip.date_from).days + 1
+    for index in range(day_count):
+        day = trip.date_from + timedelta(days=index)
+        earliest, latest = day_bounds(day)
+        if latest <= earliest:
+            continue
+        day_events = events_by_day.get(day, [])
+        venue = (venue_order[(index + offset) % len(venue_order)]
+                 if venue_order else None)
+        target_id = (day_events[0].id if day_events else
+                     venue.id if venue is not None else selected_hotel.id)
+        target_name = (day_events[0].name if day_events else
+                       venue.name if venue is not None else selected_hotel.name)
+        walk_preferred = datetime.combine(day, walk_clock, tzinfo=tzinfo)
+        walk_slot = _plan_slot(
+            rows.get(day, []), walk_preferred, timedelta(minutes=walk_minutes),
+            earliest, latest)
+        if walk_slot:
+            walk_title = {
+                "balanced": "Прогулка без спешки",
+                "culture": f"Пешеходная прогулка к {target_name}",
+                "food_nightlife": "Прогулка перед вечерней программой",
+            }[style]
+            _append_plan_stop(rows, PlanStop(
+                starts_at=walk_slot[0], ends_at=walk_slot[1], ref_id=target_id,
+                title=walk_title,
+                note=f"Маршрут рядом с подтверждённой точкой «{target_name}»."))
+
+        if venue is not None:
+            venue_preferred = datetime.combine(day, venue_clock, tzinfo=tzinfo)
+            venue_slot = _plan_slot(
+                rows.get(day, []), venue_preferred, timedelta(minutes=90),
+                earliest, latest)
+            if venue_slot:
+                meal = "Вечер" if venue.kind == "bar" else (
+                    "Ужин" if venue_preferred.hour >= 17 else "Обед")
+                _append_plan_stop(rows, PlanStop(
+                    starts_at=venue_slot[0], ends_at=venue_slot[1],
+                    ref_id=venue.id, title=f"{meal} в {venue.name}",
+                    note=" · ".join(venue.categories)))
+
+        if style == "food_nightlife" and bars:
+            bar = bars[index % len(bars)]
+            if venue is None or bar.id != venue.id:
+                bar_slot = _plan_slot(
+                    rows.get(day, []), datetime.combine(day, time(21, 30), tzinfo=tzinfo),
+                    timedelta(minutes=75), earliest, latest)
+                if bar_slot:
+                    _append_plan_stop(rows, PlanStop(
+                        starts_at=bar_slot[0], ends_at=bar_slot[1],
+                        ref_id=bar.id, title=f"Вечер в {bar.name}",
+                        note=" · ".join(bar.categories)))
+
+    days: list[PlanDay] = []
+    for day in sorted(rows):
+        day_rows = rows[day]
+        if not day_rows:
+            continue
+        day_events = events_by_day.get(day, [])
+        if day == check_in_day:
+            day_title = "Прибытие и заселение"
+        elif day == check_out_day:
+            day_title = "Выселение и обратная дорога"
+        elif day_events:
+            day_title = f"Мероприятие: {day_events[0].name}"
+        else:
+            day_title = title
+        days.append(PlanDay(date=day, title=day_title, stops=day_rows))
+    return TripPlan(style=style, title=title, summary=summary, days=days)
+
+
+def _ensure_trip_plans(document: TripPageDocumentV2) -> TripPageDocumentV2:
+    """Return exactly one plan for each public scenario, filling missing ones."""
+    by_style = {plan.style: plan for plan in document.plans}
+    plans = [
+        by_style.get(style) or _generated_trip_plan(document, style)
+        for style in ("balanced", "culture", "food_nightlife")
+    ]
+    if plans == document.plans:
+        return document
+    return document.model_copy(update={"plans": plans})
+
+
 def prepare_report_document(
     document: TripPageDocumentV1 | TripPageDocumentV2 | HotelPageDocumentV1,
 ) -> tuple[TripPageDocumentV1 | TripPageDocumentV2 | HotelPageDocumentV1, list[str]]:
@@ -2066,6 +2404,8 @@ def prepare_report_document(
     fail-soft. Missing comparison facts must never be silent, though: callers
     receive one warning per affected hotel plus a concrete retry instruction.
     """
+    if isinstance(document, TripPageDocumentV2):
+        document = _ensure_trip_plans(document)
     if not isinstance(document, (TripPageDocumentV2, HotelPageDocumentV1)):
         return document, []
 
@@ -2219,6 +2559,8 @@ def load_tolerant_document(raw):
     budget = take(BudgetRecommendation, "budget", "budget") or []
     events = take(EventOption, "events", "events") or []
     venues = take(DiningVenue, "venues", "venues") or []
+    map_points = take(MapPoint, "mapPoints", "mapPoints") or []
+    plans = take(TripPlan, "plans", "plans") or []
     flight_options = take(FlightOption, "flightOptions", "flightOptions") or []
     combined_flight = take(CombinedFlight, "combinedFlight", "combinedFlight")
     if not hotels:
@@ -2231,7 +2573,7 @@ def load_tolerant_document(raw):
     doc = types.SimpleNamespace(
         trip=trip, transport=transport, hotels=hotels,
         selected_hotel_id=selected, budget=budget, events=events,
-        venues=venues, map_points=[], plans=[], sources=sources,
+        venues=venues, map_points=map_points, plans=plans, sources=sources,
         flight_options=flight_options, combined_flight=combined_flight,
         warnings=warnings, checked_at=checked)
     return doc, advice
