@@ -127,17 +127,17 @@ Europe/Moscow**. Живые статусы источников в таблиц�
 | `train_search(origin, destination, date)` | R | 🟡 | Публичный read-only поиск `trains.tbank.ru`; текущий контракт опубликован, новая живая проверка не выполнялась |
 | `train_calendar(origin, destination)` | R | 🔴 | Старый mobile rail host `trains.t-bank-app.ru:443`: TCP/`ConnectTimeout` |
 | `compare_train_prices(...)` | R | 🟡 | Сравнивает ЖД-предложения по нескольким окнам дат |
-| `hotel_autocomplete(query)` | R | ✅ | Прод: «Москва» вернула 5 локаций и 1 конкретный отель |
-| `hotel_search(destination_id, checkin_date, checkout_date)` | R | ✅ | Актуальный v2-поиск: priced ids из `searchHotelPoints` объединяются со статическими карточками |
+| `hotel_autocomplete(query)` | R | ✅ | Локации и конкретные отели; hotel-подсказки содержат `details` и до трёх фото |
+| `hotel_search(destination_id, checkin_date, checkout_date)` | R | ✅ | Актуальный v2-поиск: priced ids объединяются со статическими `details` и до трёх фото на отель |
 | `hotel_details(hotel_id, max_facilities, max_images)` | R | ✅ | Прод: карточка первого результата, удобства и до 12 официальных HTTPS-фото |
-| `hotel_rates(hotel_id, checkin_date, checkout_date, ...)` | R | ✅ | Прод: v3-комнаты и тарифы; точный POST body и отсутствие credentials закреплены транспортным тестом |
-| `hotel_reviews(hotel_id, ...)` | R | ✅ | Прод: текущий v2 feedback, сортировка/поиск/cursor; ответ проверен на публичном маршруте |
+| `hotel_rates(hotel_id, checkin_date, checkout_date, ...)` | R | ✅ | v3-комнаты и тарифы плюс `hotelDetails` и до трёх фото |
+| `hotel_reviews(hotel_id, ...)` | R | ✅ | Текущий v2 feedback, сортировка/поиск/cursor плюс `hotelDetails` и до трёх фото |
 | `hotel_filters()` | R | ✅ | Прод: 14 фильтров и 7 популярных |
 | `hotel_search_filters(location_id, ...)` | R | 🟡 | `searchFilters_v3`: контракт, валидация, sticky/language headers и публичный transport покрыты offline-тестами |
-| `hotel_latest_offers(hotel_ids, ...)` | R | 🟡 | `getLatestHotelOffer`: batch 1–1000 id, финальность цены и публичный transport покрыты offline-тестами |
+| `hotel_latest_offers(hotel_ids, ...)` | R | 🟡 | `getLatestHotelOffer`: batch 1–1000 id, каждый item содержит `details` и до трёх фото |
 | `hotel_checkout_url(..., book_hash, rate_confirmed=true)` | R | 🟡 | Создаёт ссылку на оформление выбранного тарифа; не создаёт бронь и не списывает деньги |
-| `compare_hotel_prices(...)` | R | 🟡 | Сравнивает отельные предложения по нескольким окнам дат |
-| `compare_flight_hotel_prices(...)` | R | 🟡 | Сравнивает сумму двух перелётов и отеля; не является полной стоимостью поездки |
+| `compare_hotel_prices(...)` | R | 🟡 | Сравнивает отельные предложения; каждый item содержит `details` и до трёх фото |
+| `compare_flight_hotel_prices(...)` | R | 🟡 | Сравнивает два перелёта и отель; каждый item содержит `hotelDetails` и до трёх фото |
 | `nearby_search(...)` | R | 🟡 | Рестораны и места рядом через OpenStreetMap/Nominatim/Overpass |
 | `weather(...)` | R | 🟡 | Прогноз Open-Meteo или климатическая оценка ERA5 |
 | `shop_search(query)` | R | ✅ | Поиск товаров отвечает |
@@ -190,7 +190,7 @@ travel-инструменты предназначены для поиска и 
 | `diagnostics(limit=40)` | R | ✅ | Локальные очищенные события платежных сценариев |
 | `debug_report(runs=0, top=6)` | R | ✅ | Локальная статистика использования MCP |
 | `restaurant_search(city, ...)` | R | ✅ | Публичный поиск ресторанов Яндекс.Карт; возвращает report-ready карточки без банковской сессии |
-| `get_trip_report(request, output_mode)` | R | 🟡 | Валидирует `trip-page/v2`/`hotel-page/v1`, автоматически заполняет пустой `venues` ресторанами Яндекс.Карт и возвращает HTML или Markdown; события берутся из прямого `afisha_catalog` |
+| `get_trip_report(request, output_mode, allow_incomplete_after_source_failure)` | R | 🟡 | Валидирует `trip-page/v2`/`hotel-page/v1`; по умолчанию блокирует отчёт при неполном hotel enrichment, явный fallback разрешён только после ошибки источника с warning; автоматически заполняет пустой `venues` ресторанами Яндекс.Карт и возвращает HTML или Markdown; события берутся из прямого `afisha_catalog` |
 | `render_trip_page(document)` | R | ⛔ | Возвращает HTML + replyMarkdown в памяти (trip-page/v1); файлы не пишет |
 | `render_travel_page(document)` | R | ⛔ | Возвращает `trip-page/v2`/`hotel-page/v1` как готовый HTML + replyMarkdown в памяти; файлы не пишет |
 

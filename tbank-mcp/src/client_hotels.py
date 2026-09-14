@@ -364,24 +364,45 @@ class HotelMixin:
         return data if isinstance(data, dict) else {}
 
 
+    def hotel_details_many(self, hotel_ids: list[int | str]) -> list[dict]:
+        """Static hotel cards in source order, loaded in bounded batches."""
+        ordered_ids: list[int] = []
+        seen: set[int] = set()
+        for value in hotel_ids:
+            hotel_id = int(value)
+            if hotel_id > 0 and hotel_id not in seen:
+                ordered_ids.append(hotel_id)
+                seen.add(hotel_id)
+
+        cards_by_id: dict[str, dict] = {}
+        for start in range(0, len(ordered_ids), self.HOTEL_LIST_PAGE):
+            data = self._call_read("hotel_static_info", body={
+                "hotelIds": ordered_ids[start:start + self.HOTEL_LIST_PAGE],
+                "searchTag": f"mcp-details-{time.time_ns()}",
+            })
+            rows = (data or {}).get("hotels") if isinstance(data, dict) else []
+            for item in rows if isinstance(rows, list) else []:
+                if not isinstance(item, dict) or item.get("hotelId") is None:
+                    continue
+                card = dict(item)
+                location = card.get("location") or {}
+                coordinates = (location.get("hotelCoordinates") or {}
+                               if isinstance(location, dict) else {})
+                card["hotelLocation"] = {
+                    "address": (location.get("hotelAddress") or ""
+                                if isinstance(location, dict) else ""),
+                    "latitude": coordinates.get("latitude"),
+                    "longitude": coordinates.get("longitude"),
+                }
+                cards_by_id[str(card["hotelId"])] = card
+        return [cards_by_id[str(hotel_id)] for hotel_id in ordered_ids
+                if str(hotel_id) in cards_by_id]
+
+
     def hotel_details(self, hotel_id: str) -> dict:
         """Static hotel card from the current public hotel facade."""
-        data = self._call_read("hotel_static_info", body={
-            "hotelIds": [int(hotel_id)],
-            "searchTag": f"mcp-details-{time.time_ns()}",
-        })
-        rows = (data or {}).get("hotels") if isinstance(data, dict) else []
-        if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
-            return {}
-        card = dict(rows[0])
-        location = card.get("location") or {}
-        coordinates = location.get("hotelCoordinates") or {}
-        card["hotelLocation"] = {
-            "address": location.get("hotelAddress") or "",
-            "latitude": coordinates.get("latitude"),
-            "longitude": coordinates.get("longitude"),
-        }
-        return card
+        rows = self.hotel_details_many([hotel_id])
+        return rows[0] if rows else {}
 
 
     def hotel_filters(self) -> dict:

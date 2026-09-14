@@ -553,9 +553,17 @@ do not use it as a station resolver.
 
 ## 16. Hotels — public read-only search
 
+Все инструменты, которые возвращают отель или список отелей, автоматически
+добавляют детальную статическую карточку и до трёх реальных HTTPS-фотографий.
+Для элементов списков это блок `details`, для одноотельных `hotel_rates` и
+`hotel_reviews` — `hotelDetails`. В нём находятся адрес, описание, время
+заезда/выезда, координаты, удобства, `imageUrls` и точный `tbankUrl`. Пакетные
+списки загружают static-info батчами; отдельный вызов на каждый отель не нужен.
+Сбой enrichment сохраняет основную выдачу и добавляет warning.
+
 0. `hotel_favorites(response_format)` → избранные отели авторизованного
    SSO-пользователя: `hotels[]` с обязательным `hotelId`, опциональным
-   `collectionId` и лимит `maxCount`. Запрос только читает данные; нужен Hotels
+   `collectionId`, детальным `details` и лимит `maxCount`. Запрос только читает данные; нужен Hotels
    web SSO-сеанс, Bearer и банковский sessionid не отправляются.
 0.1. `hotel_similar(hotel_id, date_from, date_to, guests, children_ages,
    response_format)` → до 15 карточек похожих отелей в порядке рекомендательной
@@ -582,9 +590,9 @@ do not use it as a station resolver.
    питание, оплату и отмену для шорт-листа. Вызывай непосредственно перед тем,
    как сравнивать эти изменчивые условия. При `price.isFinalPrice=false` остальные
    условия по контракту не подтверждены.
-5. `hotel_details(hotel_id, max_facilities, max_images)` → адрес, описание, время
-   заезда/выезда, удобства и до `max_images` официальных HTTPS-фотографий в
-   `imageUrls` JSON-ответа.
+5. `hotel_details(hotel_id, max_facilities, max_images)` → повторная или
+   расширенная загрузка отдельной карточки; адрес, описание, время заезда/выезда,
+   удобства и до `max_images` официальных HTTPS-фотографий в `imageUrls`.
 6. `hotel_rates(hotel_id, checkin_date, checkout_date, adults, children_ages,
    filters)` → комнаты и все актуальные тарифы выбранного отеля: полная цена,
    питание, способ оплаты, правила отмены и доступность. `filters` — массив из
@@ -600,10 +608,11 @@ do not use it as a station resolver.
    конкретные даты, гостей и доступность предложений.
 10. Для итогового `get_trip_report()` передай по каждому финальному отелю
     `reviewCount`, `facilities`, `room`, `meal`, `cancellation`, `payment` и
-    структурированный `reviewDigest`. Если любой блок отсутствует, report
-    сохранит страницу, но добавит видимый warning с hotel id и actionable
-    `advice`; пропускать обязательные вызовы enrichment из-за fail-soft режима
-    нельзя.
+    структурированный `reviewDigest`. Если любой блок отсутствует, report по
+    умолчанию вернёт `HOTEL_ENRICHMENT_REQUIRED` без итоговой страницы. Только
+    после фактической ошибки hotel-инструмента повтори вызов с
+    `allow_incomplete_after_source_failure=true` и конкретным warning с названием
+    или id каждого затронутого отеля.
 11. Для ресторанного блока вызови `restaurant_search(city, latitude,
     longitude, radius_meters=1800, limit=5, response_format="json")` с
     координатами выбранного отеля и передай `data.restaurants` в `venues`.

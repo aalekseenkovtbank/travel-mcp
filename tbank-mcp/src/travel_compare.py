@@ -12,7 +12,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 def _camel(name: str) -> str:
@@ -140,6 +140,21 @@ class TrainComparisonItem(OutputModel):
     checked_at: str
 
 
+class HotelDetailsSummary(OutputModel):
+    hotel_id: str
+    name: str = ""
+    stars: int = 0
+    address: str = ""
+    description: str = ""
+    check_in_time: str = ""
+    check_out_time: str = ""
+    latitude: float | None = None
+    longitude: float | None = None
+    facilities: list[str] = Field(default_factory=list, max_length=12)
+    image_urls: list[str] = Field(default_factory=list, max_length=3)
+    tbank_url: str = ""
+
+
 class HotelComparisonItem(OutputModel):
     rank: int
     group_key: str
@@ -156,6 +171,7 @@ class HotelComparisonItem(OutputModel):
     nightly_price_rub: float
     delta_rub_from_lowest_observed: float
     delta_pct_from_lowest_observed: float
+    details: HotelDetailsSummary
     source: str
     checked_at: str
 
@@ -181,6 +197,7 @@ class FlightHotelComparisonItem(OutputModel):
     delta_to_budget_rub: float | None = None
     delta_rub_from_lowest_observed: float
     delta_pct_from_lowest_observed: float
+    hotel_details: HotelDetailsSummary
     source: str
     checked_at: str
 

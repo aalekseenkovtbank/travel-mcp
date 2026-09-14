@@ -45,7 +45,8 @@ from .travel_compare import (
     ComparisonError, ComparisonFailure, ComparisonMeta, FlightComparisonData,
     FlightComparisonItem, FlightComparisonResponse, FlightHotelComparisonData,
     FlightHotelComparisonItem, FlightHotelComparisonResponse, HotelComparisonData,
-    HotelComparisonItem, HotelComparisonResponse, ObservedGroup, StayWindow,
+    HotelComparisonItem, HotelComparisonResponse, HotelDetailsSummary,
+    ObservedGroup, StayWindow,
     TrainComparisonData, TrainComparisonItem, TrainComparisonResponse, WindowValue,
     comparison_groups, decimal_amount, normalize_flight_inventory,
     normalize_hotel_inventory, normalize_train_inventory, price_delta, rub_number,
@@ -175,7 +176,7 @@ def personalized_weekend_landing(
 Работай по этому сценарию:
 1. Вызови trip_personalization_profile() для агрегированного бюджета и интересов. Не вызывай list_operations и order_details самостоятельно ради профиля: новый инструмент уже исключает переводы, отмены и сырые персональные данные.
 2. Подбери транспорт туда и обратно через flight_search или train_search, всегда явно передавая adults=1. Для сравнения дат в compare_flight_prices и compare_train_prices также всегда передавай adults=1. Это только поиск: не утверждай, что билеты куплены. Для пятничного вылета на выходные выбирай отправление не раньше 18:00 по местному времени, если пользователь явно не сказал, что пятница свободна. Передай найденные цены повторно в trip_personalization_profile(), если истории поездок недостаточно. Сохрани продавца в seller, подтверждённую ссылку объекта — в tbankUrl, а единый checkout маршрута — отдельно в transportBookingUrl, только если их вернул источник. Не конструируй транспортную ссылку и не подставляй общий раздел.
-3. Найди ровно три отеля через hotel_autocomplete, hotel_search, hotel_details и актуальные hotel_rates/hotel_latest_offers, всегда явно передавая adults=2 во все hotel-вызовы и сравнения. Не используй compare_flight_hotel_prices в этом шаблоне: у него один общий adults, поэтому он не может одновременно искать билет на одного и отель на двоих. Расположи отели по строго возрастающей полной цене: выгодный, сбалансированный и более комфортный. Уровень звёзд, рейтинг, расположение и условия не должны становиться хуже при росте цены; разница между соседними вариантами должна быть разумной, без резкого скачка класса. Заполни facilities, room, meal, cancellation, payment, reviewCount, reviewDigest и detailsUrl фактическими данными; detailsUrl строй только из настоящего hotelId. bookingUrl — отдельный checkout: hotel_checkout_url используй только после явного выбора тарифа и с подтверждённым book_hash; ссылка не создаёт бронь и не списывает деньги.
+3. Найди ровно три отеля через hotel_autocomplete, hotel_search и актуальные hotel_rates/hotel_latest_offers, всегда явно передавая adults=2 во все hotel-вызовы и сравнения. Каждый hotel-тул уже возвращает details с адресом, описанием, удобствами и максимум тремя фотографиями; отдельный hotel_details нужен только для повторной или расширенной загрузки. Не используй compare_flight_hotel_prices в этом шаблоне: у него один общий adults, поэтому он не может одновременно искать билет на одного и отель на двоих. Расположи отели по строго возрастающей полной цене: выгодный, сбалансированный и более комфортный. Уровень звёзд, рейтинг, расположение и условия не должны становиться хуже при росте цены; разница между соседними вариантами должна быть разумной, без резкого скачка класса. Заполни facilities, room, meal, cancellation, payment, reviewCount, reviewDigest и detailsUrl фактическими данными; detailsUrl строй только из настоящего hotelId. bookingUrl — отдельный checkout: hotel_checkout_url используй только после явного выбора тарифа и с подтверждённым book_hash; ссылка не создаёт бронь и не списывает деньги.
 4. Для {date_from}–{date_to} сразу вызови afisha_catalog(city="{city}", date_from="{date_from}", date_to="{date_to}", response_format="json") по подходящим категориям. search_app для этой цепочки не нужен. Для выбранных событий перепроверь сеансы через cinema_schedule/concert_schedule и включи фактические данные в request.events. Ранжируй события по scoringWeights и агрегатам eventPreferences из профиля; сохраняй genres, ageRestriction и готовый sourceUrl из afisha_catalog(). Не транслитерируй неизвестные значения самостоятельно. Не бронируй места и не вызывай ticket_pay.
 5. Вызови restaurant_search() для ресторанов из Яндекс.Карт рядом с выбранным отелем. Передай координаты отеля; карточки уже совместимы с request.venues. get_trip_report() также выполнит этот поиск автоматически, если venues пуст. Для прогулочных точек отдельно используй nearby_search(include_poi=true) из OpenStreetMap. Не выдумывай отсутствующие фотографии, рейтинги, отзывы или часы работы.
 6. Следуй каноническому travel-output flow из MCP resource travel-nova://instructions/travel-output-modes. Для каждого финального отеля загрузи одну сопоставимую страницу hotel_reviews(sort="date", sort_type="desc", page_size=10), собери до трёх реальных фотографий и структурированный reviewDigest.
@@ -477,14 +478,19 @@ def _restaurant_enriched_report(request: TravelPageDocument) -> TravelPageDocume
 def get_trip_report(
     request: TravelPageDocument,
     output_mode: Literal["html", "markdown"] = "html",
+    allow_incomplete_after_source_failure: bool = False,
 ) -> dict | str:
     """Готовый отчёт из trip-page/v2 (с events Афиши) или hotel-page/v1.
 
     Для каждого финального отеля до вызова обязательны hotel_latest_offers,
-    hotel_details, hotel_rates и hotel_reviews. Передай facilities, room, meal,
+    hotel_rates и hotel_reviews. Статические сведения и фотографии возьми из
+    встроенного details любого hotel-тула; hotel_details используй для повторной
+    или расширенной загрузки. Передай facilities, photos, room, meal,
     cancellation, payment, reviewCount и reviewDigest. Если источник не вернул
-    часть сведений, сохрани явный warning; renderer также добавит диагностику
-    для каждого пропущенного блока.
+    часть сведений, сначала всё равно вызови соответствующие источники, сохрани
+    явный warning с названием или id отеля и только тогда повтори вызов с
+    allow_incomplete_after_source_failure=true. Без этого явного fallback
+    неполный hotel enrichment блокирует создание итогового отчёта.
 
     До вызова получи события локации напрямую через
     afisha_catalog(city=..., date_from=..., date_to=..., response_format="json");
@@ -505,6 +511,49 @@ def get_trip_report(
     html возвращает JSON с готовой страницей и metadata без replyMarkdown;
     markdown — только текст. Файлы, бронирование и оплата не создаются.
     """
+    provided_warnings = list(request.warnings)
+    enrichment_preview, enrichment_advice = prepare_report_document(request)
+    enrichment_warnings = [
+        warning for warning in enrichment_preview.warnings
+        if warning.startswith("Отель «") and "неполные данные" in warning
+    ]
+    if enrichment_advice and not allow_incomplete_after_source_failure:
+        details = " ".join(enrichment_warnings[:5])
+        raise TbankApiError(
+            "HOTEL_ENRICHMENT_REQUIRED",
+            "Итоговый отчёт не сформирован. Встроенные details нужно перенести "
+            "из hotel-ответа в карточку итогового документа. "
+            "Сначала вызови hotel_latest_offers для shortlist, затем "
+            "hotel_rates и hotel_reviews для каждого финального "
+            "отеля и повтори get_trip_report с заполненными facilities, photos, "
+            "room, meal, cancellation, payment, reviewCount и reviewDigest. "
+            + details,
+        )
+    if enrichment_advice and allow_incomplete_after_source_failure:
+        affected_hotels = [
+            hotel for hotel in enrichment_preview.hotels
+            if any(f"({hotel.id})" in warning for warning in enrichment_warnings)
+        ]
+        enrichment_tools = (
+            "hotel_latest_offers", "hotel_details", "hotel_rates", "hotel_reviews",
+        )
+        undocumented = [
+            hotel for hotel in affected_hotels
+            if not any(
+                (str(hotel.id) in warning or hotel.name.lower() in warning.lower())
+                and any(tool in warning for tool in enrichment_tools)
+                for warning in provided_warnings
+            )
+        ]
+        if undocumented:
+            labels = ", ".join(f"{hotel.name} ({hotel.id})" for hotel in undocumented)
+            raise TbankApiError(
+                "HOTEL_ENRICHMENT_FAILURE_NOT_DOCUMENTED",
+                "allow_incomplete_after_source_failure разрешён только после "
+                "реальной ошибки hotel_latest_offers, hotel_details, hotel_rates "
+                "или hotel_reviews. Добавь в request.warnings конкретную ошибку "
+                f"источника для каждого неполного отеля: {labels}.",
+            )
     request = _restaurant_enriched_report(request)
     request, _ = prepare_report_document(request)
     if output_mode == "markdown":
@@ -1116,12 +1165,26 @@ def _hotel_inventory_call(session: MobileSession, destination_id: int,
                 if key:
                     by_id[key] = hotel
         complete = last_data.get("isLoadingCompleted") is True
+    rows = normalize_hotel_inventory(list(by_id.values()))
+    for row in rows:
+        source = by_id.get(str(row.get("hotelId") or ""))
+        if source:
+            row["details"] = _hotel_detail_payload(source)
+    no_photo_ids = [
+        str(row.get("hotelId") or "") for row in rows
+        if not (row.get("details") or {}).get("imageUrls")
+    ]
+    warnings = ([] if complete else
+                [f"Отели {window.key}: выдача не закрылась за ожидание поиска."])
+    if no_photo_ids:
+        warnings.append(
+            f"Отели {window.key}: источник не вернул фотографии для hotel_id: "
+            + _cut(", ".join(no_photo_ids), 500))
     return {
-        "rows": normalize_hotel_inventory(list(by_id.values())),
+        "rows": rows,
         "complete": complete,
         "checkedAt": _checked_at(),
-        "warnings": ([] if complete else
-                     [f"Отели {window.key}: выдача не закрылась за ожидание поиска."]),
+        "warnings": warnings,
         "source": "T-Bank Hotels",
     }
 
@@ -5578,6 +5641,103 @@ def _hotel_image_urls(hotel: dict, limit: int) -> list[str]:
     return urls
 
 
+def _hotel_facility_names(hotel: dict, limit: int = 12) -> list[str]:
+    facilities: list[str] = []
+    for group in hotel.get("facilitiesGroups") or []:
+        if not isinstance(group, dict):
+            continue
+        group_name = _flat(
+            group.get("groupName") or group.get("name") or group.get("title") or "")
+        items = group.get("facilities") or group.get("items") or []
+        for item in items:
+            name = (item.get("name") or item.get("title")) if isinstance(item, dict) else item
+            name = _flat(name or "")
+            if not name:
+                continue
+            value = f"{group_name}: {name}" if group_name else name
+            if value not in facilities:
+                facilities.append(value)
+            if limit > 0 and len(facilities) >= limit:
+                return facilities
+    return facilities
+
+
+def _hotel_detail_payload(hotel: dict, fallback_hotel_id: str = "") -> dict:
+    hotel_id = str(hotel.get("hotelId") or fallback_hotel_id or "")
+    latitude, longitude = _hotel_coordinates(hotel)
+    details = {
+        "hotelId": hotel_id,
+        "name": _flat(hotel.get("hotelName") or hotel.get("name") or ""),
+        "stars": int(hotel.get("starRating") or hotel.get("stars") or 0),
+        "address": _hotel_address(hotel),
+        "description": _cut(_flat(hotel.get("description") or ""), 1_200),
+        "checkInTime": str(hotel.get("checkInTime") or ""),
+        "checkOutTime": str(hotel.get("checkOutTime") or ""),
+        "latitude": latitude,
+        "longitude": longitude,
+        "facilities": _hotel_facility_names(hotel, 12),
+        "imageUrls": _hotel_image_urls(hotel, 3),
+        "tbankUrl": _hotel_details_url(hotel_id) or "",
+    }
+    return details
+
+
+def _load_hotel_detail_map(
+    hotel_ids: list[str | int], session: MobileSession | None = None,
+) -> tuple[dict[str, dict], list[str]]:
+    ids: list[int] = []
+    for value in hotel_ids:
+        raw = str(value or "").strip()
+        if raw.isdigit() and int(raw) > 0 and int(raw) not in ids:
+            ids.append(int(raw))
+    if not ids:
+        return {}, []
+    try:
+        active_session = session or _public_session()
+        batch_loader = getattr(active_session, "hotel_details_many", None)
+        if callable(batch_loader):
+            cards = batch_loader(ids)
+        else:
+            cards = [active_session.hotel_details(str(hotel_id)) for hotel_id in ids]
+    except Exception as exc:
+        message = _cut(_redact_value(str(exc)), 220)
+        return {}, [f"Детальные карточки отелей не загружены: {message}"]
+    details = {
+        str(card.get("hotelId")): _hotel_detail_payload(card)
+        for card in cards if isinstance(card, dict) and card.get("hotelId") is not None
+    }
+    missing = [str(hotel_id) for hotel_id in ids if str(hotel_id) not in details]
+    warnings = ([] if not missing else [
+        "Детальная карточка и фотографии не найдены для hotel_id: " + ", ".join(missing)
+    ])
+    without_photos = [
+        str(hotel_id) for hotel_id in ids
+        if str(hotel_id) in details and not details[str(hotel_id)].get("imageUrls")
+    ]
+    if without_photos:
+        warnings.append(
+            "Источник не вернул фотографии для hotel_id: "
+            + _cut(", ".join(without_photos), 500))
+    return details, warnings
+
+
+def _hotel_detail_text(details: dict) -> str:
+    parts: list[str] = []
+    if details.get("address"):
+        parts.append(f"адрес: {_cut(details['address'], 140)}")
+    if details.get("checkInTime") or details.get("checkOutTime"):
+        parts.append(
+            f"заезд/выезд: {details.get('checkInTime') or '?'} / "
+            f"{details.get('checkOutTime') or '?'}")
+    if details.get("description"):
+        parts.append(f"описание: {_cut(details['description'], 280)}")
+    if details.get("facilities"):
+        parts.append("удобства: " + "; ".join(details["facilities"]))
+    if details.get("imageUrls"):
+        parts.append("фото: " + " | ".join(details["imageUrls"]))
+    return "\n  ".join(parts)
+
+
 _HOTEL_ARRAY_FILTERS = {
     "accommodation_types", "chains", "meal_types", "payment_places", "stars",
     "hotel_entertainments", "hotel_facilities", "room_facilities", "bed_types",
@@ -5720,8 +5880,9 @@ def hotel_favorites(response_format: str = "text") -> str:
     """Получить избранные отели авторизованного пользователя.
 
     Возвращает список hotels по контракту GetFavoriteHotels v1. Каждый элемент
-    содержит обязательный hotelId и опциональный collectionId; maxCount задаёт
-    максимальное допустимое количество избранных у пользователя.
+    содержит обязательный hotelId, опциональный collectionId и встроенный блок
+    details с карточкой, удобствами и максимум тремя фотографиями; maxCount
+    задаёт максимальное допустимое количество избранных у пользователя.
 
     Это read-only запрос к Hotels Search API. Bearer и банковский sessionid не
     отправляются; используется отдельная Hotels web SSO-сессия. Если
@@ -5756,14 +5917,21 @@ def hotel_favorites(response_format: str = "text") -> str:
                         "Опциональный collectionId должен быть строкой.")
                 row["collectionId"] = collection_id
             hotels.append(row)
+        details_by_id, detail_warnings = _load_hotel_detail_map(
+            [item["hotelId"] for item in hotels])
+        for item in hotels:
+            item["details"] = details_by_id.get(item["hotelId"], {
+                "hotelId": item["hotelId"], "imageUrls": [], "facilities": [],
+            })
         payload = {
             "hotels": hotels,
             "maxCount": max_count,
         }
         if fmt == "json":
             return _json_envelope(
-                payload, source="T-Bank Hotels",
-                meta={"complete": True, "hotelsCount": len(hotels)})
+                payload, source="T-Bank Hotels", warnings=detail_warnings,
+                meta={"complete": True, "hotelsCount": len(hotels),
+                      "detailsComplete": not detail_warnings})
 
         if not hotels:
             return f"Избранных отелей не найдено. Лимит: {max_count}."
@@ -5771,7 +5939,12 @@ def hotel_favorites(response_format: str = "text") -> str:
         for item in hotels:
             suffix = (f" | collection_id={item['collectionId']}"
                       if item.get("collectionId") else "")
-            lines.append(f"- hotel_id={item['hotelId']}{suffix}")
+            details = item["details"]
+            lines.append(
+                f"- {details.get('name') or 'Отель'} | hotel_id={item['hotelId']}{suffix}")
+            if rendered := _hotel_detail_text(details):
+                lines.append(f"  {rendered}")
+        lines.extend(f"⚠️ {warning}" for warning in detail_warnings)
         lines.append("Это чтение избранного; бронирование и оплата не выполняются.")
         return "\n".join(lines)
     except Exception as e:
@@ -5826,18 +5999,27 @@ def hotel_similar(
                 "BAD_CHILDREN_AGES",
                 "children_ages должен содержать неотрицательные целые возраста.")
 
-        hotels = _public_session().hotel_similar(
+        session = _public_session()
+        hotels = session.hotel_similar(
             hotel_id, date_from=start_raw, date_to=end_raw, guests=guests,
             children_ages=ages)
         hotels = hotels[:15]
+        details_by_id, detail_warnings = _load_hotel_detail_map(
+            [item.get("hotelId") for item in hotels if isinstance(item, dict)], session)
+        for item in hotels:
+            item_id = str(item.get("hotelId") or "")
+            item["details"] = details_by_id.get(item_id, {
+                "hotelId": item_id, "imageUrls": [], "facilities": [],
+            })
         payload = {"sourceHotelId": hotel_id, "hotels": hotels}
         warnings = ([] if start_raw else
                     ["Даты не переданы: priceHint в карточках отсутствует."])
+        warnings.extend(detail_warnings)
         if fmt == "json":
             return _json_envelope(
                 payload, source="T-Bank Hotels", warnings=warnings,
                 meta={"complete": True, "hotelsCount": len(hotels),
-                      "ranked": True})
+                      "ranked": True, "detailsComplete": not detail_warnings})
 
         if not hotels:
             return "Похожих отелей не найдено. Это штатный пустой результат."
@@ -5855,6 +6037,9 @@ def hotel_similar(
                 row += (f" | ориентир за период={price_hint['priceHintRub']} ₽"
                         f" ({price_hint.get('confidence', 'unknown')})")
             lines.append(row)
+            if rendered := _hotel_detail_text(item["details"]):
+                lines.append(f"  {rendered}")
+        lines.extend(f"⚠️ {warning}" for warning in detail_warnings)
         lines.append(
             "priceHint — ориентир, не оферта; проверь актуальный тариф перед выбором.")
         return "\n".join(lines)
@@ -5867,7 +6052,9 @@ def hotel_autocomplete(query: str, limit: int = 10,
                        response_format: str = "text") -> str:
     """Найти destination_id для hotel_search() по названию города/места.
 
-    Возвращает отдельно локации и конкретные отели. Запрос идёт в публичный
+    Возвращает отдельно локации и конкретные отели. Для каждой отельной
+    подсказки добавляет details с адресом, описанием, удобствами и максимум тремя
+    фотографиями. Запрос идёт в публичный
     hotels.tbank.ru без банковского access_token и sessionid. Если в SSO-сессии
     доступен ssoId, передаётся только этот cookie. Запрос только для чтения;
     бронирования и оплаты здесь нет. query — минимум 3 символа.
@@ -5883,26 +6070,37 @@ def hotel_autocomplete(query: str, limit: int = 10,
         hotels = data.get("hotels") or []
         rows = [("Локация", x) for x in locations if isinstance(x, dict)]
         rows += [("Отель", x) for x in hotels if isinstance(x, dict)]
+        shown = rows[:limit] if limit > 0 else rows
+        details_by_id, detail_warnings = _load_hotel_detail_map([
+            item.get("id") for kind, item in shown if kind == "Отель"
+        ], s)
         if fmt == "json":
-            shown = rows[:limit] if limit > 0 else rows
             suggestions = []
             for kind, item in shown:
                 type_data = item.get("type") or {}
-                suggestions.append({
+                suggestion = {
                     "kind": "location" if kind == "Локация" else "hotel",
                     "id": str(item.get("id") or ""),
                     "name": _flat(item.get("name") or ""),
                     "signature": _flat(item.get("signature") or ""),
                     "type": (str(type_data.get("name") or "")
                              if isinstance(type_data, dict) else ""),
-                })
+                }
+                if kind == "Отель":
+                    item_id = suggestion["id"]
+                    suggestion["details"] = details_by_id.get(item_id, {
+                        "hotelId": item_id, "imageUrls": [], "facilities": [],
+                    })
+                suggestions.append(suggestion)
             warnings = ([] if len(shown) == len(rows) else
                         [f"Показано {len(shown)} из {len(rows)} подсказок."])
+            warnings.extend(detail_warnings)
             return _json_envelope({
                 "query": query,
                 "suggestions": suggestions,
             }, source="T-Bank Hotels", warnings=warnings,
-               meta={"complete": len(shown) == len(rows)})
+               meta={"complete": len(shown) == len(rows),
+                     "detailsComplete": not detail_warnings})
         if not rows:
             return f"По запросу «{_cut(query, 80)}» ничего не найдено."
 
@@ -5910,15 +6108,23 @@ def hotel_autocomplete(query: str, limit: int = 10,
             kind, item = row
             type_data = item.get("type") or {}
             type_name = type_data.get("name") if isinstance(type_data, dict) else ""
-            return (f"- {kind}: {_flat(item.get('name') or '?')}"
+            line = (f"- {kind}: {_flat(item.get('name') or '?')}"
                     + (f" — {_flat(item.get('signature'))}" if item.get("signature") else "")
                     + (f" | тип={type_name}" if type_name else "")
                     + f" | id={item.get('id')}")
+            if kind == "Отель":
+                details = details_by_id.get(str(item.get("id") or ""), {})
+                if rendered := _hotel_detail_text(details):
+                    line += f"\n  {rendered}"
+            return line
 
-        return _rows_out(rows, render, limit=limit, total=len(rows),
-                         header=f"Подсказки для «{_cut(query, 80)}»",
-                         order_note="в порядке релевантности API",
-                         more_hint=f"Передай limit={len(rows)}.")
+        out = _rows_out(rows, render, limit=limit, total=len(rows),
+                        header=f"Подсказки для «{_cut(query, 80)}»",
+                        order_note="в порядке релевантности API",
+                        more_hint=f"Передай limit={len(rows)}.")
+        if detail_warnings:
+            out += "\n" + "\n".join(f"⚠️ {warning}" for warning in detail_warnings)
+        return out
     except Exception as e:
         return _formatted_error(e, response_format, source="T-Bank Hotels")
 
@@ -5934,7 +6140,9 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
     ``[5,12]``. Тул сам ждёт, пока поставщики закончат формировать выдачу, затем
     обновляет нефинальные цены через getLatestHotelOffer и возвращает не больше
     50 карточек (limit, по умолчанию 50). Это не 300k тарифов: upstream отдаёт
-    каталог отелей страницами по 50. Запрос read-only и уходит без банковских
+    каталог отелей страницами по 50. Каждая карточка содержит details с адресом,
+    описанием, временем заезда/выезда, удобствами и максимум тремя фотографиями.
+    Запрос read-only и уходит без банковских
     credentials. MCP не бронирует и не оплачивает отель. Для комнат/bookHash
     одного отеля вызови hotel_rates(); для availability-aware фильтров —
     hotel_search_filters().
@@ -5962,18 +6170,34 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
             total = len(hotels)
         loading_completed = data.get("isLoadingCompleted") is True
         prices_final = data.get("pricesFinal") is True
+        details_by_id = {
+            str(hotel.get("hotelId")): _hotel_detail_payload(hotel)
+            for hotel in hotels if hotel.get("hotelId") is not None
+        }
+        no_photo_ids = [
+            hotel_id for hotel_id, details in details_by_id.items()
+            if not details.get("imageUrls")
+        ]
+        detail_warnings = ([] if not no_photo_ids else [
+            "Источник не вернул фотографии для hotel_id: "
+            + _cut(", ".join(no_photo_ids), 500)
+        ])
         if fmt == "json":
             normalized = normalize_hotel_inventory(hotels)
             shown = normalized[:limit]
-            rows = [
-                _with_leading_tbank_url(
+            rows = []
+            for row in shown:
+                item = _with_leading_tbank_url(
                     {key: value for key, value in row.items()
                      if key not in ("priceDecimal", "tbankUrl")},
                     _hotel_details_url(row.get("hotelId")),
                 )
-                for row in shown
-            ]
-            warnings = []
+                item["details"] = details_by_id.get(str(row.get("hotelId") or ""), {
+                    "hotelId": str(row.get("hotelId") or ""),
+                    "imageUrls": [], "facilities": [],
+                })
+                rows.append(item)
+            warnings = list(detail_warnings)
             if not loading_completed:
                 warnings.append(
                     "Выдача не успела закрыться за ожидание; карточки — лучший "
@@ -5995,7 +6219,8 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
                 "total": total,
                 "hotels": rows,
             }, source="T-Bank Hotels", warnings=warnings,
-               meta={"complete": loading_completed and prices_final})
+               meta={"complete": loading_completed and prices_final,
+                     "detailsComplete": not detail_warnings})
         if not hotels:
             return (f"Доступных отелей для destination_id={destination_id} на "
                     f"{checkin_date}—{checkout_date} не найдено.")
@@ -6025,7 +6250,11 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
             if rooms is not None:
                 bits.append(f"номеров {rooms}")
             bits.append(f"hotel_id={hotel.get('hotelId')}")
-            return " | ".join(bits)
+            line = " | ".join(bits)
+            details = details_by_id.get(str(hotel.get("hotelId") or ""), {})
+            if rendered := _hotel_detail_text(details):
+                line += f"\n  {rendered}"
+            return line
 
         out = _rows_out(hotels, render, limit=limit, total=total,
                         header=f"Отели {checkin_date}—{checkout_date}",
@@ -6037,6 +6266,8 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
         if not prices_final:
             out += ("\n⚠️ Часть цен нефинальная; питание, отмену и оплату по ним "
                     "не подтверждай.")
+        if detail_warnings:
+            out += "\n" + "\n".join(f"⚠️ {warning}" for warning in detail_warnings)
         out += "\nБронирование и оплата через MCP не выполняются."
         return out
     except Exception as e:
@@ -6148,8 +6379,9 @@ def hotel_latest_offers(
     ВЫЗЫВАЙ после hotel_search() для шорт-листа из 1–1000 hotel_id и прямо перед
     ответом, где агент сравнивает или обещает текущую цену, наличие, питание,
     способ оплаты либо бесплатную отмену. Это getLatestHotelOffer: он обновляет
-    изменчивые условия нескольких отелей; hotel_details() содержит статическую
-    карточку, а hotel_rates() нужен для подробных комнат/тарифов одного отеля.
+    изменчивые условия нескольких отелей. Каждый возвращённый отель дополнительно
+    получает details со статической карточкой, удобствами и максимум тремя
+    фотографиями; hotel_rates() нужен для подробных комнат/тарифов одного отеля.
 
     filters имеют вид ``{"filterId":"stars","value":["5"]}``; range —
     ``["min=120","max=600"]``, boolean — ``["true"]``. Если
@@ -6168,7 +6400,8 @@ def hotel_latest_offers(
         nights = _hotel_search_window(checkin_date, checkout_date)
         ages = _hotel_search_guests(adults, children_ages)
         selected_filters = _hotel_search_filters_input(filters)
-        data = _public_session().hotel_latest_offers(
+        session = _public_session()
+        data = session.hotel_latest_offers(
             ids, checkin_date, checkout_date, location_id=location_id,
             adults=adults, children_ages=ages, filters=selected_filters)
         hotels = [row for row in (data.get("hotels") or []) if isinstance(row, dict)]
@@ -6193,6 +6426,14 @@ def hotel_latest_offers(
             warnings.append(
                 "Цена не финальная; условия нельзя считать подтверждёнными для hotel_id: "
                 + ", ".join(non_final))
+        details_by_id, detail_warnings = _load_hotel_detail_map(
+            [row.get("hotelId") for row in hotels], session)
+        for row in hotels:
+            row_id = str(row.get("hotelId") or "")
+            row["details"] = details_by_id.get(row_id, {
+                "hotelId": row_id, "imageUrls": [], "facilities": [],
+            })
+        warnings.extend(detail_warnings)
         if fmt == "json":
             return _json_envelope({
                 "requestedHotelIds": ids,
@@ -6204,8 +6445,9 @@ def hotel_latest_offers(
                 "selectedFilters": selected_filters,
                 "hotels": hotels,
             }, source="T-Bank Hotels", warnings=warnings,
-               meta={"complete": not missing, "requested": len(ids),
-                     "returned": len(hotels)})
+               meta={"complete": not missing,
+                     "requested": len(ids), "returned": len(hotels),
+                     "detailsComplete": not detail_warnings})
 
         if not hotels:
             return ("Актуальных предложений для запрошенных hotel_id не найдено.\n"
@@ -6243,6 +6485,8 @@ def hotel_latest_offers(
                 if offer.get("cardRequired") is not None:
                     bits.append("нужна карта" if offer.get("cardRequired") else "карта не нужна")
             lines.append(" | ".join(bits))
+            if rendered := _hotel_detail_text(row["details"]):
+                lines.append(f"  {rendered}")
         lines.extend(f"⚠️ {warning}" for warning in warnings)
         lines.append("Это проверка наличия; бронь и оплата через MCP не выполняются.")
         return "\n".join(lines)
@@ -6256,7 +6500,7 @@ def hotel_details(hotel_id: str, max_facilities: int = 40, max_images: int = 3,
     """Карточка отеля по hotel_id из hotel_search()/hotel_autocomplete().
 
     Показывает адрес, описание, часы заезда/выезда, удобства и до max_images
-    официальных HTTPS-фотографий (0 отключает фото, максимум 12). Публичный read-only запрос без
+    официальных HTTPS-фотографий (минимум 1, максимум 12). Публичный read-only запрос без
     банковского токена/cookie; бронирования и оплаты нет.
     """
     try:
@@ -6264,28 +6508,20 @@ def hotel_details(hotel_id: str, max_facilities: int = 40, max_images: int = 3,
         hotel_id = str(hotel_id or "").strip()
         if not hotel_id.isdigit():
             raise TbankApiError("BAD_HOTEL_ID", "hotel_id должен состоять из цифр.")
-        if not 0 <= int(max_images) <= 12:
-            raise TbankApiError("BAD_LIMIT", "max_images должен быть от 0 до 12.")
+        if not 1 <= int(max_images) <= 12:
+            raise TbankApiError("BAD_LIMIT", "max_images должен быть от 1 до 12.")
         s = _public_session()
         hotel = s.hotel_details(hotel_id)
         image_urls = _hotel_image_urls(hotel, int(max_images))
-        facilities = []
-        for group in hotel.get("facilitiesGroups") or []:
-            if not isinstance(group, dict):
-                continue
-            group_name = (group.get("groupName") or group.get("name")
-                          or group.get("title") or "")
-            items = group.get("facilities") or group.get("items") or []
-            for item in items:
-                name = (item.get("name") or item.get("title")) if isinstance(item, dict) else item
-                if name:
-                    facilities.append((f"{group_name}: " if group_name else "") + _flat(name))
+        facilities = _hotel_facility_names(hotel, 0)
         if fmt == "json":
             latitude, longitude = _hotel_coordinates(hotel)
             shown_facilities = (facilities[:max_facilities]
                                 if max_facilities > 0 else facilities)
             warnings = ([] if len(shown_facilities) == len(facilities) else
                         [f"Показано {len(shown_facilities)} из {len(facilities)} удобств."])
+            if not image_urls:
+                warnings.append("Источник не вернул фотографии этого отеля.")
             payload = {
                 "hotelId": str(hotel.get("hotelId") or hotel_id),
                 "name": _flat(hotel.get("hotelName") or ""),
@@ -6303,7 +6539,8 @@ def hotel_details(hotel_id: str, max_facilities: int = 40, max_images: int = 3,
             if details_url:
                 payload["tbankUrl"] = details_url
             return _json_envelope(payload, source="T-Bank Hotels", warnings=warnings,
-               meta={"complete": len(shown_facilities) == len(facilities)})
+               meta={"complete": len(shown_facilities) == len(facilities),
+                     "detailsComplete": bool(image_urls)})
         if not hotel or not hotel.get("hotelId"):
             return f"Отель hotel_id={hotel_id} не найден."
 
@@ -6327,6 +6564,8 @@ def hotel_details(hotel_id: str, max_facilities: int = 40, max_images: int = 3,
                            f"передай max_facilities={len(facilities)}.")
         if image_urls:
             out.append("Фото: " + " | ".join(image_urls))
+        else:
+            out.append("⚠️ Источник не вернул фотографии этого отеля.")
         details_url = _hotel_details_url(hotel.get("hotelId") or hotel_id)
         out.append(f"T-Bank: {details_url}" if details_url else "Ссылка T-Bank недоступна")
         out.append("Бронирование и оплата через MCP не выполняются.")
@@ -6350,7 +6589,8 @@ def hotel_rates(hotel_id: str, checkin_date: str, checkout_date: str,
     ``$objectType``: array (values), range (price: min/max), boolean (value) или
     radio (review_rating: value), плюс ``filterId``. limit ограничивает отдельно
     rates и otherRates (1..100). response_format=json сохраняет полные объекты
-    тарифов/комнат, включая цены, отмену, питание, удобства и bookHash.
+    тарифов/комнат, включая цены, отмену, питание, удобства и bookHash, а
+    hotelDetails — статическую карточку отеля с максимум тремя фотографиями.
 
     Это read-only проверка наличия, хотя HTTP-метод POST: бронь не создаётся,
     деньги не списываются, банковские access_token/sessionid не отправляются;
@@ -6381,7 +6621,8 @@ def hotel_rates(hotel_id: str, checkin_date: str, checkout_date: str,
         if not 1 <= int(limit) <= 100:
             raise TbankApiError("BAD_LIMIT", "limit должен быть от 1 до 100.")
         selected_filters = _hotel_rate_filters(filters)
-        data = _public_session().hotel_rates(
+        session = _public_session()
+        data = session.hotel_rates(
             hotel_id, checkin_date, checkout_date, adults=int(adults),
             children_ages=ages, filters=selected_filters)
         rates = [row for row in (data.get("rates") or []) if isinstance(row, dict)]
@@ -6396,9 +6637,15 @@ def hotel_rates(hotel_id: str, checkin_date: str, checkout_date: str,
         if len(shown_other) < len(other_rates):
             warnings.append(
                 f"Показано {len(shown_other)} из {len(other_rates)} тарифов вне фильтров.")
+        details_by_id, detail_warnings = _load_hotel_detail_map([hotel_id], session)
+        hotel_details = details_by_id.get(hotel_id, {
+            "hotelId": hotel_id, "imageUrls": [], "facilities": [],
+        })
+        warnings.extend(detail_warnings)
         if fmt == "json":
             return _json_envelope({
                 "hotelId": hotel_id,
+                "hotelDetails": hotel_details,
                 "checkinDate": checkin_date,
                 "checkoutDate": checkout_date,
                 "nights": nights,
@@ -6412,14 +6659,21 @@ def hotel_rates(hotel_id: str, checkin_date: str, checkout_date: str,
                 "otherRates": shown_other,
                 "rooms": rooms,
             }, source="T-Bank Hotels", warnings=warnings,
-               meta={"complete": not warnings,
+               meta={"complete": len(shown_rates) == len(rates)
+                             and len(shown_other) == len(other_rates),
                      "ratesTotal": len(rates),
                      "otherRatesTotal": len(other_rates),
-                     "roomsTotal": len(rooms)})
+                     "roomsTotal": len(rooms),
+                     "detailsComplete": not detail_warnings})
 
         if not rates and not other_rates:
-            return (f"Для hotel_id={hotel_id} на {checkin_date}—{checkout_date} "
-                    "доступных тарифов не найдено.")
+            out = (f"Для hotel_id={hotel_id} на {checkin_date}—{checkout_date} "
+                   "доступных тарифов не найдено.")
+            if rendered := _hotel_detail_text(hotel_details):
+                out += f"\n{rendered}"
+            if warnings:
+                out += "\n" + "\n".join(f"⚠️ {warning}" for warning in warnings)
+            return out
         room_names = {
             str(room.get("roomId")): _flat(room.get("roomName") or "")
             for room in rooms if room.get("roomId") is not None
@@ -6453,6 +6707,8 @@ def hotel_rates(hotel_id: str, checkin_date: str, checkout_date: str,
         lines = [
             f"Тарифы hotel_id={hotel_id}, {checkin_date}—{checkout_date} ({nights} ноч.):",
         ]
+        if rendered := _hotel_detail_text(hotel_details):
+            lines.append(rendered)
         lines.extend(render_rate(rate, matched=True) for rate in shown_rates)
         lines.extend(render_rate(rate, matched=False) for rate in shown_other)
         if warnings:
@@ -6531,9 +6787,10 @@ def hotel_reviews(hotel_id: str, source_code: str = "",
 
     page_size — 1..50. Если в ответе есть cursor, передай его без изменений в
     следующий вызов. Возвращаются автор, рейтинг, данные поездки, плюсы/минусы,
-    фото с категориями, лайки и официальный ответ. Публичный read-only запрос
-    не получает банковские access_token/sessionid; из cookie при наличии
-    передаётся только ssoId.
+    фото с категориями, лайки и официальный ответ. Ответ также содержит
+    hotelDetails со статической карточкой отеля и максимум тремя фотографиями.
+    Публичный read-only запрос не получает банковские access_token/sessionid;
+    из cookie при наличии передаётся только ssoId.
     """
     try:
         fmt = _response_format(response_format)
@@ -6555,30 +6812,45 @@ def hotel_reviews(hotel_id: str, source_code: str = "",
         if len(search_text) > 300:
             raise TbankApiError(
                 "BAD_SEARCH_TEXT", "search_text должен быть не длиннее 300 символов.")
-        data = _public_session().hotel_reviews(
+        session = _public_session()
+        data = session.hotel_reviews(
             hotel_id, source_code=source_code, sort=sort, sort_type=sort_type,
             cursor=cursor, page_size=int(page_size), search_text=search_text)
         reviews = [_hotel_review_item(item, hotel_id)
                    for item in (data.get("reviews") or []) if isinstance(item, dict)]
         next_cursor = str(data.get("cursor") or "")
+        details_by_id, detail_warnings = _load_hotel_detail_map([hotel_id], session)
+        hotel_details = details_by_id.get(hotel_id, {
+            "hotelId": hotel_id, "imageUrls": [], "facilities": [],
+        })
         if fmt == "json":
             return _json_envelope({
                 "hotelId": hotel_id,
+                "hotelDetails": hotel_details,
                 "sort": sort,
                 "sortType": sort_type,
                 "sourceCode": source_code,
                 "searchText": search_text,
                 "reviews": reviews,
                 "cursor": next_cursor,
-            }, source="T-Bank Hotels", meta={
+            }, source="T-Bank Hotels", warnings=detail_warnings, meta={
                 "complete": not bool(next_cursor),
                 "pageSize": int(page_size),
                 "returned": len(reviews),
                 "hasNextPage": bool(next_cursor),
+                "detailsComplete": not detail_warnings,
             })
         if not reviews:
-            return f"Отзывы для hotel_id={hotel_id} по заданным условиям не найдены."
+            out = f"Отзывы для hotel_id={hotel_id} по заданным условиям не найдены."
+            if rendered := _hotel_detail_text(hotel_details):
+                out += f"\n{rendered}"
+            if detail_warnings:
+                out += "\n" + "\n".join(
+                    f"⚠️ {warning}" for warning in detail_warnings)
+            return out
         lines = [f"Отзывы hotel_id={hotel_id} ({len(reviews)} на странице):"]
+        if rendered := _hotel_detail_text(hotel_details):
+            lines.append(rendered)
         for review in reviews:
             booking = review["bookingInfo"]
             summary = review["reviewPlus"] or review["reviewMinus"]
@@ -6598,6 +6870,7 @@ def hotel_reviews(hotel_id: str, source_code: str = "",
             lines.append(" | ".join(bits))
         if next_cursor:
             lines.append("Есть следующая страница: передай cursor из JSON-ответа без изменений.")
+        lines.extend(f"⚠️ {warning}" for warning in detail_warnings)
         return "\n".join(lines)
     except Exception as e:
         return _formatted_error(e, response_format, source="T-Bank Hotels")
@@ -7645,8 +7918,9 @@ async def compare_hotel_prices(
     Публичный метод: `login()` не нужен (hotel_search — публичная витрина
     hotels.tbank.ru).
 
-    hotel_ids позволяет сравнить один и тот же отель на разных датах. Неполная
-    выдача дочитывается максимум три раза и остаётся явно помеченной.
+    hotel_ids позволяет сравнить один и тот же отель на разных датах. Каждый item
+    содержит details с адресом, описанием, удобствами и максимум тремя
+    фотографиями. Неполная выдача остаётся явно помеченной.
     """
     requested = len(windows) if isinstance(windows, list) else 0
     baseline_key = ""
@@ -7727,6 +8001,9 @@ async def compare_hotel_prices(
                 total_price_rub=row["price"], nightly_price_rub=row["nightlyPrice"],
                 delta_rub_from_lowest_observed=delta_rub or 0.0,
                 delta_pct_from_lowest_observed=delta_pct or 0.0,
+                details=HotelDetailsSummary.model_validate(row.get("details") or {
+                    "hotelId": row["hotelId"], "imageUrls": [], "facilities": [],
+                }),
                 source=row["source"], checked_at=row["checkedAt"],
             ))
         complete = not failures and incomplete == 0
@@ -7788,6 +8065,11 @@ async def compare_flight_hotel_prices(
     Сумма включает только три явно перечисленных live-компонента. Питание вне
     тарифа, события, трансферы и ежедневные расходы не оцениваются. Для каждого
     окна берутся lowest observed подходящие рейсы и сравнимые отели.
+
+    Каждый отель содержит hotelDetails с адресом, описанием, удобствами и максимум
+    тремя фотографиями. Перед get_trip_report после выбора финальных hotelId всё
+    равно вызови hotel_latest_offers для shortlist, затем hotel_rates и
+    hotel_reviews для каждого отеля.
     """
     requested_windows = len(windows) if isinstance(windows, list) else 0
     baseline_key = ""
@@ -7931,6 +8213,11 @@ async def compare_flight_hotel_prices(
                                      if budget is not None else None),
                 delta_rub_from_lowest_observed=delta_rub or 0.0,
                 delta_pct_from_lowest_observed=delta_pct or 0.0,
+                hotel_details=HotelDetailsSummary.model_validate(
+                    hotel.get("details") or {
+                        "hotelId": hotel["hotelId"],
+                        "imageUrls": [], "facilities": [],
+                    }),
                 source=row["source"], checked_at=row["checkedAt"],
             ))
         requested_searches = len(windows) * 3
@@ -7940,6 +8227,10 @@ async def compare_flight_hotel_prices(
                 "В первом окне нет полной сборки; deltaFromBaseline не рассчитана.")
         warnings.append(
             "bundleTotalRub включает только перелёт туда, перелёт обратно и отель.")
+        warnings.append(
+            "Карточки содержат hotelDetails и фотографии. Для финального "
+            "get_trip_report дополнительно вызови hotel_latest_offers, затем "
+            "hotel_rates и hotel_reviews для каждого hotelId.")
         warnings = _comparison_warnings(
             warnings, complete=complete, shown=len(shown), total=len(ranked))
         data = FlightHotelComparisonData(

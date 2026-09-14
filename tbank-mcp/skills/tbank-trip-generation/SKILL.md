@@ -70,7 +70,8 @@ read_instruction("tbank-flight-search")
   даты, прямые рейсы или варианты;
 - shortlist отелей с реальными `hotelId`;
 - актуальные rates/room ids, питание, отмена и оплата по каждому финальному отелю;
-- удобства из `hotel_details` и `reviewDigest` по каждому финальному отелю;
+- встроенный `details` с удобствами и фотографиями и `reviewDigest` по каждому
+  финальному отелю;
 - рестораны Яндекс.Карт из `restaurant_search()` рядом с выбранным отелем;
 - бюджет и warnings о неполных/нефинальных данных.
 
@@ -112,11 +113,18 @@ HTML и Markdown; ошибку источника перенесёт в warnings
 `balanced`, `culture` и `food_nightlife`: сохраняет переданные стили и собирает
 недостающие из транспорта, выбранного отеля, событий и заведений — от прибытия
 и заселения до выселения и обратного отправления.
-Для каждого финального отеля обязательно выполни `hotel_latest_offers`,
-`hotel_details`, `hotel_rates` и `hotel_reviews`, затем передай `facilities`,
-`room`, `meal`, `cancellation`, `payment`, `reviewCount` и `reviewDigest` внутри
-hotel item. Если источник не вернул часть сведений, добавь конкретный warning с
-названием отеля; не пропускай enrichment молча.
+Каждый hotel-тул уже возвращает встроенный `details` с адресом, описанием,
+удобствами и максимум тремя фотографиями. Для каждого финального отеля
+обязательно выполни `hotel_latest_offers`, `hotel_rates` и `hotel_reviews`, затем
+передай `facilities`, фотографии, `room`, `meal`, `cancellation`, `payment`,
+`reviewCount` и `reviewDigest` внутри hotel item. `hotel_details` вызывай только
+для повторной или расширенной загрузки. Если источник не вернул часть сведений,
+добавь конкретный warning с
+названием отеля. По умолчанию `get_trip_report` отклонит неполную карточку с
+`HOTEL_ENRICHMENT_REQUIRED`. Только если обязательный hotel-вызов фактически
+завершился ошибкой, повтори report с
+`allow_incomplete_after_source_failure=true` и warning для каждого затронутого
+отеля; не используй этот fallback вместо enrichment.
 Минимальные актуальные JSON-примеры для `trip-page/v2` и `hotel-page/v1`
 находятся в [TRIP_GENERATION.md](../../docs/TRIP_GENERATION.md); не дублируй
 структуру моделей в этом skill.

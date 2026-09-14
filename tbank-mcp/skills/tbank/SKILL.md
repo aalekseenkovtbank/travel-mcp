@@ -38,6 +38,11 @@ resources.
   it writes no files. For an empty trip `venues` block it performs a public
   Yandex Maps `restaurant_search()` around the selected hotel. Local files
   exist only for developer CLI commands.
+- Every hotel-returning tool includes a `details` block with static facts,
+  facilities and up to three source photos (`hotelDetails` for single-hotel
+  rates/reviews). Before `get_trip_report()`, still call `hotel_latest_offers()`
+  for the shortlist and then `hotel_rates()` and `hotel_reviews()` for every
+  final hotel; incomplete enrichment blocks the report by default.
 - Public hotel, flight, railway, weather, Afisha catalogue, cinema schedule and
   concert/theatre schedule search needs no bank login.
   Session-backed history/profile tools may use an existing local `session.json`,

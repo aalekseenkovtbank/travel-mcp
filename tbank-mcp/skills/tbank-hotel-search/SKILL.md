@@ -71,6 +71,12 @@ inventory snapshot, not as a reservation. Check `isLoadingCompleted`, `pricesFin
 `meta.complete` and warnings; do not call a preliminary price final when the
 source marked it non-final.
 
+Every hotel-returning tool includes `details` for each hotel: static name/address,
+description, check-in/out, coordinates, facilities, exact T-Bank URL and up to
+three real source photos. Single-hotel `hotel_rates` and `hotel_reviews` expose
+the same projection as `hotelDetails`. Preserve it in downstream results; an
+empty `imageUrls` plus warning means the source returned no usable photo.
+
 Build a shortlist from actual returned hotel ids. For a normal comparison use up
 to three strong candidates with meaningfully different trade-offs; for a broad
 hotel-only request, the tool contract permits up to five. Do not force a number
@@ -96,19 +102,20 @@ cancellation, payment or availability is confirmed.
 For every hotel that will appear in the final shortlist, call:
 
 ```text
-hotel_details(hotel_id=..., max_images=3, response_format="json")
 hotel_rates(hotel_id=..., checkin_date=..., checkout_date=...,
            adults=..., children_ages=..., response_format="json")
 ```
 
-Use `hotel_details` for static facts: name, address, facilities, coordinates and
-up to three photo URLs. Use `hotel_rates` for current rooms, prices, meal,
-payment, cancellation, availability and `bookHash`. Keep the dates and guests
-equal to the original search.
+Use the embedded `details` for static facts and up to three photo URLs. Call
+`hotel_details(hotel_id=..., max_images=3, response_format="json")` only to retry
+or request an expanded standalone card. Use `hotel_rates` for current rooms,
+prices, meal, payment, cancellation, availability and `bookHash`. Keep the dates
+and guests equal to the original search.
 
-Each hotel may expose at most three photo URLs. `hotel_details` accepts at most
-three; review/search projections are capped server-side per hotel. A response
-containing several hotels may therefore contain up to three URLs for each hotel.
+Each hotel may expose at most three photo URLs in embedded output. A direct
+`hotel_details` call may request a different supported limit; review/search
+projections stay capped server-side per hotel. A response containing several
+hotels may therefore contain up to three URLs for each hotel.
 `hotel_rates` may return up to three room-photo URLs for each room type. Do not
 fetch or invent more photos to fill a visual layout.
 

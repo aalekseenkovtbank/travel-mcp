@@ -89,14 +89,18 @@ request реальные hotelId и выбранные параметры rate/r
 явно просит подтвердить точное время у отеля. Новые места и расписания renderer
 не выдумывает.
 
-Для каждого финального отеля до вызова обязательны `hotel_latest_offers`,
-`hotel_details`, `hotel_rates` и `hotel_reviews`. Передай `reviewCount`,
-`facilities`, `room`, `meal`, `cancellation`, `payment` и структурированный
+Каждый hotel-тул возвращает встроенный `details` с детальной карточкой и максимум
+тремя фотографиями. Для каждого финального отеля до вызова обязательны
+`hotel_latest_offers`, `hotel_rates` и `hotel_reviews`; отдельный `hotel_details`
+нужен только для повторной или расширенной загрузки. Передай `reviewCount`,
+`facilities`, фотографии, `room`, `meal`, `cancellation`, `payment` и структурированный
 `reviewDigest`. Если источник не вернул часть сведений, сохрани конкретный
-warning для этого отеля. Renderer также добавляет такой warning и actionable
-`advice`, если enrichment был пропущен, поэтому неполная страница не выглядит
-полной молча. В HTML-ответе верхнеуровневое поле `schemaVersion` позволяет
-сверить опубликованный контракт с версией клиента.
+warning для этого отеля. По умолчанию `get_trip_report` отклоняет неполный
+enrichment ошибкой `HOTEL_ENRICHMENT_REQUIRED`, не возвращая итоговую страницу.
+Только после фактической ошибки обязательного hotel-инструмента повтори вызов с
+`allow_incomplete_after_source_failure=true`; warning с названием или id каждого
+неполного отеля обязателен. В HTML-ответе верхнеуровневое поле `schemaVersion`
+позволяет сверить опубликованный контракт с версией клиента.
 
 Ниже — структурные примеры с полным hotel enrichment. Значения
 `replace-with-*`, числа, даты, цены и координаты — только JSON-заглушки: перед
@@ -137,6 +141,13 @@ warning для этого отеля. Renderer также добавляет т�
       "cancellation": "replace-with-cancellation-from-hotel-rates",
       "payment": "replace-with-payment-from-hotel-rates",
       "facilities": ["replace-with-facility-from-hotel-details"],
+      "photos": [
+        {
+          "url": "https://replace-with-photo-from-details.example/hotel.jpg",
+          "kind": "official",
+          "attribution": "T-Bank Hotels"
+        }
+      ],
       "reviewDigest": {
         "sampleSize": 10,
         "sort": "date",
@@ -168,7 +179,7 @@ warning для этого отеля. Renderer также добавляет т�
       "checkedAt": "2030-01-01T12:00:00+03:00"
     },
     {
-      "name": "hotel_details",
+      "name": "hotel_search",
       "checkedAt": "2030-01-01T12:00:00+03:00"
     },
     {
@@ -225,6 +236,13 @@ warning для этого отеля. Renderer также добавляет т�
       "cancellation": "replace-with-cancellation-from-hotel-rates",
       "payment": "replace-with-payment-from-hotel-rates",
       "facilities": ["replace-with-facility-from-hotel-details"],
+      "photos": [
+        {
+          "url": "https://replace-with-photo-from-details.example/hotel.jpg",
+          "kind": "official",
+          "attribution": "T-Bank Hotels"
+        }
+      ],
       "reviewDigest": {
         "sampleSize": 10,
         "sort": "date",
@@ -243,7 +261,7 @@ warning для этого отеля. Renderer также добавляет т�
       "checkedAt": "2030-01-01T12:00:00+03:00"
     },
     {
-      "name": "hotel_details",
+      "name": "hotel_search",
       "checkedAt": "2030-01-01T12:00:00+03:00"
     },
     {

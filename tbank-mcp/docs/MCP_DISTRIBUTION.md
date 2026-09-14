@@ -117,7 +117,14 @@ availability-aware filters, latest offers, details, rates, reviews и общий
 подтверждёнными. `hotel_checkout_url` принимает `bookHash` из `hotel_rates()` и может сразу вернуть
 hand-off URL; бронь и оплату он не создаёт.
 
-`compare_*` выполняют bounded fan-out и возвращают метаданные полноты. `lowest
+Каждый инструмент, возвращающий отель, включает его статическую карточку и до
+трёх реальных HTTPS-фотографий: `details` у элементов списков и `hotelDetails` у
+`hotel_rates`/`hotel_reviews`. Для больших списков static-info загружается
+пакетно. Недоступный detail-source не уничтожает цены, тарифы или отзывы: ответ
+остаётся частичным и получает warning плюс `meta.detailsComplete=false`.
+
+`compare_*` выполняют bounded fan-out и возвращают метаданные полноты. Hotel
+comparison items также содержат `details`/`hotelDetails` и фотографии. `lowest
 observed` означает минимум среди фактически полученных вариантов. Сумма
 `compare_flight_hotel_prices` включает только два плеча перелёта и отель.
 
@@ -137,8 +144,10 @@ report-ready карточки с прямыми sourceUrl. Данные не с�
 автоматически загружает рестораны Яндекс.Карт рядом с выбранным отелем. `html` —
 JSON с HTML и metadata, `markdown` — текстовый дайджест с теми же ресторанами.
 Файлы, бронирование и оплата не создаются.
-HTML metadata содержит `schemaVersion`; неполный hotel enrichment отражается
-явными `warnings` и actionable `advice`, а не скрывается пустыми ячейками.
+HTML metadata содержит `schemaVersion`. Неполный hotel enrichment по умолчанию
+блокирует отчёт ошибкой `HOTEL_ENRICHMENT_REQUIRED`; fail-soft страница допустима
+только с `allow_incomplete_after_source_failure=true` после фактического сбоя
+источника и с конкретными warnings по затронутым отелям.
 
 Ссылка на объект или checkout не означает бронь или оплату. Не публикуй сырые
 персональные записи, credentials или токены и не выдумывай значения, которые не

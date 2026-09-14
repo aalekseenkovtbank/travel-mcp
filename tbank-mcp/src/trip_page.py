@@ -2400,9 +2400,10 @@ def prepare_report_document(
 ) -> tuple[TripPageDocumentV1 | TripPageDocumentV2 | HotelPageDocumentV1, list[str]]:
     """Attach visible, actionable warnings for incomplete hotel enrichment.
 
-    External hotel sources may legitimately fail, so report generation remains
-    fail-soft. Missing comparison facts must never be silent, though: callers
-    receive one warning per affected hotel plus a concrete retry instruction.
+    External hotel sources may legitimately fail, so the renderer itself stays
+    fail-soft. The public get_trip_report tool adds a default preflight barrier;
+    this helper still attaches one warning per affected hotel plus a concrete
+    retry instruction for the explicit source-failure fallback and local CLI.
     """
     if isinstance(document, TripPageDocumentV2):
         document = _ensure_trip_plans(document)
@@ -2424,6 +2425,8 @@ def prepare_report_document(
             missing.append("оплата")
         if not hotel.facilities:
             missing.append("удобства")
+        if not hotel.photos and hotel.image_url is None:
+            missing.append("фотографии")
 
         digest = hotel.review_digest
         if digest is None:
@@ -2456,10 +2459,10 @@ def prepare_report_document(
             warnings.append(warning)
     prepared = document.model_copy(update={"warnings": warnings})
     advice = [
-        "До get_trip_report вызови hotel_latest_offers для shortlist, затем "
-        "hotel_details, hotel_rates и hotel_reviews для каждого финального отеля; "
-        "передай facilities, room, meal, cancellation, payment, reviewCount и "
-        "reviewDigest в hotel item."
+        "До get_trip_report вызови hotel_latest_offers для shortlist, перенеси "
+        "details и фотографии из hotel-ответа, затем вызови hotel_rates и "
+        "hotel_reviews для каждого финального отеля; передай facilities, photos, "
+        "room, meal, cancellation, payment, reviewCount и reviewDigest в hotel item."
     ]
     return prepared, advice
 
