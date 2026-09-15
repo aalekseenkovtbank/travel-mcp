@@ -9,6 +9,7 @@ Run: python -m src.server
 from __future__ import annotations
 
 import asyncio
+import base64
 from difflib import SequenceMatcher
 import functools
 import hashlib
@@ -23,10 +24,11 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.types import ClientCapabilities, ElicitationCapability, ToolAnnotations
+from mcp.types import (CallToolResult, ClientCapabilities, ElicitationCapability,
+                       ImageContent, TextContent, ToolAnnotations)
 
 from .tbank_urls import (afisha_event_url as _afisha_event_url,
                          hotel_details_url as _hotel_details_url,
@@ -6260,6 +6262,59 @@ def _hotel_enriched_text(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _hotel_native_result(session, text: str, items: list[dict]) -> CallToolResult:
+    """Attach one bounded, trusted primary hotel image per complete card."""
+    content = [TextContent(type="text", text=text)]
+    total_bytes = 0
+    warnings: list[str] = []
+    allowed_types = {"image/jpeg", "image/png", "image/webp"}
+    for item in items:
+        name = str(item.get("name") or item.get("hotelId") or "отель")
+        urls = [str(url or "").strip() for url in (item.get("photoUrls") or [])]
+        last_error: Exception | None = None
+        for url in urls[:3]:
+            try:
+                parsed = urlparse(url)
+                if (parsed.scheme != "https" or parsed.hostname != "cdn.tbank.ru"
+                        or parsed.username or parsed.password
+                        or parsed.port not in (None, 443)):
+                    raise ValueError("недоверенный URL")
+                response = session._public_http.get(
+                    url,
+                    headers={"Accept": "image/webp,image/png,image/jpeg"},
+                    timeout=15,
+                )
+                response.raise_for_status()
+                mime_type = str(
+                    response.headers.get("content-type") or "").split(";", 1)[0]
+                payload = response.content
+                if mime_type not in allowed_types or not payload:
+                    raise ValueError("источник вернул не изображение")
+                if len(payload) > 1_500_000 or total_bytes + len(payload) > 4_000_000:
+                    raise ValueError("изображение превышает лимит")
+                total_bytes += len(payload)
+                content.append(TextContent(
+                    type="text", text=f"Основное фото: {name}"))
+                content.append(ImageContent(
+                    type="image",
+                    data=base64.b64encode(payload).decode("ascii"),
+                    mimeType=mime_type,
+                ))
+                last_error = None
+                break
+            except Exception as exc:
+                last_error = exc
+        if last_error is not None:
+            warnings.append(
+                f"Фото «{_cut(name, 100)}»: {_cut(str(last_error), 120)}")
+    if warnings:
+        content.append(TextContent(
+            type="text",
+            text="Предупреждения нативных фото: " + "; ".join(warnings),
+        ))
+    return CallToolResult(content=content)
+
+
 _HOTEL_ARRAY_FILTERS = {
     "accommodation_types", "chains", "meal_types", "payment_places", "stars",
     "hotel_entertainments", "hotel_facilities", "room_facilities", "bed_types",
@@ -6654,7 +6709,8 @@ def hotel_autocomplete(query: str, limit: int = 10,
 @_threaded_tool
 def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
                  adults: int = 1, children_ages: str = "", limit: int = 15,
-                 response_format: str = "text", comparison_limit: int = 3) -> str:
+                 response_format: str = "text",
+                 comparison_limit: int = 3) -> CallToolResult:
     """Поиск доступных отелей с деталями, фото, тарифами и отзывами.
 
     Тул обогащает первые comparison_limit=1..5 карточек: загружает актуальный
@@ -6753,7 +6809,7 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
                     f"В каталоге {total} отелей; JSON возвращает только "
                     f"{len(enriched_shortlist)} полностью обогащённых карточек. "
                     "Неполные каталоговые карточки намеренно не публикуются.")
-            return _json_envelope({
+            payload = _json_envelope({
                 "destinationId": int(destination_id),
                 "checkinDate": checkin_date,
                 "checkoutDate": checkout_date,
@@ -6768,6 +6824,7 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
                meta={"complete": loading_completed and prices_final,
                      "detailsComplete": not detail_warnings,
                      "enrichedHotels": len(enriched_shortlist)})
+            return _hotel_native_result(s, payload, enriched_shortlist)
         if not hotels:
             return (f"Доступных отелей для destination_id={destination_id} на "
                     f"{checkin_date}—{checkout_date} не найдено.")
@@ -6786,7 +6843,7 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
         if detail_warnings:
             out += "\n" + "\n".join(f"⚠️ {warning}" for warning in detail_warnings)
         out += "\nБронирование и оплата через MCP не выполняются."
-        return out
+        return _hotel_native_result(s, out, enriched_shortlist)
     except Exception as e:
         return _formatted_error(e, response_format, source="T-Bank Hotels")
 

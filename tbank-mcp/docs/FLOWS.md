@@ -587,7 +587,8 @@ do not use it as a station resolver.
    `primaryPhotoUrl`, `photoUrls`, `pluses`, `minuses`, `suitableFor` и `nights`.
    `total` и `catalogSampleCount` — только числовая сводка каталога, а не
    дополнительные варианты. В видимом сравнении покажи минимум одно фото и все
-   три review-поля для каждого включённого отеля.
+   три review-поля для каждого включённого отеля. Кроме URL, `hotel_search`
+   прикладывает по одному bounded нативному MCP image-блоку на обогащённый отель.
 3. `hotel_search_filters(location_id, checkin_date, checkout_date, adults,
    children_ages, filters, map_frame_input, favorite_hotel_ids, language)` →
    availability-aware фильтры и `filteredHotelsCount` для этих дат и гостей.

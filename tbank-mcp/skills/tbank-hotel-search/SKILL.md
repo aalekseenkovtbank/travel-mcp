@@ -86,6 +86,9 @@ flattens `primaryPhotoUrl`, `photoUrls`, `pluses`, `minuses`, `suitableFor` and
 answer, render at least one of those photos and all three explicitly labelled
 review fields. Use `total` and `catalogSampleCount` only as numeric catalogue
 context; they do not describe additional selectable cards.
+`hotel_search` also attaches one bounded native MCP image block for every
+enriched card, using only the trusted T-Bank image CDN. Preserve those images in
+the visible result even when the host summarizes the JSON text.
 
 Every hotel-returning tool includes `details` for each hotel: static name/address,
 description, check-in/out, coordinates, facilities, exact T-Bank URL and up to
