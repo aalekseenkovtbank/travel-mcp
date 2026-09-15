@@ -103,6 +103,10 @@ read_instruction("tbank-flight-search")
 get_trip_report(request, output_mode="html" | "markdown")
 ```
 
+Это единственная публичная точка сборки страницы. Низкоуровневые
+`render_trip_page`, `render_travel_page` и `format_trip_reply` не входят в
+`tools/list`; не пытайся искать обходной renderer для неполного request.
+
 `request` — документ `trip-page/v2` по опубликованной схеме инструмента,
 с подтверждёнными транспортом, отелями, `events`, источниками и warnings.
 `get_trip_report` не перепроверяет поисковые данные: обнови их до вызова.

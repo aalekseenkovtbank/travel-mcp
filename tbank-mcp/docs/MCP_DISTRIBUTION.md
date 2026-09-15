@@ -13,6 +13,9 @@
 `src.server`. В этой поверхности доступны `get_trip_report`,
 `restaurant_search`, `afisha_catalog`, `search_app`, `concert_schedule` и
 `cinema_schedule`.
+Низкоуровневые compatibility helpers `render_trip_page`, `render_travel_page`
+и `format_trip_reply` не регистрируются как MCP tools: единственная публичная
+точка сборки страницы — fail-closed `get_trip_report`.
 Сценарий событий начинается с прямого `afisha_catalog`, без
 предварительного `search_app`, и описан в
 [TRIP_GENERATION.md](TRIP_GENERATION.md#подбор-событий-в-поездке).

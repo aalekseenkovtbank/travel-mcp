@@ -23,8 +23,10 @@ Request собирается по [TRIP_GENERATION.md](TRIP_GENERATION.md); со
 добавляет видимое предупреждение.
 
 Явно заданный пользователем режим всегда сильнее значения по умолчанию.
-Не вызывай `render_travel_page`, `compose_travel_page`, schema/validate или
-другие низкоуровневые renderer tools из агентского сценария.
+Низкоуровневые `render_trip_page`, `render_travel_page`, `format_trip_reply`,
+compose/schema/validate helpers не публикуются в `tools/list`: они остаются
+внутренними и локальными API. Если старый MCP-сеанс всё ещё показывает их,
+переподключи сервер и используй только `get_trip_report`.
 
 ## Размер shortlist
 

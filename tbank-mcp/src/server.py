@@ -61,9 +61,8 @@ from .trip_personalization import (TripPersonalizationProfile,
 from .weather import weather_report as _weather_report
 from .yandex_maps import search_yandex_restaurants as _search_yandex_restaurants
 
-# These travel methods are part of the single T-Bank MCP surface.  Keep the
-# explicit set as a maintained invariant for distribution checks and docs; it no
-# longer filters registration.
+# These travel methods are part of the single T-Bank MCP surface. Keep the
+# explicit set as a maintained invariant for distribution checks and docs.
 FORMER_TRAVEL_TOOL_NAMES = frozenset({
     # Session and spending context.
     "session_status", "list_accounts", "list_operations",
@@ -88,8 +87,15 @@ FORMER_TRAVEL_TOOL_NAMES = frozenset({
     "concert_schedule", "concert_hall",
     # Public no-key context sources.
     "nearby_search", "restaurant_search", "weather",
-    # In-memory HTML rendering.
-    "get_trip_report", "render_trip_page", "render_travel_page", "format_trip_reply",
+    # In-memory report rendering.
+    "get_trip_report",
+})
+
+# Compatibility helpers remain importable for local callers, but publishing
+# them lets an agent bypass get_trip_report's mandatory hotel-enrichment gate.
+# Keep the public MCP surface fail-closed: there is one report entrypoint.
+INTERNAL_ONLY_TOOL_NAMES = frozenset({
+    "render_trip_page", "render_travel_page", "format_trip_reply",
 })
 
 mcp = FastMCP(
@@ -339,10 +345,7 @@ TOOL_KINDS: dict[str, tuple[str, str]] = {
     "flows": ("Порядок вызовов по теме", READ),
     "diagnostics": ("События последних оплат", READ),
     "debug_report": ("Как использовали этот MCP", READ),
-    "format_trip_reply": ("Готовый Markdown с ссылками T-Bank", READ),
     "get_trip_report": ("Готовый отчёт поездки", READ),
-    "render_trip_page": ("HTML-страница поездки", READ),
-    "render_travel_page": ("HTML-страница Travel Nova", READ),
 }
 
 
@@ -353,8 +356,7 @@ def _annotations_for(name: str) -> ToolAnnotations:
             f"(nothing changes), WRITE (changes something, costs nothing) or "
             f"MONEY (debits an account) — see the note above the table.")
     title, kind = TOOL_KINDS[name]
-    local_renderers = {"render_trip_page", "render_travel_page", "format_trip_reply"}
-    ann = {"title": title, "openWorldHint": name not in local_renderers}
+    ann = {"title": title, "openWorldHint": True}
     if kind == READ:
         ann.update(readOnlyHint=True, destructiveHint=False, idempotentHint=True)
     elif kind == WRITE:
@@ -369,6 +371,8 @@ def _annotations_for(name: str) -> ToolAnnotations:
 
 def _traced_tool(*a, **kw):
     def register(fn):
+        if fn.__name__ in INTERNAL_ONLY_TOOL_NAMES:
+            return fn
         annotations = _annotations_for(fn.__name__)
         title, _ = TOOL_KINDS[fn.__name__]
         opts = {"title": title, "annotations": annotations, **kw}

@@ -24,8 +24,8 @@ READ, WRITE, MONEY = "read", "write", "money"
 # Keep this list in one place: registration decorators consult it below.
 DISABLED_TOOL_NAMES = frozenset({
     "nearby_search", "flows", "format_trip_reply",
-    "compose_travel_page", "render_travel_page", "travel_page_schema",
-    "validate_travel_page",
+    "compose_travel_page", "render_trip_page", "render_travel_page",
+    "travel_page_schema", "validate_travel_page",
 })
 
 # The travel-only import surface currently registers exactly these tools. Keep
