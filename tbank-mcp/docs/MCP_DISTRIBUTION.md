@@ -148,6 +148,9 @@ HTML metadata содержит `schemaVersion`. Неполный hotel enrichmen
 блокирует отчёт ошибкой `HOTEL_ENRICHMENT_REQUIRED`; fail-soft страница допустима
 только с `allow_incomplete_after_source_failure=true` после фактического сбоя
 источника и с конкретными warnings по затронутым отелям.
+Правила доставки hotel-фотографий внутри HTML, включая server-side встраивание
+для sandbox-preview, находятся в
+[TRAVEL_OUTPUT_MODES.md](TRAVEL_OUTPUT_MODES.md#фото).
 
 Ссылка на объект или checkout не означает бронь или оплату. Не публикуй сырые
 персональные записи, credentials или токены и не выдумывай значения, которые не

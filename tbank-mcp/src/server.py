@@ -40,6 +40,7 @@ from .instructions import (InstructionDocument, instruction_documents,
 from .nearby import search_nearby as _search_nearby
 from .railways import (search_trains as _search_trains,
                        station_suggestions as _station_suggestions)
+from .report_images import inline_report_hotel_images
 from .observability import redact_text, redact_reflected_secrets, _redact_value
 from .travel_compare import (
     ComparisonError, ComparisonFailure, ComparisonMeta, FlightComparisonData,
@@ -509,7 +510,9 @@ def get_trip_report(
     обратного отправления.
 
     html возвращает JSON с готовой страницей и metadata без replyMarkdown;
-    markdown — только текст. Файлы, бронирование и оплата не создаются.
+    при этом report безопасно встраивает доступные фото отелей в HTML, чтобы
+    sandbox-preview не зависел от внешней сети. Исходные HTTPS URL в documentJson
+    сохраняются. markdown — только текст. Файлы, бронирование и оплата не создаются.
     """
     provided_warnings = list(request.warnings)
     enrichment_preview, enrichment_advice = prepare_report_document(request)
@@ -562,7 +565,16 @@ def get_trip_report(
             reply += "\nПредупреждения:\n" + "\n".join(
                 f"- {warning}" for warning in request.warnings) + "\n"
         return reply
-    return render_page_content(request).model_dump(
+    image_overrides, image_warnings = inline_report_hotel_images(request.hotels)
+    if image_warnings:
+        warnings = list(request.warnings)
+        for warning in image_warnings:
+            if warning not in warnings and len(warnings) < 24:
+                warnings.append(warning)
+        request = request.model_copy(update={"warnings": warnings})
+    return render_page_content(
+        request, image_url_overrides=image_overrides,
+    ).model_dump(
         mode="json", by_alias=True, exclude={"reply_markdown"})
 
 

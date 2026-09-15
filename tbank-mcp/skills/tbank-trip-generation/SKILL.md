@@ -133,6 +133,9 @@ HTML и Markdown; ошибку источника перенесёт в warnings
 advice; Markdown в этом режиме не возвращается. `output_mode="markdown"`
 возвращает только Markdown-дайджест. Параметра `layout` в текущем
 контракте нет.
+В HTML report сам встраивает доступные hotel-фото для sandbox-preview по
+ограничениям [TRAVEL_OUTPUT_MODES.md](../../docs/TRAVEL_OUTPUT_MODES.md#фото);
+исходные HTTPS URL в request менять не нужно.
 
 Checkout URL — это hand-off пользователю, а не бронь и не оплата. Если точной
 ссылки нет, напиши «Ссылка T-Bank недоступна» и не создавай URL вручную.

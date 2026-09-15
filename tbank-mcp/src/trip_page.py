@@ -15,9 +15,10 @@ import os
 import re
 import tempfile
 import types
+from contextvars import ContextVar
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Mapping
 
 from pydantic import (AnyHttpUrl, BaseModel, ConfigDict, Field, StringConstraints,
                       ValidationError, field_validator, model_validator)
@@ -28,6 +29,10 @@ from .tbank_urls import (avia_checkout_url, avia_share_url, hotel_details_url,
 
 NonEmpty = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 HttpsUrl = Annotated[AnyHttpUrl, Field(description="An HTTPS URL")]
+
+
+_IMAGE_URL_OVERRIDES: ContextVar[Mapping[str, str] | None] = ContextVar(
+    "trip_page_image_url_overrides", default=None)
 
 
 def _require_tbank_url(value, field_name: str):
@@ -819,11 +824,18 @@ def _slug(value: str) -> str:
 def _image(url, alt: str, attribution: str = "") -> str:
     if not url:
         return '<div class="image-fallback">Фото появится при обновлении данных</div>'
+    url = _render_image_url(url)
     caption = f'<small class="credit">{_e(attribution)}</small>' if attribution else ""
     return (f'<div class="image-frame"><img class="remote-image" src="{_e(url)}" '
             f'alt="{_e(alt)}" loading="lazy" referrerpolicy="no-referrer">'
             '<div class="image-fallback">Изображение недоступно</div>'
             f'{caption}</div>')
+
+
+def _render_image_url(url) -> str:
+    value = str(url or "")
+    overrides = _IMAGE_URL_OVERRIDES.get()
+    return overrides.get(value, value) if overrides else value
 
 
 def _link(url, label: str, css: str = "button") -> str:
@@ -1719,6 +1731,7 @@ def _compact_actions(primary_url: str, primary_label: str,
 def _compact_hotel_card(hotel: HotelOptionV2, *, selected: bool,
                         nights: int, guests: str) -> str:
     photo = next((photo.url for photo in hotel.photos), "") or (hotel.image_url or "")
+    photo = _render_image_url(photo)
     image = (f'<img class="photo" src="{_e(photo)}" alt="{_e(hotel.name)}" '
              f'loading="lazy" referrerpolicy="no-referrer">') if photo else ""
     facts = []
@@ -2467,13 +2480,19 @@ def prepare_report_document(
     return prepared, advice
 
 
-def render_page_content(document) -> RenderPageResult:
+def render_page_content(
+        document, *, image_url_overrides: Mapping[str, str] | None = None,
+) -> RenderPageResult:
     """Validate via the document model and return HTML + Markdown, no files."""
     document, advice = prepare_report_document(document)
-    if isinstance(document, (TripPageDocumentV2, HotelPageDocumentV1)):
-        rendered = render_travel_html(document)
-    else:
-        rendered = render_html(document)
+    token = _IMAGE_URL_OVERRIDES.set(image_url_overrides)
+    try:
+        if isinstance(document, (TripPageDocumentV2, HotelPageDocumentV1)):
+            rendered = render_travel_html(document)
+        else:
+            rendered = render_html(document)
+    finally:
+        _IMAGE_URL_OVERRIDES.reset(token)
     payload = document.model_dump_json(by_alias=True, indent=2)
     if "apikey=" in payload.lower() or "apikey=" in rendered.lower():
         raise ValueError("generated artifacts contain an API credential")

@@ -290,6 +290,9 @@ enrichment ошибкой `HOTEL_ENRICHMENT_REQUIRED`, не возвращая �
 
 Для HTML-capable host выбирай `html`; для plain-text/chat ответа
 выбирай `markdown`. Параметра `layout` в текущем контракте нет.
+Доставка фотографий в sandbox-preview, включая безопасное server-side
+встраивание без изменения document JSON, описана в
+[TRAVEL_OUTPUT_MODES.md](TRAVEL_OUTPUT_MODES.md#фото).
 
 ## Контроль результата
 
