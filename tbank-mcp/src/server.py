@@ -6293,8 +6293,38 @@ def _hotel_native_result(session, text: str, items: list[dict]) -> CallToolResul
                 if len(payload) > 1_500_000 or total_bytes + len(payload) > 4_000_000:
                     raise ValueError("изображение превышает лимит")
                 total_bytes += len(payload)
+                details = item.get("details") or {}
+                rate = item.get("confirmedRate") or {}
+                digest = item.get("reviewDigest") or _hotel_review_digest([])
+                detail_parts = [
+                    f"{item.get('stars')}★" if item.get("stars") else "",
+                    f"рейтинг {item.get('rating')}" if item.get("rating") else "",
+                    str(item.get("address") or details.get("address") or "").strip(),
+                ]
+                rate_parts = [
+                    (f"{rate.get('totalPrice'):.0f} {rate.get('currency') or 'RUB'}"
+                     if isinstance(rate.get("totalPrice"), (int, float)) else ""),
+                    str(rate.get("room") or "").strip(),
+                    str(rate.get("bed") or "").strip(),
+                    str(rate.get("meal") or "").strip(),
+                ]
                 content.append(TextContent(
-                    type="text", text=f"Основное фото: {name}"))
+                    type="text",
+                    text="\n".join([
+                        f"Карточка отеля: {name}",
+                        "Детали: " + " | ".join(filter(None, detail_parts)),
+                        "Тариф: " + (
+                            " | ".join(filter(None, rate_parts))
+                            or "источник не вернул подтверждённый вариант"),
+                        "Отзывы:",
+                        "Плюсы: " + "; ".join(
+                            digest.get("pluses") or ["недостаточно данных"]),
+                        "Минусы: " + "; ".join(
+                            digest.get("minuses") or ["недостаточно данных"]),
+                        "Кому подходит: " + "; ".join(
+                            digest.get("suitableFor") or ["недостаточно данных"]),
+                        f"Основное фото: {name}",
+                    ])))
                 content.append(ImageContent(
                     type="image",
                     data=base64.b64encode(payload).decode("ascii"),
