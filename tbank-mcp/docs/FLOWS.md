@@ -604,6 +604,10 @@ do not use it as a station resolver.
 8. `hotel_reviews(hotel_id, source_code, sort, sort_type, cursor, page_size,
    search_text)` → страница отзывов. Для следующей страницы передай вернувшийся
    `cursor` без изменений; `search_text="onlyPhotos"` оставляет отзывы с фото.
+   Самостоятельный hotel-flow нельзя заканчивать после `hotel_search()`: для
+   каждого отеля финального shortlist выполни шаги 4, 6 и 8, а видимый ответ
+   оформи по каноническому разделу
+   [«Обзор отзывов»](TRAVEL_OUTPUT_MODES.md#обзор-отзывов).
 9. `hotel_filters()` → общий каталог фильтров для UI/rates; он не учитывает
    конкретные даты, гостей и доступность предложений.
 10. Для итогового `get_trip_report()` передай по каждому финальному отелю

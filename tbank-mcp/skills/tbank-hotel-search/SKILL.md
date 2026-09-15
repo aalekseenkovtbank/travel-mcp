@@ -11,7 +11,8 @@ description: |
 This skill covers only the hotel-search workflow. Use the active hotel tools in
 this order and keep the same destination, dates and guest composition throughout.
 Do not call page renderers from this skill; a caller that needs a trip page owns
-that separate step.
+that separate step. A visible hotel answer is not complete after autocomplete or
+inventory search: enrich every hotel in the final shortlist before replying.
 
 ## 1. Normalize the request
 
@@ -150,12 +151,20 @@ The result is only a user hand-off URL. It does not create a booking or payment.
 Return a concise shortlist with, for each hotel:
 
 - name and exact T-Bank hotel link when available;
+- factual card details: stars, rating and review count, address, description,
+  check-in/out and relevant facilities when the sources returned them;
+- at least the first available real photo from `details.imageUrls`; additional
+  source photos may be shown up to the documented limit;
 - dates, total price and nightly price only when the source labels them clearly;
 - meal, room, cancellation and payment only when confirmed by the final rate;
+- the review sample size and a separate comparison block with exactly these
+  labels: **Плюсы**, **Минусы**, **Кому подходит**. Repeated themes require at
+  least two reviews; otherwise write «недостаточно данных»;
 - the applied filters and result count when filters were requested;
 - a short factual reason it fits;
 - warnings for incomplete, missing or non-final data.
 
-Never invent prices, ratings, photos, availability, ids or URLs. This skill ends
-with hotel search/rates data; it does not render HTML, create files or produce a
-trip-page document.
+Never invent prices, ratings, photos, availability, ids or URLs. If a source
+failed, keep the available facts and show the hotel-specific warning instead of
+silently omitting details, photos or reviews. This skill does not render HTML,
+create files or produce a trip-page document.

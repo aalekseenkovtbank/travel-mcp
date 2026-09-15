@@ -302,11 +302,11 @@ TOOL_KINDS: dict[str, tuple[str, str]] = {
     "compare_flight_prices": ("Сравнение цен на авиабилеты", READ),
     "compare_train_prices": ("Сравнение цен на поезда", READ),
     "hotel_autocomplete": ("Поиск направления или отеля", READ),
-    "hotel_search": ("Поиск доступных отелей", READ),
+    "hotel_search": ("Черновой поиск отелей — затем тарифы и отзывы", READ),
     "hotel_details": ("Карточка отеля", READ),
     "hotel_rates": ("Номера и тарифы отеля", READ),
     "hotel_checkout_url": ("Ссылка на оформление выбранного тарифа отеля", READ),
-    "hotel_reviews": ("Отзывы об отеле", READ),
+    "hotel_reviews": ("Отзывы для обязательного сравнения отелей", READ),
     "hotel_filters": ("Фильтры поиска отелей", READ),
     "hotel_search_filters": ("Доступные фильтры для поиска отелей", READ),
     "hotel_latest_offers": ("Актуальные цены и условия отелей", READ),
@@ -6049,6 +6049,56 @@ def _hotel_detail_text(details: dict) -> str:
     return "\n  ".join(parts)
 
 
+def _hotel_completion_requirements(hotel_ids: list[str]) -> dict:
+    """Return the machine-visible gate between inventory search and an answer."""
+    return {
+        "status": "hotel_enrichment_required",
+        "message": (
+            "hotel_search is an intermediate inventory step. Do not answer the "
+            "user until every hotel in the final shortlist is enriched."
+        ),
+        "candidateHotelIds": hotel_ids,
+        "requiredCalls": [
+            {
+                "tool": "hotel_latest_offers",
+                "scope": "once for all final shortlist hotel ids",
+            },
+            {
+                "tool": "hotel_rates",
+                "scope": "once for each final hotel with the same dates and guests",
+            },
+            {
+                "tool": "hotel_reviews",
+                "scope": "once for each final hotel",
+                "arguments": {
+                    "sort": "date",
+                    "sort_type": "desc",
+                    "page_size": 10,
+                    "response_format": "json",
+                },
+            },
+        ],
+        "visibleAnswer": {
+            "details": "show factual card and confirmed rate details",
+            "photos": "show at least the first real details.imageUrls photo",
+            "reviews": ["Плюсы", "Минусы", "Кому подходит"],
+            "missingData": "show a hotel-specific warning; never invent values",
+        },
+    }
+
+
+def _hotel_completion_notice() -> str:
+    return (
+        "ОБЯЗАТЕЛЬНО ПЕРЕД ОТВЕТОМ: это только промежуточный поиск. Выбери "
+        "финальный shortlist, одним hotel_latest_offers перепроверь его, затем "
+        "для КАЖДОГО финального отеля вызови hotel_rates и "
+        "hotel_reviews(sort=\"date\", sort_type=\"desc\", page_size=10). В "
+        "видимом ответе покажи фактические детали, хотя бы первое доступное "
+        "реальное фото и обзор выборки с отдельными полями «Плюсы», «Минусы», "
+        "«Кому подходит». При сбое источника покажи предупреждение для отеля."
+    )
+
+
 _HOTEL_ARRAY_FILTERS = {
     "accommodation_types", "chains", "meal_types", "payment_places", "stars",
     "hotel_entertainments", "hotel_facilities", "room_facilities", "bed_types",
@@ -6444,7 +6494,15 @@ def hotel_autocomplete(query: str, limit: int = 10,
 def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
                  adults: int = 1, children_ages: str = "", limit: int = 50,
                  response_format: str = "text") -> str:
-    """Поиск доступных отелей и цен.
+    """Промежуточный поиск доступных отелей и цен, НЕ готовый ответ пользователю.
+
+    Для любого запроса на подбор или сравнение отелей после этого тула выбери
+    финальный shortlist, вызови один hotel_latest_offers(), а затем hotel_rates()
+    и hotel_reviews(sort="date", sort_type="desc", page_size=10) для КАЖДОГО
+    финального отеля. Только после этих вызовов отвечай пользователю. Для каждого
+    отеля покажи фактические детали, хотя бы первое реальное фото и обзор выборки
+    отзывов с отдельными полями «Плюсы», «Минусы», «Кому подходит». Если источник
+    не вернул часть данных, покажи конкретное предупреждение, ничего не выдумывай.
 
     destination_id бери из hotel_autocomplete(); даты — YYYY-MM-DD; adults —
     1..6; children_ages — возраста через запятую (например ``5,12``) или JSON
@@ -6529,6 +6587,10 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
                 "pricesFinal": prices_final,
                 "total": total,
                 "hotels": rows,
+                "completionRequirements": _hotel_completion_requirements([
+                    str(row.get("hotelId") or "") for row in rows
+                    if row.get("hotelId")
+                ]),
             }, source="T-Bank Hotels", warnings=warnings,
                meta={"complete": loading_completed and prices_final,
                      "detailsComplete": not detail_warnings})
@@ -6580,6 +6642,7 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
         if detail_warnings:
             out += "\n" + "\n".join(f"⚠️ {warning}" for warning in detail_warnings)
         out += "\nБронирование и оплата через MCP не выполняются."
+        out += "\n\n" + _hotel_completion_notice()
         return out
     except Exception as e:
         return _formatted_error(e, response_format, source="T-Bank Hotels")
@@ -7089,7 +7152,13 @@ def hotel_reviews(hotel_id: str, source_code: str = "",
                   sort_type: Literal["asc", "desc"] = "desc",
                   cursor: str = "", page_size: int = 10,
                   search_text: str = "", response_format: str = "text") -> str:
-    """Отзывы гостей об отеле с фильтрацией, сортировкой и cursor-пагинацией.
+    """Отзывы гостей для обязательного сравнения финальных отелей.
+
+    Для каждого отеля в финальном shortlist вызови одну сопоставимую страницу:
+    sort="date", sort_type="desc", page_size=10, response_format="json". В
+    видимом ответе укажи размер выборки и обобщи её отдельно как «Плюсы»,
+    «Минусы», «Кому подходит». Повторяющейся считай только тему минимум из двух
+    отзывов; иначе пиши «недостаточно данных». Не смешивай разные отели.
 
     hotel_id бери из hotel_search()/hotel_autocomplete(). sort=date или rating;
     sort_type=asc/desc. source_code ограничивает поставщика (например hotels,
@@ -7144,6 +7213,12 @@ def hotel_reviews(hotel_id: str, source_code: str = "",
                 "searchText": search_text,
                 "reviews": reviews,
                 "cursor": next_cursor,
+                "comparisonRequirements": {
+                    "sampleSize": len(reviews),
+                    "labels": ["Плюсы", "Минусы", "Кому подходит"],
+                    "repeatedThemeMinimumReviews": 2,
+                    "insufficientDataText": "недостаточно данных",
+                },
             }, source="T-Bank Hotels", warnings=detail_warnings, meta={
                 "complete": not bool(next_cursor),
                 "pageSize": int(page_size),
@@ -7164,7 +7239,6 @@ def hotel_reviews(hotel_id: str, source_code: str = "",
             lines.append(rendered)
         for review in reviews:
             booking = review["bookingInfo"]
-            summary = review["reviewPlus"] or review["reviewMinus"]
             bits = [
                 f"- {review['author'] or 'Гость'}",
                 f"оценка {review['rating']}" if review["rating"] is not None else "без оценки",
@@ -7173,15 +7247,26 @@ def hotel_reviews(hotel_id: str, source_code: str = "",
                 bits.append(booking["createdDate"][:10])
             if review["sourceType"]:
                 bits.append(review["sourceType"])
-            if summary:
-                bits.append(_cut(summary, 280))
             if review["photos"]:
                 bits.append(f"фото: {len(review['photos'])}")
             bits.append(f"feedback_id={review['feedbackId']}")
             lines.append(" | ".join(bits))
+            lines.append(
+                "  Плюсы: " + (_cut(review["reviewPlus"], 420)
+                               if review["reviewPlus"] else "не указаны"))
+            lines.append(
+                "  Минусы: " + (_cut(review["reviewMinus"], 420)
+                                if review["reviewMinus"] else "не указаны"))
+            if review["photos"]:
+                lines.append("  Фото гостя: " + " | ".join(
+                    photo["url"] for photo in review["photos"][:3]))
         if next_cursor:
             lines.append("Есть следующая страница: передай cursor из JSON-ответа без изменений.")
         lines.extend(f"⚠️ {warning}" for warning in detail_warnings)
+        lines.append(
+            "Для видимого сравнения обобщи только эту выборку отдельными полями "
+            "«Плюсы», «Минусы», «Кому подходит»; повторяющаяся тема требует "
+            "минимум двух отзывов, иначе напиши «недостаточно данных».")
         return "\n".join(lines)
     except Exception as e:
         return _formatted_error(e, response_format, source="T-Bank Hotels")
