@@ -575,10 +575,13 @@ do not use it as a station resolver.
 1. `hotel_autocomplete(query)` → локации и конкретные отели с их id. Для
    `hotel_search()` используй id локации, не придумывай его по названию.
 2. `hotel_search(destination_id, checkin_date, checkout_date, adults,
-   children_ages)` → доступность и цены. Даты — `YYYY-MM-DD`, возраста детей —
+   children_ages, comparison_limit)` → доступность и цены. Даты — `YYYY-MM-DD`, возраста детей —
    строка `5,12` или JSON `[5,12]`. Сервер ждёт `isLoadingCompleted`, обновляет
    нефинальные офферы и возвращает не больше 50 карточек. Это каталог отелей
-   (страницы по 50), не поток из сотен тысяч тарифов.
+   (страницы по 50), не поток из сотен тысяч тарифов. Первые
+   `comparison_limit` карточек (3 по умолчанию, максимум 5) одновременно
+   обогащаются тарифами и выборкой из 10 отзывов и возвращаются в
+   `enrichedShortlist` с полями `confirmedRate` и `reviewDigest`.
 3. `hotel_search_filters(location_id, checkin_date, checkout_date, adults,
    children_ages, filters, map_frame_input, favorite_hotel_ids, language)` →
    availability-aware фильтры и `filteredHotelsCount` для этих дат и гостей.
@@ -604,9 +607,9 @@ do not use it as a station resolver.
 8. `hotel_reviews(hotel_id, source_code, sort, sort_type, cursor, page_size,
    search_text)` → страница отзывов. Для следующей страницы передай вернувшийся
    `cursor` без изменений; `search_text="onlyPhotos"` оставляет отзывы с фото.
-   Самостоятельный hotel-flow нельзя заканчивать после `hotel_search()`: для
-   каждого отеля финального shortlist выполни шаги 4, 6 и 8, а видимый ответ
-   оформи по каноническому разделу
+   Для карточек из `enrichedShortlist` этот шаг уже выполнен внутри
+   `hotel_search()`. Если финальный shortlist содержит другие отели, выполни для
+   них шаги 4, 6 и 8. Видимый ответ оформи по каноническому разделу
    [«Обзор отзывов»](TRAVEL_OUTPUT_MODES.md#обзор-отзывов).
 9. `hotel_filters()` → общий каталог фильтров для UI/rates; он не учитывает
    конкретные даты, гостей и доступность предложений.

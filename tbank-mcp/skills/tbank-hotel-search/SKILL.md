@@ -72,6 +72,13 @@ inventory snapshot, not as a reservation. Check `isLoadingCompleted`, `pricesFin
 `meta.complete` and warnings; do not call a preliminary price final when the
 source marked it non-final.
 
+`hotel_search()` also returns `enrichedShortlist` for the first
+`comparison_limit` cards (default 3, maximum 5). Each item already contains the
+current `confirmedRate` and a ten-review `reviewDigest` with **Плюсы**,
+**Минусы** and **Кому подходит**, in addition to `details` and real photos. A
+normal hotel-only answer should select from this block so the result is complete
+without redundant calls.
+
 Every hotel-returning tool includes `details` for each hotel: static name/address,
 description, check-in/out, coordinates, facilities, exact T-Bank URL and up to
 three real source photos. Single-hotel `hotel_rates` and `hotel_reviews` expose
@@ -85,7 +92,7 @@ when fewer suitable properties are available.
 
 ## 5. Refresh current offers before comparing
 
-Once the shortlist is selected, call one:
+If the final shortlist includes cards outside `enrichedShortlist`, call one:
 
 ```text
 hotel_latest_offers(
@@ -100,7 +107,7 @@ cancellation, payment or availability is confirmed.
 
 ## 6. Inspect each final hotel and its rates
 
-For every hotel that will appear in the final shortlist, call:
+For every final hotel outside `enrichedShortlist`, call:
 
 ```text
 hotel_rates(hotel_id=..., checkin_date=..., checkout_date=...,
@@ -120,7 +127,7 @@ hotels may therefore contain up to three URLs for each hotel.
 `hotel_rates` may return up to three room-photo URLs for each room type. Do not
 fetch or invent more photos to fill a visual layout.
 
-For every final hotel, call one comparable review page:
+For every final hotel outside `enrichedShortlist`, call one comparable review page:
 
 ```text
 hotel_reviews(hotel_id=..., sort="date", sort_type="desc",
