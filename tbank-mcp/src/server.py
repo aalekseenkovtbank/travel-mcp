@@ -40,7 +40,7 @@ from .instructions import (InstructionDocument, instruction_documents,
 from .nearby import search_nearby as _search_nearby
 from .railways import (search_trains as _search_trains,
                        station_suggestions as _station_suggestions)
-from .report_images import inline_report_hotel_images
+from .report_images import inline_report_images
 from .observability import redact_text, redact_reflected_secrets, _redact_value
 from .travel_compare import (
     ComparisonError, ComparisonFailure, ComparisonMeta, FlightComparisonData,
@@ -184,7 +184,7 @@ def personalized_weekend_landing(
 1. Вызови trip_personalization_profile() для агрегированного бюджета и интересов. Не вызывай list_operations и order_details самостоятельно ради профиля: новый инструмент уже исключает переводы, отмены и сырые персональные данные.
 2. Подбери транспорт туда и обратно через flight_search или train_search, всегда явно передавая adults=1. Для сравнения дат в compare_flight_prices и compare_train_prices также всегда передавай adults=1. Это только поиск: не утверждай, что билеты куплены. Для пятничного вылета на выходные выбирай отправление не раньше 18:00 по местному времени, если пользователь явно не сказал, что пятница свободна. Передай найденные цены повторно в trip_personalization_profile(), если истории поездок недостаточно. Сохрани продавца в seller, подтверждённую ссылку объекта — в tbankUrl, а единый checkout маршрута — отдельно в transportBookingUrl, только если их вернул источник. Не конструируй транспортную ссылку и не подставляй общий раздел.
 3. Найди ровно три отеля через hotel_autocomplete, hotel_search и актуальные hotel_rates/hotel_latest_offers, всегда явно передавая adults=2 во все hotel-вызовы и сравнения. Каждый hotel-тул уже возвращает details с адресом, описанием, удобствами и максимум тремя фотографиями; отдельный hotel_details нужен только для повторной или расширенной загрузки. Не используй compare_flight_hotel_prices в этом шаблоне: у него один общий adults, поэтому он не может одновременно искать билет на одного и отель на двоих. Расположи отели по строго возрастающей полной цене: выгодный, сбалансированный и более комфортный. Уровень звёзд, рейтинг, расположение и условия не должны становиться хуже при росте цены; разница между соседними вариантами должна быть разумной, без резкого скачка класса. Заполни facilities, room, meal, cancellation, payment, reviewCount, reviewDigest и detailsUrl фактическими данными; detailsUrl строй только из настоящего hotelId. bookingUrl — отдельный checkout: hotel_checkout_url используй только после явного выбора тарифа и с подтверждённым book_hash; ссылка не создаёт бронь и не списывает деньги.
-4. Для {date_from}–{date_to} сразу вызови afisha_catalog(city="{city}", date_from="{date_from}", date_to="{date_to}", response_format="json") по подходящим категориям. search_app для этой цепочки не нужен. Для выбранных событий перепроверь сеансы через cinema_schedule/concert_schedule и включи фактические данные в request.events. Ранжируй события по scoringWeights и агрегатам eventPreferences из профиля; сохраняй genres, ageRestriction и готовый sourceUrl из afisha_catalog(). Не транслитерируй неизвестные значения самостоятельно. Не бронируй места и не вызывай ticket_pay.
+4. Для {date_from}–{date_to} сразу вызови afisha_catalog(city="{city}", date_from="{date_from}", date_to="{date_to}", response_format="json") по подходящим категориям. search_app для этой цепочки не нужен. Для выбранных событий перепроверь сеансы через cinema_schedule/concert_schedule и включи фактические данные в request.events. Если events останется пустым, get_trip_report сам выполнит ограниченный поиск концертов и спектаклей и подтвердит их расписание. Ранжируй события по scoringWeights и агрегатам eventPreferences из профиля; сохраняй genres, ageRestriction и готовый sourceUrl из afisha_catalog(). Не транслитерируй неизвестные значения самостоятельно. Не бронируй места и не вызывай ticket_pay.
 5. Вызови restaurant_search() для ресторанов из Яндекс.Карт рядом с выбранным отелем. Передай координаты отеля; карточки уже совместимы с request.venues. get_trip_report() также выполнит этот поиск автоматически, если venues пуст. Для прогулочных точек отдельно используй nearby_search(include_poi=true) из OpenStreetMap. Не выдумывай отсутствующие фотографии, рейтинги, отзывы или часы работы.
 6. Следуй каноническому travel-output flow из MCP resource travel-nova://instructions/travel-output-modes. Для каждого финального отеля загрузи одну сопоставимую страницу hotel_reviews(sort="date", sort_type="desc", page_size=10), собери до трёх реальных фотографий и структурированный reviewDigest.
 7. Составь TripPageDocumentV2: mapPoints должны ссылаться на выбранный отель, события и заведения по ID; renderer автоматически покажет на карте и два альтернативных отеля. Добавь ровно три непротиворечивых плана balanced, culture и food_nightlife. Все остановки должны попадать в даты поездки и ссылаться на существующие ID.
@@ -421,6 +421,190 @@ def trip_personalization_profile(
     )
 
 
+def _afisha_poster_url(event: dict) -> str:
+    posters = event.get("posters") or {}
+    if not isinstance(posters, dict):
+        return ""
+    for poster_kind in ("landscape", "main"):
+        poster = posters.get(poster_kind) or {}
+        candidate = poster.get("url") if isinstance(poster, dict) else poster
+        image_url = _https_image_url(candidate)
+        if image_url:
+            return image_url
+    return ""
+
+
+def _afisha_slot_price(slot: dict) -> float | None:
+    prices = slot.get("prices") or {}
+    if not isinstance(prices, dict):
+        return None
+    for key in ("fix", "min", "max"):
+        if prices.get(key) is not None:
+            amount = _hotel_amount(prices[key])
+            if amount >= 0:
+                return amount
+    return None
+
+
+def _afisha_enriched_report(request: TravelPageDocument) -> TravelPageDocument:
+    """Fill an empty event block with confirmed Afisha showings for trip dates."""
+    if request.schema_version == "hotel-page/v1" or request.events:
+        return request
+
+    payload = request.model_dump(mode="json", by_alias=True)
+    warnings = list(payload.get("warnings") or [])
+    collected: list[dict] = []
+    failures: list[str] = []
+    date_from = request.trip.date_from
+    date_to = request.trip.date_to
+    city = request.trip.destination
+
+    try:
+        session = _public_session()
+    except Exception as exc:
+        message = getattr(exc, "message", str(exc))
+        failures.append(f"Афиша T-Bank не загружена: {_cut(message, 220)}")
+        session = None
+
+    if session is not None:
+        for kind in ("concert", "theater"):
+            try:
+                events, scanned, amount = session.afisha_catalog(
+                    kind=kind,
+                    city=city,
+                    date_from=date_from.isoformat(),
+                    date_to=date_to.isoformat(),
+                    max_pages=4,
+                )
+            except Exception as exc:
+                message = getattr(exc, "message", str(exc))
+                failures.append(
+                    f"Афиша T-Bank ({kind}) не загружена: {_cut(message, 180)}")
+                continue
+            if scanned < amount:
+                failures.append(
+                    f"Афиша T-Bank ({kind}): просмотрено {scanned} из {amount} "
+                    "событий; отчёт содержит только подтверждённую часть.")
+
+            added_for_kind = 0
+            for event in events:
+                if added_for_kind >= 3 or len(collected) >= 6:
+                    break
+                event_id = str(event.get("eventId") or "").strip()
+                event_name = _flat(event.get("eventName") or "")
+                catalog_slots = {
+                    str(slot.get("slotId") or ""): slot
+                    for slot in (event.get("slots") or [])
+                    if isinstance(slot, dict) and slot.get("slotId")
+                }
+                if not event_id or not event_name or not catalog_slots:
+                    continue
+                try:
+                    showings = session.event_showings(event_id, kind=kind)
+                except Exception as exc:
+                    message = getattr(exc, "message", str(exc))
+                    failures.append(
+                        f"Расписание события {event_id} не загружено: "
+                        f"{_cut(message, 160)}")
+                    continue
+
+                matched = None
+                for venue in showings:
+                    info = venue.get("info") or {}
+                    if not isinstance(info, dict):
+                        info = {}
+                    geo = info.get("geo") or {}
+                    if not isinstance(geo, dict):
+                        geo = {}
+                    for showing_event in venue.get("events") or []:
+                        for slot in showing_event.get("slots") or []:
+                            slot_id = str(slot.get("slotId") or "")
+                            if slot_id not in catalog_slots:
+                                continue
+                            raw_start = str(slot.get("startDateTime") or "")
+                            try:
+                                starts_at = datetime.fromisoformat(
+                                    raw_start.replace("Z", "+00:00"))
+                            except ValueError:
+                                continue
+                            if not date_from <= starts_at.date() <= date_to:
+                                continue
+                            matched = (info, geo, slot, starts_at)
+                            break
+                        if matched:
+                            break
+                    if matched:
+                        break
+                if not matched:
+                    continue
+
+                info, geo, slot, starts_at = matched
+                latitude, longitude = _hotel_coordinates({"geo": geo})
+                fields = event.get("fields") or {}
+                if not isinstance(fields, dict):
+                    fields = {}
+                source_url = _afisha_event_url(
+                    city,
+                    event.get("eventType") or kind,
+                    event.get("eventNameTransliteration") or "",
+                )
+                row = {
+                    "id": f"{event_id}-{slot.get('slotId')}",
+                    "name": event_name,
+                    "kind": kind,
+                    "venue": _flat(info.get("objectName") or ""),
+                    "address": _flat(geo.get("address") or ""),
+                    "startsAt": starts_at.isoformat(),
+                    "priceFromRub": _afisha_slot_price(slot),
+                    "genres": [str(value) for value in (event.get("genres") or [])][:12],
+                    "ageRestriction": str(fields.get("ageRestriction") or ""),
+                    "personalizationScore": 50,
+                    "matchReason": "Подтверждённый показ Афиши на даты поездки",
+                    "personalizationBasis": "no_history",
+                }
+                if latitude is not None and longitude is not None:
+                    row["coordinates"] = {
+                        "latitude": latitude,
+                        "longitude": longitude,
+                    }
+                image_url = _afisha_poster_url(event)
+                if image_url:
+                    row["imageUrl"] = image_url
+                if source_url:
+                    row["sourceUrl"] = source_url
+                collected.append(row)
+                added_for_kind += 1
+
+    collected.sort(key=lambda item: item["startsAt"])
+    payload["events"] = collected
+    map_points = list(payload.get("mapPoints") or [])
+    mapped_ids = {str(point.get("refId") or "") for point in map_points}
+    for event in collected:
+        if len(map_points) >= 32:
+            break
+        if event.get("coordinates") and event["id"] not in mapped_ids:
+            map_points.append({"refId": event["id"], "kind": "event"})
+            mapped_ids.add(event["id"])
+    payload["mapPoints"] = map_points
+
+    if collected:
+        sources = list(payload.get("sources") or [])
+        if not any(source.get("name") == "T-Bank Afisha" for source in sources):
+            if len(sources) < 24:
+                sources.append({"name": "T-Bank Afisha", "checkedAt": _checked_at()})
+            payload["sources"] = sources
+    elif not failures:
+        failures.append(
+            "Афиша T-Bank: подтверждённых концертов и спектаклей на даты "
+            f"{date_from.isoformat()}–{date_to.isoformat()} не найдено.")
+
+    for warning in failures:
+        if warning not in warnings and len(warnings) < 24:
+            warnings.append(warning)
+    payload["warnings"] = warnings
+    return type(request).model_validate(payload)
+
+
 def _restaurant_enriched_report(request: TravelPageDocument) -> TravelPageDocument:
     """Fill an empty trip venue block from Yandex Maps around the selected hotel."""
     if request.schema_version == "hotel-page/v1" or request.venues:
@@ -497,11 +681,13 @@ def get_trip_report(
     allow_incomplete_after_source_failure=true. Без этого явного fallback
     неполный hotel enrichment блокирует создание итогового отчёта.
 
-    До вызова получи события локации напрямую через
+    До вызова предпочтительно получи события локации напрямую через
     afisha_catalog(city=..., date_from=..., date_to=..., response_format="json");
     search_app для этой цепочки не нужен. Перепроверь выбранные сеансы через
     cinema_schedule/concert_schedule и передай фактические события в
-    request.events. request соответствует опубликованной схеме документа.
+    request.events. Если trip-page/v2 пришёл без events, report сам выполняет
+    ограниченный поиск концертов и спектаклей Афиши, подтверждает их расписание
+    и заполняет секцию. request соответствует опубликованной схеме документа.
 
     Если trip-page/v2 пришёл без venues, report сам вызывает публичный поиск
     ресторанов Яндекс.Карт вокруг выбранного отеля и заполняет HTML и Markdown.
@@ -514,9 +700,10 @@ def get_trip_report(
     обратного отправления.
 
     html возвращает JSON с готовой страницей и metadata без replyMarkdown;
-    при этом report безопасно встраивает доступные фото отелей в HTML, чтобы
-    sandbox-preview не зависел от внешней сети. Исходные HTTPS URL в documentJson
-    сохраняются. markdown — только текст. Файлы, бронирование и оплата не создаются.
+    при этом report безопасно встраивает доступные фото отелей, событий и
+    ресторанов в HTML, чтобы sandbox-preview не зависел от внешней сети.
+    Исходные HTTPS URL в documentJson сохраняются. markdown — только текст.
+    Файлы, бронирование и оплата не создаются.
     """
     provided_warnings = list(request.warnings)
     enrichment_preview, enrichment_advice = prepare_report_document(request)
@@ -561,6 +748,7 @@ def get_trip_report(
                 "или hotel_reviews. Добавь в request.warnings конкретную ошибку "
                 f"источника для каждого неполного отеля: {labels}.",
             )
+    request = _afisha_enriched_report(request)
     request = _restaurant_enriched_report(request)
     request, _ = prepare_report_document(request)
     if output_mode == "markdown":
@@ -569,7 +757,11 @@ def get_trip_report(
             reply += "\nПредупреждения:\n" + "\n".join(
                 f"- {warning}" for warning in request.warnings) + "\n"
         return reply
-    image_overrides, image_warnings = inline_report_hotel_images(request.hotels)
+    image_overrides, image_warnings = inline_report_images(
+        request.hotels,
+        getattr(request, "events", ()),
+        getattr(request, "venues", ()),
+    )
     if image_warnings:
         warnings = list(request.warnings)
         for warning in image_warnings:

@@ -1,19 +1,29 @@
 """Bounded server-side image embedding for in-memory travel reports.
 
-Hotel tools keep returning source HTTPS URLs.  The report path may additionally
+Travel tools keep returning source HTTPS URLs.  The report path may additionally
 embed those bytes into its HTML so sandboxed artifact previews do not need
-outbound network access.  Fetching is deliberately limited to the T-Bank image
-proxy and never changes the public page document.
+outbound network access.  Fetching is deliberately limited to the known image
+CDNs used by T-Bank Hotels, T-Bank Afisha and Yandex Maps and never changes the
+public page document.
 """
 from __future__ import annotations
 
 import base64
+from io import BytesIO
 from urllib.parse import urlparse
 
 import requests
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 
-_TRUSTED_IMAGE_HOSTS = frozenset({"cdn.tbank.ru"})
+_TRUSTED_IMAGE_HOSTS = frozenset({
+    "cdn.tbank.ru",
+    "avatars.mds.yandex.net",
+    "cdn.kassir.ru",
+    "kassa.rambler.ru",
+    "media.ticketland.ru",
+    "ticketscloud-prod.storage.yandexcloud.net",
+})
 _SUPPORTED_IMAGE_TYPES = {
     "image/gif": "image/gif",
     "image/jpeg": "image/jpeg",
@@ -22,8 +32,13 @@ _SUPPORTED_IMAGE_TYPES = {
     "image/webp": "image/webp",
 }
 _MAX_IMAGES_PER_HOTEL = 3
-_MAX_IMAGE_BYTES = 512 * 1024
-_MAX_REPORT_IMAGE_BYTES = 2_500_000
+_MAX_IMAGES_PER_EVENT = 1
+_MAX_IMAGES_PER_VENUE = 1
+_MAX_SOURCE_IMAGE_BYTES = 5 * 1024 * 1024
+_MAX_EMBEDDED_IMAGE_BYTES = 512 * 1024
+_MAX_REPORT_IMAGE_BYTES = 5_000_000
+_MAX_IMAGE_PIXELS = 30_000_000
+_MAX_IMAGE_EDGE = 1280
 _CONNECT_TIMEOUT_SECONDS = 3
 _READ_TIMEOUT_SECONDS = 6
 
@@ -59,6 +74,20 @@ def _hotel_photo_urls(hotel) -> list[str]:
     return urls[:_MAX_IMAGES_PER_HOTEL]
 
 
+def _event_photo_urls(event) -> list[str]:
+    url = str(getattr(event, "image_url", "") or "").strip()
+    return [url] if url else []
+
+
+def _venue_photo_urls(venue) -> list[str]:
+    urls: list[str] = []
+    for photo in list(getattr(venue, "photos", []) or []):
+        url = str(getattr(photo, "url", "") or "").strip()
+        if url and url not in urls:
+            urls.append(url)
+    return urls[:_MAX_IMAGES_PER_VENUE]
+
+
 def _matches_image_signature(content_type: str, payload: bytes) -> bool:
     if content_type == "image/jpeg":
         return payload.startswith(b"\xff\xd8\xff")
@@ -72,11 +101,46 @@ def _matches_image_signature(content_type: str, payload: bytes) -> bool:
     return False
 
 
+def _compact_image(
+    content_type: str, payload: bytes, byte_limit: int,
+) -> tuple[str, bytes]:
+    if len(payload) <= byte_limit:
+        return content_type, payload
+    try:
+        with Image.open(BytesIO(payload)) as source:
+            if source.width * source.height > _MAX_IMAGE_PIXELS:
+                raise _ImageEmbeddingError("image pixel limit exceeded")
+            source.seek(0)
+            image = ImageOps.exif_transpose(source)
+            image.thumbnail((_MAX_IMAGE_EDGE, _MAX_IMAGE_EDGE), Image.Resampling.LANCZOS)
+            if image.mode not in ("RGB", "L"):
+                background = Image.new("RGB", image.size, "white")
+                if "A" in image.getbands():
+                    background.paste(image, mask=image.getchannel("A"))
+                else:
+                    background.paste(image.convert("RGB"))
+                image = background
+            elif image.mode != "RGB":
+                image = image.convert("RGB")
+            for quality in (82, 74, 66, 58, 50):
+                output = BytesIO()
+                image.save(
+                    output, format="JPEG", quality=quality,
+                    optimize=True, progressive=True,
+                )
+                compacted = output.getvalue()
+                if len(compacted) <= byte_limit:
+                    return "image/jpeg", compacted
+    except (OSError, UnidentifiedImageError, Image.DecompressionBombError) as exc:
+        raise _ImageEmbeddingError("image resize failed") from exc
+    raise _ImageEmbeddingError("image exceeds byte limit after resize")
+
+
 def _download_image(session: requests.Session, url: str, byte_limit: int) -> tuple[str, bytes]:
     trusted_url = _trusted_image_url(url)
     if not trusted_url:
         raise _ImageEmbeddingError("untrusted image host")
-    limit = min(_MAX_IMAGE_BYTES, byte_limit)
+    limit = min(_MAX_EMBEDDED_IMAGE_BYTES, byte_limit)
     if limit <= 0:
         raise _ImageEmbeddingError("report image budget exhausted")
 
@@ -97,8 +161,8 @@ def _download_image(session: requests.Session, url: str, byte_limit: int) -> tup
                 content_length = int(response.headers.get("Content-Length", "0") or 0)
             except ValueError:
                 content_length = 0
-            if content_length > limit:
-                raise _ImageEmbeddingError("image exceeds byte limit")
+            if content_length > _MAX_SOURCE_IMAGE_BYTES:
+                raise _ImageEmbeddingError("source image exceeds byte limit")
 
             chunks: list[bytes] = []
             size = 0
@@ -106,8 +170,8 @@ def _download_image(session: requests.Session, url: str, byte_limit: int) -> tup
                 if not chunk:
                     continue
                 size += len(chunk)
-                if size > limit:
-                    raise _ImageEmbeddingError("image exceeds byte limit")
+                if size > _MAX_SOURCE_IMAGE_BYTES:
+                    raise _ImageEmbeddingError("source image exceeds byte limit")
                 chunks.append(chunk)
     except requests.RequestException as exc:
         raise _ImageEmbeddingError("image request failed") from exc
@@ -115,10 +179,12 @@ def _download_image(session: requests.Session, url: str, byte_limit: int) -> tup
     payload = b"".join(chunks)
     if not payload or not _matches_image_signature(content_type, payload):
         raise _ImageEmbeddingError("invalid image payload")
-    return content_type, payload
+    return _compact_image(content_type, payload, limit)
 
 
-def inline_report_hotel_images(hotels) -> tuple[dict[str, str], list[str]]:
+def inline_report_images(
+    hotels, events=(), venues=(),
+) -> tuple[dict[str, str], list[str]]:
     """Return source-URL to data-URI overrides and fail-soft report warnings."""
     overrides: dict[str, str] = {}
     warnings: list[str] = []
@@ -129,32 +195,47 @@ def inline_report_hotel_images(hotels) -> tuple[dict[str, str], list[str]]:
         "User-Agent": "Travel-Nova-Report/1.0",
     })
     try:
-        for hotel in hotels:
-            urls = _hotel_photo_urls(hotel)
-            if not urls:
-                continue
-            embedded = 0
-            failed = 0
-            for url in urls:
-                if url in overrides:
+        groups = (
+            ("отеля", hotels, _hotel_photo_urls),
+            ("события", events, _event_photo_urls),
+            ("заведения", venues, _venue_photo_urls),
+        )
+        for entity_kind, entities, url_getter in groups:
+            for entity in entities:
+                urls = url_getter(entity)
+                if not urls:
+                    continue
+                embedded = 0
+                failed = 0
+                for url in urls:
+                    if url in overrides:
+                        embedded += 1
+                        continue
+                    try:
+                        content_type, payload = _download_image(
+                            session, url, _MAX_REPORT_IMAGE_BYTES - total_bytes)
+                    except _ImageEmbeddingError:
+                        failed += 1
+                        continue
+                    total_bytes += len(payload)
+                    encoded = base64.b64encode(payload).decode("ascii")
+                    overrides[url] = f"data:{content_type};base64,{encoded}"
                     embedded += 1
-                    continue
-                try:
-                    content_type, payload = _download_image(
-                        session, url, _MAX_REPORT_IMAGE_BYTES - total_bytes)
-                except _ImageEmbeddingError:
-                    failed += 1
-                    continue
-                total_bytes += len(payload)
-                encoded = base64.b64encode(payload).decode("ascii")
-                overrides[url] = f"data:{content_type};base64,{encoded}"
-                embedded += 1
-            if failed:
-                name = str(getattr(hotel, "name", "") or getattr(hotel, "id", "отель"))
-                warnings.append(
-                    f"Фото отеля «{name}»: встроено {embedded} из {len(urls)}; "
-                    "остальные оставлены внешними HTTPS-ссылками."
-                )
+                if failed:
+                    name = str(
+                        getattr(entity, "name", "")
+                        or getattr(entity, "id", entity_kind)
+                    )
+                    warnings.append(
+                        f"Фото {entity_kind} «{name}»: встроено {embedded} "
+                        f"из {len(urls)}; "
+                        "остальные оставлены внешними HTTPS-ссылками."
+                    )
     finally:
         session.close()
     return overrides, warnings
+
+
+def inline_report_hotel_images(hotels) -> tuple[dict[str, str], list[str]]:
+    """Backward-compatible hotel-only wrapper for local callers."""
+    return inline_report_images(hotels)

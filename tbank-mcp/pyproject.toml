@@ -10,6 +10,7 @@ dependencies = [
   # `mcp>=1.2` resolves to 2.0.0 on a fresh install and dies with ModuleNotFoundError
   # before anything runs. Lifting the ceiling means porting server.py to the 2.0 API.
   "mcp>=1.2,<2",
+  "Pillow>=11.0,<13",
   "requests>=2.32",
   "playwright>=1.40",
 ]

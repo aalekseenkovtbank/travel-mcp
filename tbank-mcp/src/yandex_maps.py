@@ -125,7 +125,10 @@ def _photo_url(template: Any) -> str:
     if value.startswith("//"):
         value = "https:" + value
     if "%s" in value:
-        value = value.replace("%s", "orig")
+        # Yandex publishes bounded variants from the same public template.
+        # XXXL is sharp enough for a report card while avoiding multi-megabyte
+        # originals that sandboxed previews often cannot load.
+        value = value.replace("%s", "XXXL")
     return value if value.startswith("https://") else ""
 
 
