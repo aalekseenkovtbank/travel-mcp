@@ -9,6 +9,7 @@ Run: python -m src.server
 from __future__ import annotations
 
 import asyncio
+from difflib import SequenceMatcher
 import functools
 import hashlib
 import json
@@ -185,7 +186,7 @@ def personalized_weekend_landing(
 2. Подбери транспорт туда и обратно через flight_search или train_search, всегда явно передавая adults=1. Для сравнения дат в compare_flight_prices и compare_train_prices также всегда передавай adults=1. Это только поиск: не утверждай, что билеты куплены. Для пятничного вылета на выходные выбирай отправление не раньше 18:00 по местному времени, если пользователь явно не сказал, что пятница свободна. Передай найденные цены повторно в trip_personalization_profile(), если истории поездок недостаточно. Сохрани продавца в seller, подтверждённую ссылку объекта — в tbankUrl, а единый checkout маршрута — отдельно в transportBookingUrl, только если их вернул источник. Не конструируй транспортную ссылку и не подставляй общий раздел.
 3. Найди ровно три отеля через hotel_autocomplete, hotel_search и актуальные hotel_rates/hotel_latest_offers, всегда явно передавая adults=2 во все hotel-вызовы и сравнения. Каждый hotel-тул уже возвращает details с адресом, описанием, удобствами и максимум тремя фотографиями; отдельный hotel_details нужен только для повторной или расширенной загрузки. Не используй compare_flight_hotel_prices в этом шаблоне: у него один общий adults, поэтому он не может одновременно искать билет на одного и отель на двоих. Расположи отели по строго возрастающей полной цене: выгодный, сбалансированный и более комфортный. Уровень звёзд, рейтинг, расположение и условия не должны становиться хуже при росте цены; разница между соседними вариантами должна быть разумной, без резкого скачка класса. Заполни facilities, room, meal, cancellation, payment, reviewCount, reviewDigest и detailsUrl фактическими данными; detailsUrl строй только из настоящего hotelId. bookingUrl — отдельный checkout: hotel_checkout_url используй только после явного выбора тарифа и с подтверждённым book_hash; ссылка не создаёт бронь и не списывает деньги.
 4. Для {date_from}–{date_to} сразу вызови afisha_catalog(city="{city}", date_from="{date_from}", date_to="{date_to}", response_format="json") по подходящим категориям. search_app для этой цепочки не нужен. Для выбранных событий перепроверь сеансы через cinema_schedule/concert_schedule и включи фактические данные в request.events. Если events останется пустым, get_trip_report сам выполнит ограниченный поиск концертов и спектаклей и подтвердит их расписание. Ранжируй события по scoringWeights и агрегатам eventPreferences из профиля; сохраняй genres, ageRestriction и готовый sourceUrl из afisha_catalog(). Не транслитерируй неизвестные значения самостоятельно. Не бронируй места и не вызывай ticket_pay.
-5. Вызови restaurant_search() для ресторанов из Яндекс.Карт рядом с выбранным отелем. Передай координаты отеля; карточки уже совместимы с request.venues. get_trip_report() также выполнит этот поиск автоматически, если venues пуст. Для прогулочных точек отдельно используй nearby_search(include_poi=true) из OpenStreetMap. Не выдумывай отсутствующие фотографии, рейтинги, отзывы или часы работы.
+5. Вызови restaurant_search() для ресторанов из Яндекс.Карт рядом с выбранным отелем. Передай координаты отеля; карточки уже совместимы с request.venues. get_trip_report() также выполнит этот поиск автоматически, если venues пуст, и дополнит через Яндекс.Карты уже переданные заведения без фото. Для прогулочных точек отдельно используй nearby_search(include_poi=true) из OpenStreetMap. Не выдумывай отсутствующие фотографии, рейтинги, отзывы или часы работы.
 6. Следуй каноническому travel-output flow из MCP resource travel-nova://instructions/travel-output-modes. Для каждого финального отеля загрузи одну сопоставимую страницу hotel_reviews(sort="date", sort_type="desc", page_size=10), собери до трёх реальных фотографий и структурированный reviewDigest.
 7. Составь TripPageDocumentV2: mapPoints должны ссылаться на выбранный отель, события и заведения по ID; renderer автоматически покажет на карте и два альтернативных отеля. Добавь ровно три непротиворечивых плана balanced, culture и food_nightlife. Все остановки должны попадать в даты поездки и ссылаться на существующие ID.
 8. {output_part} Не пытайся собирать React/Vite-проект. В chat-режиме после каждой карточки отеля, билета и события выведи Markdown-ссылку на точный объект T-Bank, а при отсутствии подтверждённого URL — отдельную строку «Ссылка T-Bank недоступна».
@@ -605,15 +606,115 @@ def _afisha_enriched_report(request: TravelPageDocument) -> TravelPageDocument:
     return type(request).model_validate(payload)
 
 
+def _venue_name_key(value: str) -> str:
+    normalized = str(value or "").casefold().replace("ё", "е")
+    return re.sub(r"[^0-9a-zа-я]+", "", normalized)
+
+
+def _venue_match_score(expected: str, candidate: str) -> float:
+    left = _venue_name_key(expected)
+    right = _venue_name_key(candidate)
+    if not left or not right:
+        return 0.0
+    if left in right or right in left:
+        return 1.0
+    return SequenceMatcher(None, left, right).ratio()
+
+
+def _yandex_venue_match(request, venue) -> tuple[dict | None, list[str]]:
+    try:
+        result = _search_yandex_restaurants(
+            city=request.trip.destination,
+            query=venue.name,
+            anchor_name=venue.name,
+            latitude=venue.coordinates.latitude,
+            longitude=venue.coordinates.longitude,
+            radius_meters=2_000,
+            limit=5,
+            include_non_dining=True,
+        )
+    except Exception as exc:
+        message = getattr(exc, "message", str(exc))
+        return None, [
+            f"Фото заведения «{venue.name}» не загружено из Яндекс.Карт: "
+            f"{_cut(message, 160)}"
+        ]
+    candidates = list((result.get("data") or {}).get("restaurants") or [])
+    ranked = sorted(
+        (
+            (_venue_match_score(venue.name, item.get("name", "")), item)
+            for item in candidates if item.get("photos")
+        ),
+        key=lambda pair: pair[0], reverse=True,
+    )
+    nearby = [
+        pair for pair in ranked
+        if pair[1].get("distanceMeters") is not None
+        and pair[1]["distanceMeters"] <= 150
+    ]
+    best = min(
+        nearby, key=lambda pair: pair[1]["distanceMeters"], default=None,
+    ) or (ranked[0] if ranked else None)
+    if not best or (best[0] < 0.55 and best[1].get("distanceMeters", 151) > 150):
+        return None, [
+            f"Фото заведения «{venue.name}» не найдено в Яндекс.Картах."
+        ]
+    return best[1], list(result.get("warnings") or [])
+
+
 def _restaurant_enriched_report(request: TravelPageDocument) -> TravelPageDocument:
-    """Fill an empty trip venue block from Yandex Maps around the selected hotel."""
-    if request.schema_version == "hotel-page/v1" or request.venues:
+    """Fill or photo-enrich trip venues from public Yandex Maps cards."""
+    if request.schema_version == "hotel-page/v1":
         return request
     selected = next(
         (hotel for hotel in request.hotels if hotel.id == request.selected_hotel_id),
         request.hotels[0],
     )
     payload = request.model_dump(mode="json", by_alias=True)
+    if request.venues:
+        venues = list(payload.get("venues") or [])
+        warnings = list(payload.get("warnings") or [])
+        enriched = False
+        for index, venue in enumerate(request.venues):
+            if venue.photos:
+                continue
+            match, match_warnings = _yandex_venue_match(request, venue)
+            for warning in match_warnings:
+                if warning not in warnings and len(warnings) < 24:
+                    warnings.append(warning)
+            if not match:
+                continue
+            current = venues[index]
+            current.update({
+                "photos": match.get("photos") or [],
+                "rating": match.get("rating"),
+                "ratingScale": match.get("ratingScale"),
+                "reviewCount": match.get("reviewCount"),
+                "sourceUrl": match.get("sourceUrl"),
+                "source": "Yandex Maps",
+                "categories": (
+                    match.get("categories") or current.get("categories") or []),
+                "openingHours": (
+                    match.get("openingHours")
+                    or current.get("openingHours") or ""),
+                "priceLevel": match.get("priceLevel") or current.get("priceLevel") or "",
+                "distanceMeters": match.get("distanceMeters"),
+            })
+            enriched = True
+        payload["venues"] = venues
+        payload["warnings"] = warnings
+        if enriched:
+            sources = list(payload.get("sources") or [])
+            if not any(source.get("name") == "Yandex Maps" for source in sources):
+                if len(sources) < 24:
+                    sources.append({
+                        "name": "Yandex Maps",
+                        "url": "https://yandex.ru/maps/",
+                        "checkedAt": _checked_at(),
+                    })
+                payload["sources"] = sources
+        return type(request).model_validate(payload)
+
     try:
         result = _search_yandex_restaurants(
             city=request.trip.destination,
@@ -691,7 +792,9 @@ def get_trip_report(
 
     Если trip-page/v2 пришёл без venues, report сам вызывает публичный поиск
     ресторанов Яндекс.Карт вокруг выбранного отеля и заполняет HTML и Markdown.
-    Для явного предварительного поиска используй restaurant_search().
+    Уже переданные заведения без photos сопоставляет с публичными карточками
+    Яндекс.Карт по названию и координатам. Для явного предварительного поиска
+    используй restaurant_search().
 
     Для trip-page/v2 report всегда возвращает ровно три сценария: balanced,
     culture и food_nightlife. Переданные сценарии сохраняются, а отсутствующие
@@ -7104,6 +7207,7 @@ def hotel_filters(max_chars: int = 5000) -> str:
 @_threaded_tool
 def restaurant_search(
     city: str,
+    query: str = "",
     anchor_name: str = "",
     address: str = "",
     latitude: float | None = None,
@@ -7114,18 +7218,20 @@ def restaurant_search(
 ) -> str:
     """Рестораны Яндекс.Карт рядом с отелем или другой точкой поездки.
 
-    Передай city и координаты выбранного отеля; без координат можно передать
-    address или anchor_name. radius_meters — 250..10000, limit — 1..20.
+    Передай city и координаты выбранного отеля; query уточняет название или тип
+    заведения. Без координат можно передать address или anchor_name.
+    radius_meters — 250..10000, limit — 1..20.
     JSON содержит report-ready restaurants[]: id, координаты, адрес, рейтинг,
     число отзывов, категории, часы, фото и прямой sourceUrl Яндекс.Карт.
     Публичный read-only поиск не использует банковскую сессию и ничего не
     бронирует. get_trip_report автоматически вызывает этот поиск для пустого
-    request.venues в trip-page/v2.
+    request.venues и обогащает уже переданные заведения без фото в trip-page/v2.
     """
     try:
         fmt = _response_format(response_format)
         result = _search_yandex_restaurants(
             city=city,
+            query=query,
             anchor_name=anchor_name,
             address=address,
             latitude=latitude,

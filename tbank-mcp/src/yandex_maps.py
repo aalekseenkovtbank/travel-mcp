@@ -157,6 +157,7 @@ def _venue_url(item: dict[str, Any], business_id: str) -> str:
 
 def _restaurant_card(
     item: dict[str, Any], anchor: tuple[float, float] | None,
+    *, include_non_dining: bool = False,
 ) -> dict[str, Any] | None:
     if item.get("type") != "business":
         return None
@@ -183,9 +184,20 @@ def _restaurant_card(
         for category in (raw_categories if isinstance(raw_categories, list) else [])
         if isinstance(category, dict)
     }
-    if not category_classes.intersection({"restaurants", "cafe", "bars"}):
+    dining_classes = category_classes.intersection({"restaurants", "cafe", "bars"})
+    if not dining_classes and not include_non_dining:
         return None
-    kind = "bar" if category_classes <= {"bars"} else "restaurant"
+    category_slugs = {
+        str(category.get("seoname") or "").strip()
+        for category in (raw_categories if isinstance(raw_categories, list) else [])
+        if isinstance(category, dict)
+    }
+    kind = (
+        "bar"
+        if category_classes <= {"bars"}
+        or category_slugs.intersection({"brewery", "beer_shop", "bar", "pub"})
+        else "restaurant"
+    )
 
     rating_data = item.get("ratingData")
     rating = review_count = None
@@ -238,27 +250,33 @@ def _restaurant_card(
 def search_yandex_restaurants(
     *,
     city: str,
+    query: str = "",
     anchor_name: str = "",
     address: str = "",
     latitude: float | None = None,
     longitude: float | None = None,
     radius_meters: int = 1_800,
     limit: int = 5,
+    include_non_dining: bool = False,
     requester: Any | None = None,
 ) -> dict[str, Any]:
     """Return report-ready restaurant cards from a public Yandex Maps search."""
     city = str(city or "").strip()
+    query = str(query or "").strip()
     anchor_name = str(anchor_name or "").strip()
     address = str(address or "").strip()
     if not city:
         raise TbankApiError("BAD_CITY", "Передай city.")
+    if len(query) > 200:
+        raise TbankApiError(
+            "BAD_QUERY", "query должен быть не длиннее 200 символов.")
     if not 1 <= int(limit) <= 20:
         raise TbankApiError("BAD_LIMIT", "limit должен быть от 1 до 20.")
     if not 250 <= int(radius_meters) <= 10_000:
         raise TbankApiError(
             "BAD_RADIUS", "radius_meters должен быть от 250 до 10000.")
     anchor = _coordinates(latitude, longitude)
-    query_parts = ["рестораны"]
+    query_parts = [query or "рестораны"]
     if anchor is None:
         query_parts.extend(value for value in (address or anchor_name, city) if value)
     query = ", ".join(query_parts)
@@ -316,7 +334,8 @@ def search_yandex_restaurants(
     for item in results.get("items") or []:
         if not isinstance(item, dict):
             continue
-        card = _restaurant_card(item, anchor)
+        card = _restaurant_card(
+            item, anchor, include_non_dining=include_non_dining)
         if card is None:
             continue
         if anchor is not None and card.get("distanceMeters", 0) > int(radius_meters):
