@@ -6176,7 +6176,12 @@ def _hotel_search_enriched_shortlist(
             warnings.append(
                 f"hotel_reviews не загрузил выборку для hotel_id={hotel_id}: "
                 f"{_cut(_redact_value(str(exc)), 180)}")
-        details = item.get("details") or {}
+        details = dict(item.get("details") or {})
+        # Free-form supplier copy is useful in hotel_details(), but makes a
+        # comparison payload noisy and can distract hosts from the structured
+        # facts they must render.
+        details.pop("description", None)
+        item["details"] = details
         digest = item.get("reviewDigest") or _hotel_review_digest([])
         photo_urls = list(details.get("imageUrls") or [])[:3]
         item.update({
@@ -6657,9 +6662,9 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
     готовые плоские поля primaryPhotoUrl, photoUrls, pluses, minuses,
     suitableFor и nights. Поэтому даже хост, который
     использует только один вызов, получает готовый enrichedShortlist с деталями,
-    реальными фото, тарифами и reviewDigest. Если финальный выбор включает другие
-    карточки из hotels, обогати их отдельными hotel_latest_offers(), hotel_rates()
-    и hotel_reviews().
+    реальными фото, тарифами и reviewDigest. Если отдельно найденный отель должен
+    заменить карточку shortlist, обогати
+    его через hotel_latest_offers(), hotel_rates() и hotel_reviews().
 
     destination_id бери из hotel_autocomplete(); даты — YYYY-MM-DD; adults —
     1..6; children_ages — возраста через запятую (например ``5,12``) или JSON
@@ -6743,20 +6748,22 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
                 warnings.append(
                     "Часть цен осталась нефинальной (isFinalPrice=false); питание, "
                     "отмену и оплату по ним не подтверждай.")
-            if isinstance(total, int) and total > len(shown):
+            if isinstance(total, int) and total > len(enriched_shortlist):
                 warnings.append(
-                    f"В каталоге {total} отелей; в ответ попали первые {len(shown)} "
-                    "после завершения (или таймаута) поиска.")
+                    f"В каталоге {total} отелей; JSON возвращает только "
+                    f"{len(enriched_shortlist)} полностью обогащённых карточек. "
+                    "Неполные каталоговые карточки намеренно не публикуются.")
             return _json_envelope({
                 "destinationId": int(destination_id),
                 "checkinDate": checkin_date,
                 "checkoutDate": checkout_date,
                 "nights": nights,
+                "comparisonMarkdown": _hotel_enriched_text(enriched_shortlist),
                 "enrichedShortlist": enriched_shortlist,
                 "isLoadingCompleted": loading_completed,
                 "pricesFinal": prices_final,
                 "total": total,
-                "hotels": rows,
+                "catalogSampleCount": len(rows),
             }, source="T-Bank Hotels", warnings=warnings,
                meta={"complete": loading_completed and prices_final,
                      "detailsComplete": not detail_warnings,

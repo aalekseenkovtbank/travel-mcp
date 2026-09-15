@@ -79,12 +79,13 @@ current `confirmedRate` and a ten-review `reviewDigest` with **Плюсы**,
 normal hotel-only answer should select from this block so the result is complete
 without redundant calls.
 
-The JSON projection keeps this shortlist before the raw catalogue and also
+The JSON projection starts with ready-to-render `comparisonMarkdown`, followed
+by this shortlist, and does not publish incomplete raw catalogue cards. It also
 flattens `primaryPhotoUrl`, `photoUrls`, `pluses`, `minuses`, `suitableFor` and
 `nights` onto every enriched item. For every hotel included in the visible
 answer, render at least one of those photos and all three explicitly labelled
-review fields. Omit a catalogue-only card rather than presenting it without that
-complete comparison block.
+review fields. Use `total` and `catalogSampleCount` only as numeric catalogue
+context; they do not describe additional selectable cards.
 
 Every hotel-returning tool includes `details` for each hotel: static name/address,
 description, check-in/out, coordinates, facilities, exact T-Bank URL and up to
@@ -99,7 +100,7 @@ when fewer suitable properties are available.
 
 ## 5. Refresh current offers before comparing
 
-If the final shortlist includes cards outside `enrichedShortlist`, call one:
+If a separately obtained hotel must replace one of the complete cards, call one:
 
 ```text
 hotel_latest_offers(
@@ -114,7 +115,7 @@ cancellation, payment or availability is confirmed.
 
 ## 6. Inspect each final hotel and its rates
 
-For every final hotel outside `enrichedShortlist`, call:
+For every separately obtained hotel that replaces a complete shortlist card, call:
 
 ```text
 hotel_rates(hotel_id=..., checkin_date=..., checkout_date=...,
@@ -134,7 +135,7 @@ hotels may therefore contain up to three URLs for each hotel.
 `hotel_rates` may return up to three room-photo URLs for each room type. Do not
 fetch or invent more photos to fill a visual layout.
 
-For every final hotel outside `enrichedShortlist`, call one comparable review page:
+For every separately obtained hotel that replaces a complete shortlist card, call one comparable review page:
 
 ```text
 hotel_reviews(hotel_id=..., sort="date", sort_type="desc",
