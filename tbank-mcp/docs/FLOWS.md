@@ -581,7 +581,11 @@ do not use it as a station resolver.
    (страницы по 50), не поток из сотен тысяч тарифов. Первые
    `comparison_limit` карточек (3 по умолчанию, максимум 5) одновременно
    обогащаются тарифами и выборкой из 10 отзывов и возвращаются в
-   `enrichedShortlist` с полями `confirmedRate` и `reviewDigest`.
+   `enrichedShortlist` с полями `confirmedRate` и `reviewDigest`. Для JSON этот
+   блок идёт раньше сырого каталога; на каждой карточке также есть плоские
+   `primaryPhotoUrl`, `photoUrls`, `pluses`, `minuses`, `suitableFor` и `nights`.
+   В видимом сравнении покажи минимум одно фото и все три review-поля для каждого
+   включённого отеля.
 3. `hotel_search_filters(location_id, checkin_date, checkout_date, adults,
    children_ages, filters, map_frame_input, favorite_hotel_ids, language)` →
    availability-aware фильтры и `filteredHotelsCount` для этих дат и гостей.

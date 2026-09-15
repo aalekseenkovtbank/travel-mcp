@@ -6176,6 +6176,19 @@ def _hotel_search_enriched_shortlist(
             warnings.append(
                 f"hotel_reviews не загрузил выборку для hotel_id={hotel_id}: "
                 f"{_cut(_redact_value(str(exc)), 180)}")
+        details = item.get("details") or {}
+        digest = item.get("reviewDigest") or _hotel_review_digest([])
+        photo_urls = list(details.get("imageUrls") or [])[:3]
+        item.update({
+            "nights": nights,
+            "rateConfirmed": bool((item.get("confirmedRate") or {}).get("available")),
+            "primaryPhotoUrl": photo_urls[0] if photo_urls else "",
+            "photoUrls": photo_urls,
+            "pluses": list(digest.get("pluses") or ["недостаточно данных"]),
+            "minuses": list(digest.get("minuses") or ["недостаточно данных"]),
+            "suitableFor": list(
+                digest.get("suitableFor") or ["недостаточно данных"]),
+        })
         enriched.append(item)
     return enriched, warnings
 
@@ -6635,13 +6648,14 @@ def hotel_autocomplete(query: str, limit: int = 10,
 
 @_threaded_tool
 def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
-                 adults: int = 1, children_ages: str = "", limit: int = 50,
+                 adults: int = 1, children_ages: str = "", limit: int = 15,
                  response_format: str = "text", comparison_limit: int = 3) -> str:
     """Поиск доступных отелей с деталями, фото, тарифами и отзывами.
 
     Тул обогащает первые comparison_limit=1..5 карточек: загружает актуальный
     тариф и сопоставимую выборку из 10 последних отзывов, а затем возвращает
-    готовые поля «Плюсы», «Минусы», «Кому подходит». Поэтому даже хост, который
+    готовые плоские поля primaryPhotoUrl, photoUrls, pluses, minuses,
+    suitableFor и nights. Поэтому даже хост, который
     использует только один вызов, получает готовый enrichedShortlist с деталями,
     реальными фото, тарифами и reviewDigest. Если финальный выбор включает другие
     карточки из hotels, обогати их отдельными hotel_latest_offers(), hotel_rates()
@@ -6651,7 +6665,7 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
     1..6; children_ages — возраста через запятую (например ``5,12``) или JSON
     ``[5,12]``. Тул сам ждёт, пока поставщики закончат формировать выдачу, затем
     обновляет нефинальные цены через getLatestHotelOffer и возвращает не больше
-    50 карточек (limit, по умолчанию 50). Это не 300k тарифов: upstream отдаёт
+    50 карточек (limit, по умолчанию 15). Это не 300k тарифов: upstream отдаёт
     каталог отелей страницами по 50. Каждая карточка содержит details с адресом,
     описанием, временем заезда/выезда, удобствами и максимум тремя фотографиями.
     comparison_limit по умолчанию 3 и не может превышать 5, чтобы автоматическое
@@ -6737,11 +6751,12 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
                 "destinationId": int(destination_id),
                 "checkinDate": checkin_date,
                 "checkoutDate": checkout_date,
+                "nights": nights,
+                "enrichedShortlist": enriched_shortlist,
                 "isLoadingCompleted": loading_completed,
                 "pricesFinal": prices_final,
                 "total": total,
                 "hotels": rows,
-                "enrichedShortlist": enriched_shortlist,
             }, source="T-Bank Hotels", warnings=warnings,
                meta={"complete": loading_completed and prices_final,
                      "detailsComplete": not detail_warnings,

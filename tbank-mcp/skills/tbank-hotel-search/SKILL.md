@@ -79,6 +79,13 @@ current `confirmedRate` and a ten-review `reviewDigest` with **Плюсы**,
 normal hotel-only answer should select from this block so the result is complete
 without redundant calls.
 
+The JSON projection keeps this shortlist before the raw catalogue and also
+flattens `primaryPhotoUrl`, `photoUrls`, `pluses`, `minuses`, `suitableFor` and
+`nights` onto every enriched item. For every hotel included in the visible
+answer, render at least one of those photos and all three explicitly labelled
+review fields. Omit a catalogue-only card rather than presenting it without that
+complete comparison block.
+
 Every hotel-returning tool includes `details` for each hotel: static name/address,
 description, check-in/out, coordinates, facilities, exact T-Bank URL and up to
 three real source photos. Single-hotel `hotel_rates` and `hotel_reviews` expose
