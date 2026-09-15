@@ -6186,8 +6186,32 @@ def _hotel_enriched_text(items: list[dict]) -> str:
         details = item.get("details") or {}
         name = details.get("name") or item.get("name") or f"hotel_id={item.get('hotelId')}"
         lines.append(f"\n{name} | hotel_id={item.get('hotelId')}")
-        if rendered := _hotel_detail_text(details):
-            lines.append(rendered)
+        if item.get("tbankUrl"):
+            lines.append(f"T-Bank: {item['tbankUrl']}")
+        summary = []
+        if item.get("stars") is not None:
+            summary.append(f"звёзды: {item['stars']}")
+        if item.get("rating") is not None:
+            summary.append(f"рейтинг: {item['rating']}")
+        if summary:
+            lines.append("Характеристики: " + " | ".join(summary))
+        if details.get("address"):
+            lines.append(f"Адрес: {_cut(details['address'], 140)}")
+        if details.get("checkInTime") or details.get("checkOutTime"):
+            lines.append(
+                f"Заезд/выезд: {details.get('checkInTime') or '?'} / "
+                f"{details.get('checkOutTime') or '?'}")
+        if details.get("facilities"):
+            lines.append("Удобства: " + "; ".join(details["facilities"]))
+        image_urls = details.get("imageUrls") or []
+        if image_urls:
+            lines.append("Фотографии:")
+            lines.extend(
+                f"![{name} — фото {index}]({url})"
+                for index, url in enumerate(image_urls[:3], start=1)
+            )
+        else:
+            lines.append("Фотографии: источник не вернул фото.")
         rate = item.get("confirmedRate") or {}
         if rate.get("available"):
             price = rate.get("totalPrice")
@@ -6726,42 +6750,11 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
             return (f"Доступных отелей для destination_id={destination_id} на "
                     f"{checkin_date}—{checkout_date} не найдено.")
 
-        def render(hotel):
-            rate = hotel.get("rateForHotelsFeed") or {}
-            shown = rate.get("shownPrice") or {}
-            price = _hotel_amount(shown)
-            currency = shown.get("currency") if isinstance(shown, dict) else ""
-            review = hotel.get("review") or {}
-            rating = (review.get("rating") or review.get("score")) if isinstance(review, dict) else ""
-            stars = int(hotel.get("starRating") or 0)
-            bits = [
-                f"- {_flat(hotel.get('hotelName') or '?')} {'★' * stars}",
-                _hotel_details_url(hotel.get("hotelId")) or "Ссылка T-Bank недоступна",
-                f"{price:.0f} {currency or '₽'}" if price else "цена не указана",
-            ]
-            address = _hotel_address(hotel)
-            if address:
-                bits.append(_cut(address, 80))
-            if rating:
-                bits.append(f"рейтинг {rating}")
-            meal = rate.get("mealName") or rate.get("mealType")
-            if meal:
-                bits.append(_flat(meal))
-            rooms = rate.get("availableRoomsCount")
-            if rooms is not None:
-                bits.append(f"номеров {rooms}")
-            bits.append(f"hotel_id={hotel.get('hotelId')}")
-            line = " | ".join(bits)
-            details = details_by_id.get(str(hotel.get("hotelId") or ""), {})
-            if rendered := _hotel_detail_text(details):
-                line += f"\n  {rendered}"
-            return line
-
-        out = _hotel_enriched_text(enriched_shortlist) + "\n\n"
-        out += _rows_out(hotels, render, limit=limit, total=total,
-                        header=f"Отели {checkin_date}—{checkout_date}",
-                        order_note="в порядке выдачи API",
-                        more_hint=(f"В ответ не больше 50 карточек; в каталоге {total}."))
+        out = _hotel_enriched_text(enriched_shortlist)
+        out += (
+            f"\n\nКаталог на {checkin_date}—{checkout_date}: {total} отелей; "
+            f"поиск просмотрел {len(rows)}, для сравнения полностью обогащены "
+            f"первые {len(enriched_shortlist)}.")
         if not loading_completed:
             out += ("\n⚠️ Выдача не закрылась за ожидание; это лучший успевший "
                     "срез, не весь каталог.")
