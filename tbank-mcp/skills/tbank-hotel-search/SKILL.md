@@ -87,10 +87,9 @@ flattens `primaryPhotoUrl`, `photoUrls`, `pluses`, `minuses`, `suitableFor` and
 answer, render at least one of those photos and all three explicitly labelled
 review fields. Use `total` and `catalogSampleCount` only as numeric catalogue
 context; they do not describe additional selectable cards.
-`hotel_search` also attaches one bounded native MCP image block for every
-enriched card, using only the trusted T-Bank image CDN. Those blocks may remain
-inside the tool result and therefore do not satisfy the visible-answer rule.
-Always collect all photo URLs that will be shown, call
+`hotel_search` intentionally returns source photo URLs without native image
+blocks or data URIs, so a host cannot mistake an image hidden inside the tool
+result for a visible answer. Always collect all photo URLs that will be shown, call
 `image_to_data_uri(urls=[...])` once, and use each successful `dataUri`; never
 call it sequentially per photo. See the canonical
 [`TRAVEL_OUTPUT_MODES.md#фото`](../../docs/TRAVEL_OUTPUT_MODES.md#фото) rule.
