@@ -18,8 +18,6 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 _TRUSTED_IMAGE_HOSTS = frozenset({
     "cdn.tbank.ru",
-    "cdn.ostrovok.ru",
-    "extranet-cdn.tinkoff.ru",
     "avatars.mds.yandex.net",
     "cdn.kassir.ru",
     "kassa.rambler.ru",
@@ -184,40 +182,11 @@ def _download_image(session: requests.Session, url: str, byte_limit: int) -> tup
     return _compact_image(content_type, payload, limit)
 
 
-def _hotel_proxy_source_url(url: str) -> str:
-    """Recover a trusted hotel source URL embedded in T-Bank's image proxy path."""
-    trusted_url = _trusted_image_url(url)
-    if not trusted_url:
-        return ""
-    parsed = urlparse(trusted_url)
-    if parsed.hostname != "cdn.tbank.ru" or "/https://" not in parsed.path:
-        return ""
-    source_url = "https://" + parsed.path.split("/https://", 1)[1]
-    return _trusted_image_url(source_url)
-
-
 def download_bounded_image(
     session: requests.Session, url: str, byte_limit: int = _MAX_EMBEDDED_IMAGE_BYTES,
 ) -> tuple[str, bytes]:
-    """Download one trusted image and compact it for an MCP content block.
-
-    T-Bank's public image proxy can throttle requests from the App Platform
-    egress address even while the embedded first-party hotel CDN is healthy. In
-    that specific case, retry the source URL encoded by the trusted proxy. The
-    fallback remains fail-closed to an explicit host allowlist.
-    """
-    try:
-        return _download_image(session, url, byte_limit)
-    except _ImageEmbeddingError as proxy_error:
-        source_url = _hotel_proxy_source_url(url)
-        if "HTTP 429" not in str(proxy_error) or not source_url:
-            raise
-        try:
-            return _download_image(session, source_url, byte_limit)
-        except _ImageEmbeddingError as source_error:
-            raise _ImageEmbeddingError(
-                f"proxy throttled and source fallback failed: {source_error}"
-            ) from source_error
+    """Download one trusted image and compact it for an MCP content block."""
+    return _download_image(session, url, byte_limit)
 
 
 def inline_report_images(
