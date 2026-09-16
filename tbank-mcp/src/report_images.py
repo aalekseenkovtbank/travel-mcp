@@ -182,13 +182,6 @@ def _download_image(session: requests.Session, url: str, byte_limit: int) -> tup
     return _compact_image(content_type, payload, limit)
 
 
-def download_bounded_image(
-    session: requests.Session, url: str, byte_limit: int = _MAX_EMBEDDED_IMAGE_BYTES,
-) -> tuple[str, bytes]:
-    """Download one trusted image and compact it for an MCP content block."""
-    return _download_image(session, url, byte_limit)
-
-
 def inline_report_images(
     hotels, events=(), venues=(),
 ) -> tuple[dict[str, str], list[str]]:
