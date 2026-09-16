@@ -6042,6 +6042,7 @@ def _hotel_description(value) -> str:
 def _hotel_detail_payload(hotel: dict, fallback_hotel_id: str = "") -> dict:
     hotel_id = str(hotel.get("hotelId") or fallback_hotel_id or "")
     latitude, longitude = _hotel_coordinates(hotel)
+    image_urls = _hotel_image_urls(hotel, 3)
     details = {
         "hotelId": hotel_id,
         "name": _flat(hotel.get("hotelName") or hotel.get("name") or ""),
@@ -6053,10 +6054,45 @@ def _hotel_detail_payload(hotel: dict, fallback_hotel_id: str = "") -> dict:
         "latitude": latitude,
         "longitude": longitude,
         "facilities": _hotel_facility_names(hotel, 12),
-        "imageUrls": _hotel_image_urls(hotel, 3),
+        "imageUrls": image_urls,
+        "imageConversionRequest": _image_conversion_request(image_urls),
         "tbankUrl": _hotel_details_url(hotel_id) or "",
     }
     return details
+
+
+def _unique_image_urls(values, limit: int = 16) -> list[str]:
+    urls: list[str] = []
+    for value in values:
+        url = str(value or "").strip()
+        if url and url not in urls:
+            urls.append(url)
+        if len(urls) >= limit:
+            break
+    return urls
+
+
+def _image_conversion_request(values) -> dict:
+    urls = _unique_image_urls(values)
+    return {
+        "requiredBeforeVisibleImageOutput": bool(urls),
+        "tool": "image_to_data_uri",
+        "arguments": {"urls": urls},
+        "resultPath": "images[].dataUri",
+    }
+
+
+def _image_conversion_instruction(values) -> str:
+    request = _image_conversion_request(values)
+    if not request["requiredBeforeVisibleImageOutput"]:
+        return ""
+    arguments = json.dumps(request["arguments"], ensure_ascii=False)
+    return (
+        "ОБЯЗАТЕЛЬНЫЙ СЛЕДУЮЩИЙ MCP-ВЫЗОВ ДО ОТВЕТА ПОЛЬЗОВАТЕЛЮ: "
+        f"image_to_data_uri({arguments}). Используй успешные images[].dataUri "
+        "в видимом ответе. Нативные image-блоки внутри tool result "
+        "НЕ заменяют этот вызов. Не вставляй исходные HTTPS URL как изображения."
+    )
 
 
 def _load_hotel_detail_map(
@@ -6127,6 +6163,9 @@ def _hotel_detail_text(details: dict) -> str:
         parts.append("удобства: " + "; ".join(details["facilities"]))
     if details.get("imageUrls"):
         parts.append("фото: " + " | ".join(details["imageUrls"]))
+        parts.append(
+            "эти URL добавь в единый пакет image_to_data_uri(urls=[...]) "
+            "до видимого ответа; исходные URL не вставляй как изображения")
     return "\n  ".join(parts)
 
 
@@ -6436,6 +6475,13 @@ def _hotel_native_result(text: str, items: list[dict]) -> CallToolResult:
             type="text",
             text="Предупреждения нативных фото: " + "; ".join(warnings),
         ))
+    visible_urls = [
+        url
+        for item in items
+        for url in (item.get("photoUrls") or [])[:3]
+    ]
+    if instruction := _image_conversion_instruction(visible_urls):
+        content.append(TextContent(type="text", text=instruction))
     return CallToolResult(content=content)
 
 
@@ -6855,6 +6901,10 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
     описанием, временем заезда/выезда, удобствами и максимум тремя фотографиями.
     comparison_limit по умолчанию 3 и не может превышать 5, чтобы автоматическое
     обогащение оставалось ограниченным.
+    ДО видимого ответа с фотографиями обязательно собери photoUrls всех
+    выбранных карточек и одним следующим вызовом передай их в
+    image_to_data_uri(urls=[...]). Нативные ImageContent-блоки остаются внутри
+    результата tool и не гарантируют показ в финальном ответе хоста.
     Запрос read-only и уходит без банковских
     credentials. MCP не бронирует и не оплачивает отель. Для комнат/bookHash
     одного отеля вызови hotel_rates(); для availability-aware фильтров —
@@ -7232,6 +7282,7 @@ def hotel_details(hotel_id: str, max_facilities: int = 40, max_images: int = 3,
                 "longitude": longitude,
                 "facilities": shown_facilities,
                 "imageUrls": image_urls,
+                "imageConversionRequest": _image_conversion_request(image_urls),
             }
             details_url = _hotel_details_url(hotel.get("hotelId") or hotel_id)
             if details_url:
@@ -7262,6 +7313,7 @@ def hotel_details(hotel_id: str, max_facilities: int = 40, max_images: int = 3,
                            f"передай max_facilities={len(facilities)}.")
         if image_urls:
             out.append("Фото: " + " | ".join(image_urls))
+            out.append(_image_conversion_instruction(image_urls))
         else:
             out.append("⚠️ Источник не вернул фотографии этого отеля.")
         details_url = _hotel_details_url(hotel.get("hotelId") or hotel_id)
@@ -7344,6 +7396,8 @@ def hotel_rates(hotel_id: str, checkin_date: str, checkout_date: str,
             return _json_envelope({
                 "hotelId": hotel_id,
                 "hotelDetails": hotel_details,
+                "imageConversionRequest": _image_conversion_request(
+                    hotel_details.get("imageUrls") or []),
                 "checkinDate": checkin_date,
                 "checkoutDate": checkout_date,
                 "nights": nights,
@@ -7528,9 +7582,19 @@ def hotel_reviews(hotel_id: str, source_code: str = "",
             "hotelId": hotel_id, "imageUrls": [], "facilities": [],
         })
         if fmt == "json":
+            review_photo_urls = [
+                photo.get("url")
+                for review in reviews
+                for photo in review.get("photos", [])
+                if isinstance(photo, dict)
+            ]
+            visible_image_urls = (
+                list(hotel_details.get("imageUrls") or []) + review_photo_urls)
             return _json_envelope({
                 "hotelId": hotel_id,
                 "hotelDetails": hotel_details,
+                "imageConversionRequest": _image_conversion_request(
+                    visible_image_urls),
                 "sort": sort,
                 "sortType": sort_type,
                 "sourceCode": source_code,
@@ -7554,6 +7618,9 @@ def hotel_reviews(hotel_id: str, source_code: str = "",
             out = f"Отзывы для hotel_id={hotel_id} по заданным условиям не найдены."
             if rendered := _hotel_detail_text(hotel_details):
                 out += f"\n{rendered}"
+            if instruction := _image_conversion_instruction(
+                    hotel_details.get("imageUrls") or []):
+                out += f"\n{instruction}"
             if detail_warnings:
                 out += "\n" + "\n".join(
                     f"⚠️ {warning}" for warning in detail_warnings)
@@ -7587,6 +7654,15 @@ def hotel_reviews(hotel_id: str, source_code: str = "",
         if next_cursor:
             lines.append("Есть следующая страница: передай cursor из JSON-ответа без изменений.")
         lines.extend(f"⚠️ {warning}" for warning in detail_warnings)
+        visible_image_urls = list(hotel_details.get("imageUrls") or [])
+        visible_image_urls.extend(
+            photo.get("url")
+            for review in reviews
+            for photo in review.get("photos", [])
+            if isinstance(photo, dict)
+        )
+        if instruction := _image_conversion_instruction(visible_image_urls):
+            lines.append(instruction)
         lines.append(
             "Для видимого сравнения обобщи только эту выборку отдельными полями "
             "«Плюсы», «Минусы», «Кому подходит»; повторяющаяся тема требует "

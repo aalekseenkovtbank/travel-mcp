@@ -88,11 +88,11 @@ answer, render at least one of those photos and all three explicitly labelled
 review fields. Use `total` and `catalogSampleCount` only as numeric catalogue
 context; they do not describe additional selectable cards.
 `hotel_search` also attaches one bounded native MCP image block for every
-enriched card, using only the trusted T-Bank image CDN. Preserve those images in
-the visible result even when the host summarizes the JSON text. If the host
-needs Markdown/HTML images rather than the native blocks, collect all photo URLs
-that will be shown, call `image_to_data_uri(urls=[...])` once, and use each
-successful `dataUri`; never call it sequentially per photo. See the canonical
+enriched card, using only the trusted T-Bank image CDN. Those blocks may remain
+inside the tool result and therefore do not satisfy the visible-answer rule.
+Always collect all photo URLs that will be shown, call
+`image_to_data_uri(urls=[...])` once, and use each successful `dataUri`; never
+call it sequentially per photo. See the canonical
 [`TRAVEL_OUTPUT_MODES.md#фото`](../../docs/TRAVEL_OUTPUT_MODES.md#фото) rule.
 
 Every hotel-returning tool includes `details` for each hotel: static name/address,

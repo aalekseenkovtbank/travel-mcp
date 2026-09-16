@@ -46,7 +46,9 @@ resources.
 - Before placing image URLs from a tool result directly into visible chat,
   Markdown or agent-authored HTML, collect every unique URL that will be shown,
   call `image_to_data_uri(urls=[...])` once, and use each successful `dataUri`.
-  Do not make sequential calls per image. `get_trip_report(output_mode="html")`
+  Native image blocks inside a tool result do not replace this call because the
+  host may omit them from the final answer. Do not make sequential calls per
+  image. `get_trip_report(output_mode="html")`
   performs the same parallel conversion
   internally, so keep source HTTPS URLs unchanged in its request. The canonical
   rule is in `TRAVEL_OUTPUT_MODES.md#фото`.
