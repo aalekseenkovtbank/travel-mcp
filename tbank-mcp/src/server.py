@@ -6128,9 +6128,6 @@ def _hotel_detail_text(details: dict) -> str:
         parts.append("удобства: " + "; ".join(details["facilities"]))
     if details.get("imageUrls"):
         parts.append("фото: " + " | ".join(details["imageUrls"]))
-        parts.append(
-            "эти URL добавь в единый пакет image_to_data_uri(urls=[...]) "
-            "до видимого ответа; исходные URL не вставляй как изображения")
     return "\n  ".join(parts)
 
 
