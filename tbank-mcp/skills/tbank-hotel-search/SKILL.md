@@ -84,11 +84,11 @@ by this shortlist, and does not publish incomplete raw catalogue cards. It also
 flattens `primaryPhotoUrl`, `photoUrls`, `pluses`, `minuses`, `suitableFor` and
 `nights` onto every enriched item. For every hotel included in the visible
 answer, preserve `comparisonMarkdown` without shortening, reordering or renaming
-its sections. The result starts with a compact comparison table. Every card must
-then contain the same **Детали отеля** table, three-column **Фотографии** table
-and **Овервью отзывов** table with the explicitly labelled review fields
-**Выборка**, **Резюме**, **Плюсы**, **Минусы**, **Кому подходит**. The top-level
-`chatFormatVersion` is `hotel-chat/v2`. Use `total` and `catalogSampleCount` only as numeric catalogue
+its sections. Every card must contain the same **Детали отеля**,
+**Фотографии** and **Овервью отзывов** sections, three numbered photo slots, and
+the explicitly labelled review fields **Выборка**, **Резюме**, **Плюсы**,
+**Минусы**, **Кому подходит**. The top-level `chatFormatVersion` is
+`hotel-chat/v1`. Use `total` and `catalogSampleCount` only as numeric catalogue
 context; they do not describe additional selectable cards.
 `hotel_search` also attaches up to three bounded native MCP image blocks for every
 enriched card, using only trusted source image CDNs. Preserve those images in
