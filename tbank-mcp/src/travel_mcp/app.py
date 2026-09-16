@@ -74,6 +74,9 @@ def _travel_server_instructions() -> str:
         "venues get_trip_report запускает его автоматически. Основной путь "
         "сборки: get_trip_report(request, output_mode=\"html\" или "
         "\"markdown\"). Каждый hotel-тул возвращает details и до трёх фото. "
+        "В chat-ответе hotel_search используй строгий comparisonMarkdown без "
+        "перестановки или переименования секций: детали, три фото-слота и обзор "
+        "отзывов для каждого отеля. "
         "Перед report обязательно вызови hotel_latest_offers, hotel_rates и "
         "hotel_reviews; неполный enrichment по умолчанию "
         "блокирует отчёт. HTML или Markdown возвращаются из одного тула. "
@@ -250,7 +253,7 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "train_calendar": "Возвращает доступные даты продажи по паре числовых searchCode станций. origin и destination обязательны, limit ограничивает выдачу; пустой результат не доказывает причину отсутствия данных. Метод read-only.",
     "compare_train_prices": "Сравнивает поезда по 1–5 датам и возвращает группы, тарифы и дельты. origin/destination — searchCode из train_stations; limit и max_duration_minutes фильтруют выдачу. Неполные даты и lowest observed отражаются в warnings.",
     "hotel_autocomplete": "Находит локации и отели с id для следующих hotel-вызовов. Каждая hotel-подсказка содержит details с адресом, описанием, удобствами и до 3 фото. query должен содержать не менее 3 символов, limit ограничивает подсказки; для hotel_search используй id локации. Бронь и оплата не выполняются.",
-    "hotel_search": "Ищет доступные отели и предварительные цены на даты. Каждый hotel item содержит details и до 3 фото. destination_id берётся из autocomplete, даты — YYYY-MM-DD, adults 1–6, limit 1–50; children_ages принимает CSV или JSON-массив. Нефинальные цены и неполная выдача отмечаются; MCP не бронирует.",
+    "hotel_search": "Ищет доступные отели и возвращает версионированный строгий comparisonMarkdown (`hotel-chat/v1`): для каждой карточки одинаковые секции «Детали отеля», три пронумерованных фото-слота и «Овервью отзывов» с выборкой, резюме, плюсами, минусами и аудиторией. Официальные фото при необходимости дополняются фото гостей из загруженных отзывов; недостающие данные явно отмечаются без выдуманных значений. destination_id берётся из autocomplete, даты — YYYY-MM-DD, adults 1–6, limit 1–50; children_ages принимает CSV или JSON-массив. MCP не бронирует.",
     "hotel_search_filters": "Возвращает доступные фильтры и filteredHotelsCount для локации, дат и состава гостей. filters — объекты filterId/value, limit отсутствует; метод не возвращает карточки, после него вызови hotel_search. Только чтение.",
     "hotel_latest_offers": "Перепроверяет цены и условия shortlist отелей одним запросом. Каждый hotel item содержит details и до 3 фото. hotel_ids — 1–1000 id, даты и adults должны совпадать с поиском; filters ограничивают запрос. При price.isFinalPrice=false питание, оплату, отмену и наличие не считай подтверждёнными.",
     "hotel_details": "Возвращает статическую карточку отеля: адрес, описание, часы, удобства и HTTPS-фото из источника. hotel_id — числовой id, max_images — 1–12 (по умолчанию 3); response_format=json даёт структурированные поля для страницы. Наличие тарифа и бронь не проверяются.",

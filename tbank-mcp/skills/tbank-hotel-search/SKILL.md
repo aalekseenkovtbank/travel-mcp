@@ -83,11 +83,15 @@ The JSON projection starts with ready-to-render `comparisonMarkdown`, followed
 by this shortlist, and does not publish incomplete raw catalogue cards. It also
 flattens `primaryPhotoUrl`, `photoUrls`, `pluses`, `minuses`, `suitableFor` and
 `nights` onto every enriched item. For every hotel included in the visible
-answer, render at least one of those photos and all three explicitly labelled
-review fields. Use `total` and `catalogSampleCount` only as numeric catalogue
+answer, preserve `comparisonMarkdown` without shortening, reordering or renaming
+its sections. Every card must contain the same **Детали отеля**,
+**Фотографии** and **Овервью отзывов** sections, three numbered photo slots, and
+the explicitly labelled review fields **Выборка**, **Резюме**, **Плюсы**,
+**Минусы**, **Кому подходит**. The top-level `chatFormatVersion` is
+`hotel-chat/v1`. Use `total` and `catalogSampleCount` only as numeric catalogue
 context; they do not describe additional selectable cards.
-`hotel_search` also attaches one bounded native MCP image block for every
-enriched card, using only the trusted T-Bank image CDN. Preserve those images in
+`hotel_search` also attaches up to three bounded native MCP image blocks for every
+enriched card, using only trusted source image CDNs. Preserve those images in
 the visible result even when the host summarizes the JSON text.
 
 Every hotel-returning tool includes `details` for each hotel: static name/address,
@@ -171,8 +175,9 @@ Return a concise shortlist with, for each hotel:
 - name and exact T-Bank hotel link when available;
 - factual card details: stars, rating and review count, address, description,
   check-in/out and relevant facilities when the sources returned them;
-- at least the first available real photo from `details.imageUrls`; additional
-  source photos may be shown up to the documented limit;
+- exactly three numbered photo slots. Fill them with official photos first and
+  then guest photos from the loaded review sample. If fewer than three real
+  photos exist, keep all three slots and mark the missing ones as unavailable;
 - dates, total price and nightly price only when the source labels them clearly;
 - meal, room, cancellation and payment only when confirmed by the final rate;
 - the review sample size and a separate comparison block with exactly these
