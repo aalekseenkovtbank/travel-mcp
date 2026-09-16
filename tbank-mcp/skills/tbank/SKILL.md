@@ -43,6 +43,13 @@ resources.
   rates/reviews). Before `get_trip_report()`, still call `hotel_latest_offers()`
   for the shortlist and then `hotel_rates()` and `hotel_reviews()` for every
   final hotel; incomplete enrichment blocks the report by default.
+- Before placing image URLs from a tool result directly into visible chat,
+  Markdown or agent-authored HTML, collect every unique URL that will be shown,
+  call `image_to_data_uri(urls=[...])` once, and use each successful `dataUri`.
+  Do not make sequential calls per image. `get_trip_report(output_mode="html")`
+  performs the same parallel conversion
+  internally, so keep source HTTPS URLs unchanged in its request. The canonical
+  rule is in `TRAVEL_OUTPUT_MODES.md#фото`.
 - Public hotel, flight, railway, weather, Afisha catalogue, cinema schedule and
   concert/theatre schedule search needs no bank login.
   Session-backed history/profile tools may use an existing local `session.json`,

@@ -590,6 +590,11 @@ do not use it as a station resolver.
    дополнительные варианты. В видимом сравнении покажи минимум одно фото и все
    три review-поля для каждого включённого отеля. Кроме URL, `hotel_search`
    прикладывает по одному bounded нативному MCP image-блоку на обогащённый отель.
+   Если изображения из URL-полей выводятся напрямую в chat/Markdown/HTML,
+   собери их URL и одним вызовом передай в `image_to_data_uri(urls=[...])`, затем
+   используй успешные `dataUri`; нативные
+   image-блоки и HTML от `get_trip_report` уже проходят тот же pipeline. Полное
+   правило — в [TRAVEL_OUTPUT_MODES.md#фото](TRAVEL_OUTPUT_MODES.md#фото).
 3. `hotel_search_filters(location_id, checkin_date, checkout_date, adults,
    children_ages, filters, map_frame_input, favorite_hotel_ids, language)` →
    availability-aware фильтры и `filteredHotelsCount` для этих дат и гостей.

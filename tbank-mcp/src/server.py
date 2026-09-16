@@ -9,7 +9,6 @@ Run: python -m src.server
 from __future__ import annotations
 
 import asyncio
-import base64
 from difflib import SequenceMatcher
 import functools
 import hashlib
@@ -44,7 +43,9 @@ from .instructions import (InstructionDocument, instruction_documents,
 from .nearby import search_nearby as _search_nearby
 from .railways import (search_trains as _search_trains,
                        station_suggestions as _station_suggestions)
-from .report_images import inline_report_images
+from .report_images import (ConvertedImage, ImageConversionError,
+                            convert_image_urls, convert_public_image_urls,
+                            inline_report_images)
 from .observability import redact_text, redact_reflected_secrets, _redact_value
 from .travel_compare import (
     ComparisonError, ComparisonFailure, ComparisonMeta, FlightComparisonData,
@@ -90,7 +91,7 @@ FORMER_TRAVEL_TOOL_NAMES = frozenset({
     "afisha_catalog", "afisha_places", "place_schedule", "place_info",
     "concert_schedule", "concert_hall",
     # Public no-key context sources.
-    "nearby_search", "restaurant_search", "weather",
+    "nearby_search", "restaurant_search", "weather", "image_to_data_uri",
     # In-memory report rendering.
     "get_trip_report",
 })
@@ -320,6 +321,7 @@ TOOL_KINDS: dict[str, tuple[str, str]] = {
     "nearby_search": ("Места рядом", READ),
     "restaurant_search": ("Рестораны Яндекс.Карт", READ),
     "weather": ("Погода и климат", READ),
+    "image_to_data_uri": ("Изображения как base64 data URI", READ),
     "shop_search": ("Поиск товаров в маркетплейсе", READ),
     "shop_cart": ("Корзины маркетплейса", READ),
     # messenger
@@ -385,6 +387,37 @@ def _traced_tool(*a, **kw):
 
 
 mcp.tool = _traced_tool
+
+
+@mcp.tool()
+def image_to_data_uri(urls: list[str]) -> dict[str, object]:
+    """Параллельно загрузить HTTPS-изображения и вернуть base64 `data:` URI.
+
+    Собери все уникальные URL изображений из результата travel-тула и передай их
+    одним вызовом в `urls` (до 16 значений), а не вызывай tool последовательно.
+    Загрузки выполняются параллельно с ограниченной конкуренцией. Для каждого
+    элемента `images` проверь `ok`; у успешного результата используй `dataUri`
+    как `src` в видимом chat-ответе, Markdown или самостоятельно собранном HTML.
+    Ошибка одного URL не отменяет остальные результаты.
+
+    Tool принимает только известные travel CDN, удаляет дубли, проверяет MIME и
+    сигнатуру файла, ограничивает общий объём данных изображений и при
+    необходимости уменьшает изображения. Исходный HTTPS URL возвращается в
+    `sourceUrl` для атрибуции.
+
+    Для `get_trip_report(..., output_mode="html")` отдельные вызовы не нужны:
+    report применяет тот же конвертер ко всем изображениям внутри страницы и
+    сохраняет исходные HTTPS URL в `documentJson`.
+    """
+    try:
+        return convert_public_image_urls(urls)
+    except ImageConversionError as exc:
+        raise TbankApiError(
+            "IMAGE_CONVERSION_FAILED",
+            "Пакет изображений не преобразован: передай от 1 до 16 HTTPS URL "
+            "из поддерживаемых travel CDN. Каждый ответ должен быть допустимым "
+            f"изображением в пределах лимита. Причина: {exc}.",
+        ) from exc
 
 
 @mcp.tool()
@@ -6272,9 +6305,11 @@ def _hotel_enriched_text(items: list[dict]) -> str:
             lines.append("Удобства: " + "; ".join(details["facilities"]))
         image_urls = details.get("imageUrls") or []
         if image_urls:
-            lines.append("Фотографии:")
+            lines.append(
+                "Источники фотографий (перед прямым выводом передай все URL "
+                "одним вызовом image_to_data_uri):")
             lines.extend(
-                f"![{name} — фото {index}]({url})"
+                f"- фото {index}: {url}"
                 for index, url in enumerate(image_urls[:3], start=1)
             )
         else:
@@ -6309,12 +6344,27 @@ def _hotel_enriched_text(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _hotel_native_result(session, text: str, items: list[dict]) -> CallToolResult:
+def _hotel_native_result(text: str, items: list[dict]) -> CallToolResult:
     """Attach one bounded, trusted primary hotel image per complete card."""
     content = [TextContent(type="text", text=text)]
     total_bytes = 0
     warnings: list[str] = []
     allowed_types = {"image/jpeg", "image/png", "image/webp"}
+    candidate_urls: list[str] = []
+    for item in items:
+        candidate_urls.extend(
+            str(url or "").strip()
+            for url in (item.get("photoUrls") or [])[:3]
+            if str(url or "").strip()
+        )
+    converted_by_url = {}
+    if candidate_urls:
+        converted_by_url = {
+            result.source_url: result
+            for result in convert_image_urls(
+                candidate_urls, total_byte_limit=4_000_000,
+            )
+        }
     for item in items:
         name = str(item.get("name") or item.get("hotelId") or "отель")
         urls = [str(url or "").strip() for url in (item.get("photoUrls") or [])]
@@ -6326,17 +6376,14 @@ def _hotel_native_result(session, text: str, items: list[dict]) -> CallToolResul
                         or parsed.username or parsed.password
                         or parsed.port not in (None, 443)):
                     raise ValueError("недоверенный URL")
-                response = session._public_http.get(
-                    url,
-                    headers={"Accept": "image/webp,image/png,image/jpeg"},
-                    timeout=15,
-                )
-                response.raise_for_status()
-                mime_type = str(
-                    response.headers.get("content-type") or "").split(";", 1)[0]
-                payload = response.content
-                if mime_type not in allowed_types or not payload:
-                    raise ValueError("источник вернул не изображение")
+                converted = converted_by_url.get(url)
+                if not isinstance(converted, ConvertedImage):
+                    reason = getattr(converted, "error", "изображение не загружено")
+                    raise ValueError(reason)
+                mime_type = converted.mime_type
+                payload = converted.payload
+                if mime_type not in allowed_types:
+                    raise ValueError("источник вернул неподдерживаемое изображение")
                 if len(payload) > 1_500_000 or total_bytes + len(payload) > 4_000_000:
                     raise ValueError("изображение превышает лимит")
                 total_bytes += len(payload)
@@ -6374,7 +6421,7 @@ def _hotel_native_result(session, text: str, items: list[dict]) -> CallToolResul
                     ])))
                 content.append(ImageContent(
                     type="image",
-                    data=base64.b64encode(payload).decode("ascii"),
+                    data=converted.base64_data,
                     mimeType=mime_type,
                 ))
                 last_error = None
@@ -6901,7 +6948,7 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
                meta={"complete": loading_completed and prices_final,
                      "detailsComplete": not detail_warnings,
                      "enrichedHotels": len(enriched_shortlist)})
-            return _hotel_native_result(s, payload, enriched_shortlist)
+            return _hotel_native_result(payload, enriched_shortlist)
         if not hotels:
             return (f"Доступных отелей для destination_id={destination_id} на "
                     f"{checkin_date}—{checkout_date} не найдено.")
@@ -6920,7 +6967,7 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
         if detail_warnings:
             out += "\n" + "\n".join(f"⚠️ {warning}" for warning in detail_warnings)
         out += "\nБронирование и оплата через MCP не выполняются."
-        return _hotel_native_result(s, out, enriched_shortlist)
+        return _hotel_native_result(out, enriched_shortlist)
     except Exception as e:
         return _formatted_error(e, response_format, source="T-Bank Hotels")
 
