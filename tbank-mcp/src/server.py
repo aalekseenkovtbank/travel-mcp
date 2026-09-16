@@ -321,7 +321,8 @@ TOOL_KINDS: dict[str, tuple[str, str]] = {
     "nearby_search": ("Места рядом", READ),
     "restaurant_search": ("Рестораны Яндекс.Карт", READ),
     "weather": ("Погода и климат", READ),
-    "image_to_data_uri": ("Изображения как base64 data URI", READ),
+    "image_to_data_uri": (
+        "Фото из hotel_search: photoUrls/imageUrls как base64 data URI", READ),
     "shop_search": ("Поиск товаров в маркетплейсе", READ),
     "shop_cart": ("Корзины маркетплейса", READ),
     # messenger
@@ -391,7 +392,8 @@ mcp.tool = _traced_tool
 
 @mcp.tool()
 def image_to_data_uri(urls: list[str]) -> dict[str, object]:
-    """Параллельно загрузить HTTPS-изображения и вернуть base64 `data:` URI.
+    """Фото из hotel_search/hotel_details/hotel_rates/hotel_reviews: пакетно
+    преобразовать поля photoUrls, imageUrls и photos[].url в base64 `data:` URI.
 
     Собери все уникальные URL изображений из результата travel-тула и передай их
     одним вызовом в `urls` (до 16 значений), а не вызывай tool последовательно.
