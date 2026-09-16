@@ -580,8 +580,9 @@ do not use it as a station resolver.
    нефинальные офферы и возвращает не больше 50 карточек. Это каталог отелей
    (страницы по 50), не поток из сотен тысяч тарифов. Первые
    `comparison_limit` карточек (3 по умолчанию, максимум 5) одновременно
-   обогащаются тарифами и выборкой из 10 отзывов и возвращаются в
-   `enrichedShortlist` с полями `confirmedRate` и `reviewDigest`. Для JSON этот
+   повторно загружают статические details, тарифы и выборку из 10 отзывов и
+   возвращаются в `enrichedShortlist` с полями `confirmedRate` и
+   `reviewDigest`. Для JSON этот
    блок идёт после готового `comparisonMarkdown`; неполные сырые карточки наружу
    не публикуются. На каждой карточке также есть плоские
    `primaryPhotoUrl`, `photoUrls`, `pluses`, `minuses`, `suitableFor` и `nights`.

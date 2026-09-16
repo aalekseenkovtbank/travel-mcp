@@ -74,8 +74,9 @@ source marked it non-final.
 
 `hotel_search()` also returns `enrichedShortlist` for the first
 `comparison_limit` cards (default 3, maximum 5). Each item already contains the
-current `confirmedRate` and a ten-review `reviewDigest` with **Плюсы**,
-**Минусы** and **Кому подходит**, in addition to `details` and real photos. A
+freshly reloaded `details`, current `confirmedRate` and a ten-review
+`reviewDigest` with **Плюсы**, **Минусы** and **Кому подходит**, in addition to
+real photos. A
 normal hotel-only answer should select from this block so the result is complete
 without redundant calls.
 

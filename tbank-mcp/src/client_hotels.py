@@ -400,9 +400,12 @@ class HotelMixin:
 
 
     def hotel_details(self, hotel_id: str) -> dict:
-        """Static hotel card from the current public hotel facade."""
-        rows = self.hotel_details_many([hotel_id])
-        return rows[0] if rows else {}
+        """Full public hotel card with description, rules and facilities."""
+        data = self._call_read(
+            "hotel_details",
+            path_override=f"/api/hotels/api/v1/hotels/{int(hotel_id)}",
+        )
+        return data if isinstance(data, dict) else {}
 
 
     def hotel_filters(self) -> dict:

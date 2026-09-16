@@ -5976,6 +5976,36 @@ def _hotel_facility_names(hotel: dict, limit: int = 12) -> list[str]:
     return facilities
 
 
+def _hotel_description(value) -> str:
+    """Flatten the public hotel page's sectioned description into safe text."""
+    if isinstance(value, str):
+        parts = [value]
+    elif isinstance(value, list):
+        parts = []
+        for section in value:
+            if isinstance(section, str):
+                parts.append(section)
+                continue
+            if not isinstance(section, dict):
+                continue
+            title = section.get("title")
+            if isinstance(title, str) and title.strip():
+                parts.append(title)
+            paragraphs = section.get("paragraphs") or []
+            if isinstance(paragraphs, str):
+                paragraphs = [paragraphs]
+            parts.extend(
+                paragraph for paragraph in paragraphs
+                if isinstance(paragraph, str) and paragraph.strip()
+            )
+    else:
+        parts = []
+    text = " ".join(parts)
+    text = re.sub(r"<br\s*/?>", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]{1,80}>", " ", text)
+    return _flat(text)
+
+
 def _hotel_detail_payload(hotel: dict, fallback_hotel_id: str = "") -> dict:
     hotel_id = str(hotel.get("hotelId") or fallback_hotel_id or "")
     latitude, longitude = _hotel_coordinates(hotel)
@@ -5984,7 +6014,7 @@ def _hotel_detail_payload(hotel: dict, fallback_hotel_id: str = "") -> dict:
         "name": _flat(hotel.get("hotelName") or hotel.get("name") or ""),
         "stars": int(hotel.get("starRating") or hotel.get("stars") or 0),
         "address": _hotel_address(hotel),
-        "description": _cut(_flat(hotel.get("description") or ""), 1_200),
+        "description": _cut(_hotel_description(hotel.get("description")), 1_200),
         "checkInTime": str(hotel.get("checkInTime") or ""),
         "checkOutTime": str(hotel.get("checkOutTime") or ""),
         "latitude": latitude,
@@ -5998,6 +6028,7 @@ def _hotel_detail_payload(hotel: dict, fallback_hotel_id: str = "") -> dict:
 
 def _load_hotel_detail_map(
     hotel_ids: list[str | int], session: MobileSession | None = None,
+    *, full: bool = False,
 ) -> tuple[dict[str, dict], list[str]]:
     ids: list[int] = []
     for value in hotel_ids:
@@ -6006,24 +6037,38 @@ def _load_hotel_detail_map(
             ids.append(int(raw))
     if not ids:
         return {}, []
-    try:
-        active_session = session or _public_session()
-        batch_loader = getattr(active_session, "hotel_details_many", None)
-        if callable(batch_loader):
-            cards = batch_loader(ids)
-        else:
-            cards = [active_session.hotel_details(str(hotel_id)) for hotel_id in ids]
-    except Exception as exc:
-        message = _cut(_redact_value(str(exc)), 220)
-        return {}, [f"Детальные карточки отелей не загружены: {message}"]
+    active_session = session or _public_session()
+    warnings: list[str] = []
+    cards: list[dict] = []
+    if full:
+        for hotel_id in ids:
+            try:
+                card = active_session.hotel_details(str(hotel_id))
+                if isinstance(card, dict) and card:
+                    cards.append(card)
+            except Exception as exc:
+                message = _cut(_redact_value(str(exc)), 180)
+                warnings.append(
+                    f"Полная карточка hotel_id={hotel_id} не загружена: {message}")
+    else:
+        try:
+            batch_loader = getattr(active_session, "hotel_details_many", None)
+            if callable(batch_loader):
+                cards = batch_loader(ids)
+            else:
+                cards = [active_session.hotel_details(str(hotel_id)) for hotel_id in ids]
+        except Exception as exc:
+            message = _cut(_redact_value(str(exc)), 220)
+            return {}, [f"Детальные карточки отелей не загружены: {message}"]
     details = {
         str(card.get("hotelId")): _hotel_detail_payload(card)
         for card in cards if isinstance(card, dict) and card.get("hotelId") is not None
     }
     missing = [str(hotel_id) for hotel_id in ids if str(hotel_id) not in details]
-    warnings = ([] if not missing else [
-        "Детальная карточка и фотографии не найдены для hotel_id: " + ", ".join(missing)
-    ])
+    if missing:
+        warnings.append(
+            "Детальная карточка и фотографии не найдены для hotel_id: "
+            + ", ".join(missing))
     without_photos = [
         str(hotel_id) for hotel_id in ids
         if str(hotel_id) in details and not details[str(hotel_id)].get("imageUrls")
@@ -6148,12 +6193,16 @@ def _hotel_search_enriched_shortlist(
     adults: int, children_ages: list[int], nights: int,
 ) -> tuple[list[dict], list[str]]:
     enriched: list[dict] = []
-    warnings: list[str] = []
+    detail_map, warnings = _load_hotel_detail_map(
+        [row.get("hotelId") for row in rows], session, full=True)
     for row in rows:
         hotel_id = str(row.get("hotelId") or "")
         if not hotel_id:
             continue
         item = dict(row)
+        refreshed_details = detail_map.get(hotel_id)
+        if refreshed_details:
+            item["details"] = refreshed_details
         try:
             rates_data = session.hotel_rates(
                 hotel_id, checkin_date, checkout_date,
@@ -6179,10 +6228,6 @@ def _hotel_search_enriched_shortlist(
                 f"hotel_reviews не загрузил выборку для hotel_id={hotel_id}: "
                 f"{_cut(_redact_value(str(exc)), 180)}")
         details = dict(item.get("details") or {})
-        # Free-form supplier copy is useful in hotel_details(), but makes a
-        # comparison payload noisy and can distract hosts from the structured
-        # facts they must render.
-        details.pop("description", None)
         item["details"] = details
         digest = item.get("reviewDigest") or _hotel_review_digest([])
         photo_urls = list(details.get("imageUrls") or [])[:3]
@@ -6217,6 +6262,8 @@ def _hotel_enriched_text(items: list[dict]) -> str:
             lines.append("Характеристики: " + " | ".join(summary))
         if details.get("address"):
             lines.append(f"Адрес: {_cut(details['address'], 140)}")
+        if details.get("description"):
+            lines.append(f"Описание: {_cut(details['description'], 420)}")
         if details.get("checkInTime") or details.get("checkOutTime"):
             lines.append(
                 f"Заезд/выезд: {details.get('checkInTime') or '?'} / "
@@ -6743,10 +6790,10 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
                  comparison_limit: int = 3) -> CallToolResult:
     """Поиск доступных отелей с деталями, фото, тарифами и отзывами.
 
-    Тул обогащает первые comparison_limit=1..5 карточек: загружает актуальный
-    тариф и сопоставимую выборку из 10 последних отзывов, а затем возвращает
-    готовые плоские поля primaryPhotoUrl, photoUrls, pluses, minuses,
-    suitableFor и nights. Поэтому даже хост, который
+    Тул обогащает первые comparison_limit=1..5 карточек: повторно загружает их
+    полные статические details, актуальный тариф и сопоставимую выборку из 10
+    последних отзывов, а затем возвращает готовые плоские поля primaryPhotoUrl,
+    photoUrls, pluses, minuses, suitableFor и nights. Поэтому даже хост, который
     использует только один вызов, получает готовый enrichedShortlist с деталями,
     реальными фото, тарифами и reviewDigest. Если отдельно найденный отель должен
     заменить карточку shortlist, обогати
@@ -7131,7 +7178,7 @@ def hotel_details(hotel_id: str, max_facilities: int = 40, max_images: int = 3,
                 "name": _flat(hotel.get("hotelName") or ""),
                 "stars": int(hotel.get("starRating") or 0),
                 "address": _hotel_address(hotel),
-                "description": _flat(hotel.get("description") or ""),
+                "description": _hotel_description(hotel.get("description")),
                 "checkInTime": str(hotel.get("checkInTime") or ""),
                 "checkOutTime": str(hotel.get("checkOutTime") or ""),
                 "latitude": latitude,
@@ -7156,7 +7203,7 @@ def hotel_details(hotel_id: str, max_facilities: int = 40, max_images: int = 3,
         checkin, checkout = hotel.get("checkInTime"), hotel.get("checkOutTime")
         if checkin or checkout:
             out.append(f"Заезд: {checkin or '?'} | выезд: {checkout or '?'}")
-        description = _flat(hotel.get("description"))
+        description = _hotel_description(hotel.get("description"))
         if description:
             out.append(f"Описание: {_cut(description, 900)}")
 
