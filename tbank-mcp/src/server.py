@@ -6227,8 +6227,66 @@ def _hotel_search_enriched_shortlist(
     return enriched, warnings
 
 
+def _hotel_markdown_cell(value: Any) -> str:
+    """Keep source text inside one Markdown table cell."""
+    text = str(value or "").strip()
+    return (
+        text.replace("\\", "\\\\")
+        .replace("|", "\\|")
+        .replace("\r\n", "<br>")
+        .replace("\r", "<br>")
+        .replace("\n", "<br>")
+    )
+
+
+def _hotel_photo_alt(value: Any) -> str:
+    return (
+        str(value or "отель")
+        .replace("\\", "")
+        .replace("[", "")
+        .replace("]", "")
+        .replace("|", " ")
+        .replace("\r", " ")
+        .replace("\n", " ")
+        .strip()
+    )
+
+
 def _hotel_enriched_text(items: list[dict]) -> str:
-    lines = ["# Результаты поиска отелей"]
+    lines = [
+        "# Результаты поиска отелей",
+        "",
+        "## Краткое сравнение",
+        "",
+        "| Отель | Полная цена | За ночь | Рейтинг | Отзывов | Номер | Питание |",
+        "|---|---:|---:|---:|---:|---|---|",
+    ]
+    for item in items:
+        details = item.get("details") or {}
+        name = details.get("name") or item.get("name") or f"hotel_id={item.get('hotelId')}"
+        rate = item.get("confirmedRate") or {}
+        currency = rate.get("currency") or "RUB"
+        price = rate.get("totalPrice")
+        nightly = rate.get("nightlyPrice")
+        review_count = item.get("reviewCount")
+        lines.append(
+            "| " + " | ".join([
+                _hotel_markdown_cell(name),
+                _hotel_markdown_cell(
+                    f"{price:.0f} {currency}"
+                    if isinstance(price, (int, float)) else "нет данных"),
+                _hotel_markdown_cell(
+                    f"{nightly:.0f} {currency}"
+                    if isinstance(nightly, (int, float)) else "нет данных"),
+                _hotel_markdown_cell(
+                    item.get("rating")
+                    if item.get("rating") is not None else "нет данных"),
+                _hotel_markdown_cell(
+                    review_count if review_count is not None else "нет данных"),
+                _hotel_markdown_cell(rate.get("room") or "нет данных"),
+                _hotel_markdown_cell(rate.get("meal") or "нет данных"),
+            ]) + " |"
+        )
     for position, item in enumerate(items, start=1):
         details = item.get("details") or {}
         name = details.get("name") or item.get("name") or f"hotel_id={item.get('hotelId')}"
@@ -6236,28 +6294,6 @@ def _hotel_enriched_text(items: list[dict]) -> str:
         rating = item.get("rating")
         review_count = item.get("reviewCount")
         tbank_url = item.get("tbankUrl") or details.get("tbankUrl")
-        lines.extend([
-            f"\n## {position}. {name}",
-            "",
-            "### Детали отеля",
-            "",
-            f"- ID: {item.get('hotelId') or 'источник не вернул'}",
-            f"- Ссылка T-Bank: {tbank_url or 'источник не вернул'}",
-            f"- Звёзды: {stars if stars else 'источник не вернул'}",
-            f"- Рейтинг: {rating if rating is not None else 'источник не вернул'}",
-            (f"- Количество отзывов: {review_count}"
-             if review_count is not None else
-             "- Количество отзывов: источник не вернул"),
-            f"- Адрес: {_cut(details.get('address') or '', 180) or 'источник не вернул'}",
-            f"- Описание: {_cut(details.get('description') or '', 420) or 'источник не вернул'}",
-            ("- Заезд / выезд: "
-             f"{details.get('checkInTime') or 'источник не вернул'} / "
-             f"{details.get('checkOutTime') or 'источник не вернул'}"),
-            "- Удобства: " + (
-                "; ".join(details.get("facilities") or [])
-                or "источник не вернул"),
-            f"- Ночей: {item.get('nights') or 'источник не вернул'}",
-        ])
         rate = item.get("confirmedRate") or {}
         if rate.get("available"):
             price = rate.get("totalPrice")
@@ -6269,58 +6305,121 @@ def _hotel_enriched_text(items: list[dict]) -> str:
                 ("невозвратный" if rate.get("nonRefundable") else
                  "источник не вернул")
             )
-            lines.extend([
-                (f"- Полная цена: {price:.0f} {currency}"
-                 if isinstance(price, (int, float)) else
-                 "- Полная цена: источник не вернул"),
-                (f"- Цена за ночь: {nightly:.0f} {currency}"
-                 if isinstance(nightly, (int, float)) else
-                 "- Цена за ночь: источник не вернул"),
-                f"- Номер: {rate.get('room') or 'источник не вернул'}",
-                f"- Кровать: {rate.get('bed') or 'источник не вернул'}",
-                f"- Питание: {rate.get('meal') or 'источник не вернул'}",
-                f"- Оплата: {rate.get('payment') or 'источник не вернул'}",
-                f"- Отмена: {cancellation}",
-            ])
+            price_text = (
+                f"{price:.0f} {currency}"
+                if isinstance(price, (int, float)) else "источник не вернул")
+            nightly_text = (
+                f"{nightly:.0f} {currency}"
+                if isinstance(nightly, (int, float)) else "источник не вернул")
         else:
-            lines.extend([
-                "- Полная цена: источник не вернул подтверждённый тариф",
-                "- Цена за ночь: источник не вернул подтверждённый тариф",
-                "- Номер: источник не вернул подтверждённый тариф",
-                "- Кровать: источник не вернул подтверждённый тариф",
-                "- Питание: источник не вернул подтверждённый тариф",
-                "- Оплата: источник не вернул подтверждённый тариф",
-                "- Отмена: источник не вернул подтверждённый тариф",
-            ])
-        lines.extend(["", "### Фотографии", ""])
+            price_text = "источник не вернул подтверждённый тариф"
+            nightly_text = "источник не вернул подтверждённый тариф"
+            cancellation = "источник не вернул подтверждённый тариф"
+        detail_rows = [
+            ("ID", item.get("hotelId") or "источник не вернул"),
+            (
+                "Ссылка T-Bank",
+                f"[Открыть карточку отеля]({tbank_url})"
+                if tbank_url else "источник не вернул",
+            ),
+            ("Звёзды", stars if stars else "источник не вернул"),
+            ("Рейтинг", rating if rating is not None else "источник не вернул"),
+            (
+                "Количество отзывов",
+                review_count if review_count is not None else "источник не вернул",
+            ),
+            ("Адрес", _cut(details.get("address") or "", 180) or "источник не вернул"),
+            ("Описание", _cut(details.get("description") or "", 420) or "источник не вернул"),
+            (
+                "Заезд / выезд",
+                f"{details.get('checkInTime') or 'источник не вернул'} / "
+                f"{details.get('checkOutTime') or 'источник не вернул'}",
+            ),
+            (
+                "Удобства",
+                "; ".join(details.get("facilities") or []) or "источник не вернул",
+            ),
+            ("Ночей", item.get("nights") or "источник не вернул"),
+            ("Полная цена", price_text),
+            ("Цена за ночь", nightly_text),
+            (
+                "Номер",
+                (rate.get("room") or "источник не вернул") if rate.get("available") else
+                "источник не вернул подтверждённый тариф",
+            ),
+            (
+                "Кровать",
+                (rate.get("bed") or "источник не вернул") if rate.get("available") else
+                "источник не вернул подтверждённый тариф",
+            ),
+            (
+                "Питание",
+                (rate.get("meal") or "источник не вернул") if rate.get("available") else
+                "источник не вернул подтверждённый тариф",
+            ),
+            (
+                "Оплата",
+                (rate.get("payment") or "источник не вернул") if rate.get("available") else
+                "источник не вернул подтверждённый тариф",
+            ),
+            ("Отмена", cancellation),
+        ]
+        lines.extend([
+            f"\n## {position}. {_hotel_markdown_cell(name)}",
+            "",
+            "### Детали отеля",
+            "",
+            "| Параметр | Значение |",
+            "|---|---|",
+        ])
+        for label, value in detail_rows:
+            rendered_value = (
+                str(value) if label == "Ссылка T-Bank" and tbank_url
+                else _hotel_markdown_cell(value)
+            )
+            lines.append(f"| {_hotel_markdown_cell(label)} | {rendered_value} |")
+        lines.extend([
+            "",
+            "### Фотографии",
+            "",
+            "| Фото 1 | Фото 2 | Фото 3 |",
+            "|:---:|:---:|:---:|",
+        ])
         chat_photos = list(item.get("chatPhotos") or [])[:3]
+        photo_cells: list[str] = []
         for index in range(3):
             if index < len(chat_photos):
                 photo = chat_photos[index]
                 caption = photo.get("caption") or "Фото отеля"
-                lines.append(
-                    f"{index + 1}. ![{name} — {caption.lower()} {index + 1}]"
-                    f"({photo.get('url')}) — {caption}")
+                photo_cells.append(
+                    f"![{_hotel_photo_alt(name)} — "
+                    f"{_hotel_photo_alt(caption).lower()} {index + 1}]"
+                    f"({photo.get('url')})<br>{_hotel_markdown_cell(caption)}"
+                )
             else:
-                lines.append(
-                    f"{index + 1}. Фото недоступно: источник не вернул "
-                    f"фотографию {index + 1}.")
+                photo_cells.append(
+                    "Фото недоступно<br>Источник не вернул фотографию "
+                    f"{index + 1}.")
+        lines.append("| " + " | ".join(photo_cells) + " |")
         digest = item.get("reviewDigest") or _hotel_review_digest([])
         period = ""
         if digest.get("dateFrom") or digest.get("dateTo"):
             period = f", {digest.get('dateFrom') or '?'}—{digest.get('dateTo') or '?'}"
+        sample_text = f"{digest.get('sampleSize', 0)} отзывов{period}"
         lines.extend([
             "",
             "### Овервью отзывов",
             "",
-            f"- Выборка: {digest.get('sampleSize', 0)} отзывов{period}",
-            f"- Резюме: {digest.get('summary') or 'недостаточно данных'}",
-            "- Плюсы: " + "; ".join(
-                digest.get("pluses") or ["недостаточно данных"]),
-            "- Минусы: " + "; ".join(
-                digest.get("minuses") or ["недостаточно данных"]),
-            "- Кому подходит: " + "; ".join(
-                digest.get("suitableFor") or ["недостаточно данных"]),
+            "| Параметр | Значение |",
+            "|---|---|",
+            f"| Выборка | {_hotel_markdown_cell(sample_text)} |",
+            f"| Резюме | {_hotel_markdown_cell(digest.get('summary') or 'недостаточно данных')} |",
+            "| Плюсы | " + _hotel_markdown_cell("; ".join(
+                digest.get("pluses") or ["недостаточно данных"])) + " |",
+            "| Минусы | " + _hotel_markdown_cell("; ".join(
+                digest.get("minuses") or ["недостаточно данных"])) + " |",
+            "| Кому подходит | " + _hotel_markdown_cell("; ".join(
+                digest.get("suitableFor") or ["недостаточно данных"])) + " |",
         ])
         if item.get("photoWarning"):
             lines.extend([
@@ -6774,8 +6873,9 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
     готовые плоские поля primaryPhotoUrl, photoUrls, pluses, minuses,
     suitableFor и nights. Поэтому даже хост, который
     использует только один вызов, получает готовый enrichedShortlist с деталями,
-    реальными фото, тарифами и reviewDigest. comparisonMarkdown задаёт строгую
-    chat-карточку с одинаковыми секциями: детали, три фото-слота и обзор отзывов.
+    реальными фото, тарифами и reviewDigest. comparisonMarkdown задаёт строгий
+    hotel-chat/v2: краткое сравнение, таблицу деталей, трёхколоночную
+    фотогалерею и таблицу обзора отзывов для каждой chat-карточки.
     Официальные фотографии при необходимости дополняются фото гостей из этой же
     выборки; недостающие слоты явно помечаются. До трёх реальных фотографий на
     отель также прикладываются нативными MCP image-блоками. Если отдельно найденный отель должен
@@ -6870,7 +6970,7 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
                     f"{len(enriched_shortlist)} полностью обогащённых карточек. "
                     "Неполные каталоговые карточки намеренно не публикуются.")
             payload = _json_envelope({
-                "chatFormatVersion": "hotel-chat/v1",
+                "chatFormatVersion": "hotel-chat/v2",
                 "destinationId": int(destination_id),
                 "checkinDate": checkin_date,
                 "checkoutDate": checkout_date,
