@@ -12,9 +12,7 @@
 Текущий HTTP entrypoint `src.travel_mcp.server` импортирует единый
 `src.server`. В этой поверхности доступны `get_trip_report`,
 `restaurant_search`, `afisha_catalog`, `search_app`, `concert_schedule` и
-`cinema_schedule`, а read-only `image_to_data_uri` одним пакетным вызовом
-параллельно преобразует изображения из поддерживаемых travel CDN в готовые
-base64 `data:` URI для chat/HTML.
+`cinema_schedule`.
 Низкоуровневые compatibility helpers `render_trip_page`, `render_travel_page`
 и `format_trip_reply` не регистрируются как MCP tools: единственная публичная
 точка сборки страницы — fail-closed `get_trip_report`.
@@ -153,9 +151,8 @@ HTML metadata содержит `schemaVersion`. Неполный hotel enrichmen
 блокирует отчёт ошибкой `HOTEL_ENRICHMENT_REQUIRED`; fail-soft страница допустима
 только с `allow_incomplete_after_source_failure=true` после фактического сбоя
 источника и с конкретными warnings по затронутым отелям.
-Правила доставки любых изображений в chat и HTML, включая обязательный
-`image_to_data_uri` для прямого вывода и server-side встраивание внутри report,
-находятся в
+Правила доставки hotel-фотографий внутри HTML, включая server-side встраивание
+для sandbox-preview, находятся в
 [TRAVEL_OUTPUT_MODES.md](TRAVEL_OUTPUT_MODES.md#фото).
 
 Ссылка на объект или checkout не означает бронь или оплату. Не публикуй сырые

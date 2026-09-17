@@ -147,10 +147,6 @@ advice; Markdown в этом режиме не возвращается. `output
 ресторанов для sandbox-preview по
 ограничениям [TRAVEL_OUTPUT_MODES.md](../../docs/TRAVEL_OUTPUT_MODES.md#фото);
 исходные HTTPS URL в request менять не нужно.
-Если изображение выводится напрямую в chat/Markdown/самостоятельный HTML вне
-`get_trip_report`, собери все выводимые URL, вызови
-`image_to_data_uri(urls=[...])` один раз и используй успешные `dataUri` по тому
-же каноническому правилу.
 
 Checkout URL — это hand-off пользователю, а не бронь и не оплата. Если точной
 ссылки нет, напиши «Ссылка T-Bank недоступна» и не создавай URL вручную.

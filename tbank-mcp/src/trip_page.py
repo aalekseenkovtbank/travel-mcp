@@ -825,8 +825,6 @@ def _image(url, alt: str, attribution: str = "") -> str:
     if not url:
         return '<div class="image-fallback">Фото появится при обновлении данных</div>'
     url = _render_image_url(url)
-    if not url:
-        return ""
     caption = f'<small class="credit">{_e(attribution)}</small>' if attribution else ""
     return (f'<div class="image-frame"><img class="remote-image" src="{_e(url)}" '
             f'alt="{_e(alt)}" loading="lazy" referrerpolicy="no-referrer">'
