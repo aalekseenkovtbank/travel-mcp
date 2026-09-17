@@ -25,7 +25,7 @@
 Этот раздел описывает отдельную модульную поверхность, а не текущий
 HTTP launcher.
 
-Историческая модульная конфигурация регистрировала ровно 29 read-only
+Историческая модульная конфигурация регистрировала ровно 28 read-only
 инструментов:
 
 ```text
@@ -39,7 +39,6 @@ flight_price_calendar
 flight_price_forecast
 flight_schedule
 geodata_by_code
-flight_checkout_url
 search_iata_code
 hotel_autocomplete
 hotel_search
@@ -66,9 +65,11 @@ get_travel_prompt
 поверхности.
 
 Все активные инструменты read-only. Поисковые методы, сравнение, персонализация
-и рендер не бронируют и не оплачивают; `hotel_checkout_url()` и
-`flight_checkout_url()` только возвращают hand-off URL, который пользователь
-открывает и проверяет самостоятельно.
+и рендер не бронируют и не оплачивают; `hotel_checkout_url()` возвращает
+hand-off URL, который пользователь открывает и проверяет самостоятельно.
+Авиа-ссылки формирует только renderer через внутренние
+`avia_checkout_url(offerId)` для бронируемого оффера и `avia_share_url(...)` для
+подтверждённого маршрута.
 
 ## Запуск
 

@@ -116,10 +116,13 @@ For each displayed offer include, when available:
 - baggage/refundability only when returned by the source;
 - the exact T-Bank `tbankUrl` returned by the source.
 
-For selected real segments without a per-offer URL, call
-`flight_checkout_url(request)` with the actual codes, dates and flight numbers from
-`flight_search`. It creates a user hand-off route URL, not a booking. Never build a
-URL by guessing an offerId, flight number, date or airline.
+For selected real segments without a per-offer URL, preserve the actual `offerId`,
+codes, dates, carrier codes and flight numbers from `flight_search` in the report
+request. The renderer is the single link-generation path: it uses
+`avia_checkout_url(offerId)` for a bookable offer and `avia_share_url(...)` for the
+whole verified route. These URLs only hand the user off to T-Bank; they do not
+create a booking. Never build a URL in the agent or guess an offerId, flight number,
+date or airline.
 
 Return a compact shortlist with a recommendation and warnings about incomplete
 results, partner links, non-final availability, date shifts and timezone details.
