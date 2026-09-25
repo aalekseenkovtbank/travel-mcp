@@ -132,6 +132,8 @@ class TravelMixin:
                               to_codes: str | list[str], *,
                               from_kind: str = "city", to_kind: str = "city",
                               adults: int = 1, children: int = 0, infants: int = 0,
+                              departure_from: str | None = None,
+                              departure_to: str | None = None,
                               direct: bool | None = None,
                               returning: bool | None = None,
                               baggage: bool | None = None,

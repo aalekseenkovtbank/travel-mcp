@@ -2,6 +2,10 @@
 
 Run: python -m src.travel_mcp
      python -m src.travel_mcp --http --port 8765
+
+Serves the travel-nova surface (read-only travel tools, no bank operations)
+by default. Set TRAVEL_SURFACE=full (also: tbank|unified) to serve the legacy
+unified T-Bank surface for backward compatibility.
 """
 from __future__ import annotations
 
@@ -11,14 +15,24 @@ import os
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from ..server import mcp
+
+def _select_surface() -> tuple[object, str]:
+    surface = os.environ.get("TRAVEL_SURFACE", "travel").strip().lower()
+    if surface in {"full", "tbank", "unified"}:
+        from ..server import mcp as unified_mcp
+        return unified_mcp, "tbank-mcp"
+    from .app import mcp as travel_mcp
+    return travel_mcp, "travel-nova"
+
+
+mcp, SERVICE_NAME = _select_surface()
 
 
 @mcp.custom_route("/", methods=["GET"], include_in_schema=False)
 @mcp.custom_route("/health", methods=["GET"], include_in_schema=False)
 async def health(_request: Request) -> JSONResponse:
     """Expose the health endpoint used by the deployment platform."""
-    return JSONResponse({"ok": True, "service": "tbank-mcp"})
+    return JSONResponse({"ok": True, "service": SERVICE_NAME})
 
 _DEFAULT_HTTP_HOST = "127.0.0.1"
 _DEFAULT_HTTP_PORT = 8765

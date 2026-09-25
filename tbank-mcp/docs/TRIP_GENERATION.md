@@ -8,8 +8,27 @@
   ссылки;
 - `tbank-travel-search` — ЖД, погода и общие travel-компоненты.
 
-Для составной поездки координатор собирает фактические результаты этих flows в
-один request и вызывает единственный публичный тул:
+Для составной поездки есть два пути.
+
+**Основной — один вызов.** Как только brief зафиксирован (город, даты,
+гости, опционально город отправления), вызови краткую форму:
+
+```text
+get_trip_report(
+  brief={"city": ..., "dateFrom": ..., "dateTo": ..., "adults": ...,
+         "origin": ...},
+  output_mode="html" | "markdown"
+)
+```
+
+Сервер сам: разрешит город, подберёт три enriched-отеля (details, тариф с
+`checkoutUrl`, фото, `reviewDigest`), события Афиши на даты, рестораны вокруг
+отеля и, при заданном `origin`, перелёт туда-обратно с `bookingUrl`; затем
+соберёт документ и отрендерит страницу. Проверь `warnings` ответа и честно
+перенеси их в видимый результат.
+
+**Резервный (ручной контроль).** Координатор собирает фактические результаты
+узких flows в один request и вызывает:
 
 ```text
 get_trip_report(request, output_mode="html" | "markdown")
@@ -100,16 +119,23 @@ warning, а данные и изображения не выдумываются
 не выдумывает.
 
 Каждый hotel-тул возвращает встроенный `details` с детальной карточкой и максимум
-тремя фотографиями. Для каждого финального отеля до вызова обязательны
-`hotel_latest_offers`, `hotel_rates` и `hotel_reviews`; отдельный `hotel_details`
-нужен только для повторной или расширенной загрузки. Передай `reviewCount`,
-`facilities`, фотографии, `room`, `meal`, `cancellation`, `payment` и структурированный
-`reviewDigest`. Если источник не вернул часть сведений, сохрани конкретный
-warning для этого отеля. По умолчанию `get_trip_report` отклоняет неполный
-enrichment ошибкой `HOTEL_ENRICHMENT_REQUIRED`, не возвращая итоговую страницу.
-Только после фактической ошибки обязательного hotel-инструмента повтори вызов с
-`allow_incomplete_after_source_failure=true`; warning с названием или id каждого
-неполного отеля обязателен. В HTML-ответе верхнеуровневое поле `schemaVersion`
+тремя фотографиями. Enriched-карточки `hotel_search(destination=...,
+comparison_limit=3)` уже несут `confirmedRate` с `checkoutUrl`, `reviewDigest`,
+фото и плоские поля — передавай их в hotel item как есть. Для отеля вне
+enriched shortlist до вызова обязательны `hotel_rates` и `hotel_reviews`;
+отдельный `hotel_details`
+нужен только для повторной или расширенной загрузки. Карточки отелей принимаются
+в форме hotel-инструментов: встроенный `details`, `imageUrls`/`photoUrls`,
+`primaryPhotoUrl`, `confirmedRate`, `pluses`/`minuses`/`suitableFor` и `tbankUrl`
+маппятся в контракт автоматически; достаточно даже bare-id (`{"id": 12345}`) —
+статика и фотографии догружаются на сервере. Для полных карточек передай
+`reviewCount`, `facilities`, фотографии, `room`, `meal`, `cancellation`,
+`payment` и структурированный `reviewDigest`. По умолчанию неполный enrichment
+не блокирует страницу: недостающие поля превращаются в warnings, а фотографии
+догружаются server-side. `strict=true` возвращает жёсткую ошибку
+`HOTEL_ENRICHMENT_REQUIRED`; `allow_incomplete_after_source_failure`
+документирует фактические сбои источников в `request.warnings` с warning по
+каждому неполному отелю. В HTML-ответе верхнеуровневое поле `schemaVersion`
 позволяет сверить опубликованный контракт с версией клиента.
 
 Ниже — структурные примеры с полным hotel enrichment. Значения
@@ -185,7 +211,7 @@ enrichment ошибкой `HOTEL_ENRICHMENT_REQUIRED`, не возвращая �
   ],
   "sources": [
     {
-      "name": "hotel_latest_offers",
+      "name": "hotel_search",
       "checkedAt": "2030-01-01T12:00:00+03:00"
     },
     {
@@ -267,7 +293,7 @@ enrichment ошибкой `HOTEL_ENRICHMENT_REQUIRED`, не возвращая �
   "selectedHotelId": "replace-with-hotel-id",
   "sources": [
     {
-      "name": "hotel_latest_offers",
+      "name": "hotel_search",
       "checkedAt": "2030-01-01T12:00:00+03:00"
     },
     {

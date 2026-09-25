@@ -31,14 +31,17 @@ from mcp.types import (CallToolResult, ClientCapabilities, ElicitationCapability
                        ImageContent, TextContent, ToolAnnotations)
 
 from .tbank_urls import (afisha_event_url as _afisha_event_url,
+                         avia_checkout_url,
                          hotel_details_url as _hotel_details_url,
                          safe_tbank_url as _safe_tbank_url,
                          with_leading_tbank_url as _with_leading_tbank_url)
-from pydantic import BaseModel
+from pydantic import AnyHttpUrl, BaseModel
 from . import client, trace
 from .client import (MobileSession, TbankApiError, SessionExpired,
                      PaymentConfirmationRequired, ms_for_period, vertical)
 from .endpoints import VERTICALS, APP_VERSION
+from .iata_index import codes_for as _iata_codes_for
+from .iata_index import lookup as _iata_lookup
 from .instructions import (InstructionDocument, instruction_documents,
                            instruction_index, server_instructions)
 from .nearby import search_nearby as _search_nearby
@@ -57,7 +60,9 @@ from .travel_compare import (
     normalize_hotel_inventory, normalize_train_inventory, price_delta, rub_number,
     sort_flights, sort_hotels, sort_trains,
 )
-from .trip_page import (RenderPageResult, TravelPageDocument, TripPageDocumentV1,
+from .trip_page import (Coordinates, HotelOptionV2, HotelPhoto,
+                        RenderPageResult, TravelPageDocument, TripPageDocumentV1,
+                        TripPageDocumentV2,
                         format_document_reply, format_inventory_reply_json,
                         prepare_report_document, render_page_content)
 from .trip_personalization import (TripPersonalizationProfile,
@@ -76,7 +81,7 @@ FORMER_TRAVEL_TOOL_NAMES = frozenset({
     "trip_personalization_profile",
     # Live travel inventory.
     "flight_search", "flight_price_calendar", "flight_price_forecast",
-    "flight_schedule", "geodata_by_code",
+    "flight_schedule", "geodata_by_code", "search_iata_code",
     "hotel_autocomplete", "hotel_search", "hotel_details",
     "hotel_rates", "hotel_reviews", "hotel_filters", "hotel_search_filters",
     "hotel_latest_offers", "hotel_checkout_url", "hotel_favorites",
@@ -186,11 +191,11 @@ def personalized_weekend_landing(
 
 Работай по этому сценарию:
 1. Вызови trip_personalization_profile() для агрегированного бюджета и интересов. Не вызывай list_operations и order_details самостоятельно ради профиля: новый инструмент уже исключает переводы, отмены и сырые персональные данные.
-2. Подбери транспорт туда и обратно через flight_search или train_search, всегда явно передавая adults=1. Для сравнения дат в compare_flight_prices и compare_train_prices также всегда передавай adults=1. Это только поиск: не утверждай, что билеты куплены. Для пятничного вылета на выходные выбирай отправление не раньше 18:00 по местному времени, если пользователь явно не сказал, что пятница свободна. Передай найденные цены повторно в trip_personalization_profile(), если истории поездок недостаточно. Сохрани продавца в seller, подтверждённую ссылку объекта — в tbankUrl, а единый checkout маршрута — отдельно в transportBookingUrl, только если их вернул источник. Не конструируй транспортную ссылку и не подставляй общий раздел.
-3. Найди ровно три отеля через hotel_autocomplete, hotel_search и актуальные hotel_rates/hotel_latest_offers, всегда явно передавая adults=2 во все hotel-вызовы и сравнения. Каждый hotel-тул уже возвращает details с адресом, описанием, удобствами и максимум тремя фотографиями; отдельный hotel_details нужен только для повторной или расширенной загрузки. Не используй compare_flight_hotel_prices в этом шаблоне: у него один общий adults, поэтому он не может одновременно искать билет на одного и отель на двоих. Расположи отели по строго возрастающей полной цене: выгодный, сбалансированный и более комфортный. Уровень звёзд, рейтинг, расположение и условия не должны становиться хуже при росте цены; разница между соседними вариантами должна быть разумной, без резкого скачка класса. Заполни facilities, room, meal, cancellation, payment, reviewCount, reviewDigest и detailsUrl фактическими данными; detailsUrl строй только из настоящего hotelId. bookingUrl — отдельный checkout: hotel_checkout_url используй только после явного выбора тарифа и с подтверждённым book_hash; ссылка не создаёт бронь и не списывает деньги.
+2. Подбери транспорт туда и обратно через flight_search (return_date добавляет обратное плечо одним вызовом; date="YYYY-MM" — календарь цен за месяц, dates=[...] — сравнение дат) или train_search, всегда явно передавая adults=1. Это только поиск: не утверждай, что билеты куплены. Для пятничного вылета на выходные выбирай отправление не раньше 18:00 по местному времени, если пользователь явно не сказал, что пятница свободна. Передай найденные цены повторно в trip_personalization_profile(), если истории поездок недостаточно. Сохрани продавца в seller, подтверждённую ссылку объекта — в tbankUrl, а единый checkout маршрута — отдельно в transportBookingUrl, только если их вернул источник. Не конструируй транспортную ссылку и не подставляй общий раздел.
+3. Найди ровно три отеля через hotel_search(destination="город") — первые comparison_limit карточек уже enriched (details, тариф с checkoutUrl, фото, отзывы); hotel_rates/hotel_reviews используй для отдельного отеля, всегда явно передавая adults=2. Каждый hotel-тул уже возвращает details с адресом, описанием, удобствами и максимум тремя фотографиями. Расположи отели по строго возрастающей полной цене: выгодный, сбалансированный и более комфортный. Уровень звёзд, рейтинг, расположение и условия не должны становиться хуже при росте цены; разница между соседними вариантами должна быть разумной, без резкого скачка класса. Заполни facilities, room, meal, cancellation, payment, reviewCount, reviewDigest и detailsUrl фактическими данными; detailsUrl строй только из настоящего hotelId. bookingUrl — готовый checkout из tariff-строки hotel_rates или confirmedRate enriched-карточки; ссылка не создаёт бронь и не списывает деньги.
 4. Для {date_from}–{date_to} сразу вызови afisha_catalog(city="{city}", date_from="{date_from}", date_to="{date_to}", response_format="json") по подходящим категориям. search_app для этой цепочки не нужен. Для выбранных событий перепроверь сеансы через cinema_schedule/concert_schedule и включи фактические данные в request.events. Если events останется пустым, get_trip_report сам выполнит ограниченный поиск концертов и спектаклей и подтвердит их расписание. Ранжируй события по scoringWeights и агрегатам eventPreferences из профиля; сохраняй genres, ageRestriction и готовый sourceUrl из afisha_catalog(). Не транслитерируй неизвестные значения самостоятельно. Не бронируй места и не вызывай ticket_pay.
 5. Вызови restaurant_search() для ресторанов из Яндекс.Карт рядом с выбранным отелем. Передай координаты отеля; карточки уже совместимы с request.venues. get_trip_report() также выполнит этот поиск автоматически, если venues пуст, и дополнит через Яндекс.Карты уже переданные заведения без фото. Для прогулочных точек отдельно используй nearby_search(include_poi=true) из OpenStreetMap. Не выдумывай отсутствующие фотографии, рейтинги, отзывы или часы работы.
-6. Следуй каноническому travel-output flow из MCP resource travel-nova://instructions/travel-output-modes. Для каждого финального отеля загрузи одну сопоставимую страницу hotel_reviews(sort="date", sort_type="desc", page_size=10), собери до трёх реальных фотографий и структурированный reviewDigest.
+6. Следуй каноническому travel-output flow из MCP resource travel-nova://instructions/travel-output-modes. Для каждого финального отеля загрузи одну сопоставимую страницу hotel_reviews(sort="date", sort_type="desc", page_size=30), собери до трёх реальных фотографий и структурированный reviewDigest.
 7. Составь TripPageDocumentV2: mapPoints должны ссылаться на выбранный отель, события и заведения по ID; renderer автоматически покажет на карте и два альтернативных отеля. Добавь ровно три непротиворечивых плана balanced, culture и food_nightlife. Все остановки должны попадать в даты поездки и ссылаться на существующие ID.
 8. {output_part} Не пытайся собирать React/Vite-проект. В chat-режиме после каждой карточки отеля, билета и события выведи Markdown-ссылку на точный объект T-Bank, а при отсутствии подтверждённого URL — отдельную строку «Ссылка T-Bank недоступна».
 9. Не раскрывай имена, номера счетов, балансы, зарплату или отдельные операции. Не заявляй, что билет или отель забронирован. В бюджете и карточках явно подпиши, что цена транспорта получена для 1 взрослого, а цена отеля — для 2 взрослых. Не умножай цену билета на число гостей карточки. Цены всегда снабжай временем проверки."""
@@ -302,6 +307,7 @@ TOOL_KINDS: dict[str, tuple[str, str]] = {
     "flight_price_forecast": ("Прогноз изменения цены авиабилета", READ),
     "flight_schedule": ("Расписание рейсов по направлению", READ),
     "geodata_by_code": ("Геоданные города/аэропорта по IATA-коду", READ),
+    "search_iata_code": ("Резолвер IATA-кодов", READ),
     "compare_flight_prices": ("Сравнение цен на авиабилеты", READ),
     "compare_train_prices": ("Сравнение цен на поезда", READ),
     "hotel_autocomplete": ("Поиск направления или отеля", READ),
@@ -767,31 +773,383 @@ def _restaurant_enriched_report(request: TravelPageDocument) -> TravelPageDocume
     return type(request).model_validate(payload)
 
 
+def _report_hotel_backfill(request: TravelPageDocument) -> TravelPageDocument:
+    """Server-side static backfill for final hotels (photos first).
+
+    Same pattern as the afisha/restaurant auto-enrichment: hotels that arrive
+    without photos — including bare-id entries — are completed from the bank's
+    hotel details directory. Source failures keep the document alive with a
+    warning; no value is invented.
+    """
+    hotels = list(getattr(request, "hotels", None) or [])
+    targets = [
+        hotel for hotel in hotels
+        if isinstance(hotel, HotelOptionV2)
+        and ((not hotel.photos and hotel.image_url is None)
+             or not hotel.name or not hotel.address
+             or (hotel.coordinates.latitude == 0.0
+                 and hotel.coordinates.longitude == 0.0))
+    ]
+    if not targets:
+        return request
+    warnings = list(request.warnings)
+    try:
+        detail_map, detail_warnings = _load_hotel_detail_map(
+            [hotel.id for hotel in targets], _public_session(), full=True)
+    except Exception as exc:
+        warnings.append(
+            "Не удалось догрузить карточки отелей ("
+            + _cut(_redact_value(str(exc)), 160)
+            + "); проверь hotel_details и передай фотографии вручную.")
+        return request.model_copy(update={"warnings": warnings})
+    warnings.extend(detail_warnings)
+    for hotel in targets:
+        details = detail_map.get(str(hotel.id))
+        if not details:
+            warnings.append(
+                f"Отель {hotel.id}: details не догрузились, карточка неполная.")
+            continue
+        if not hotel.photos and not hotel.image_url:
+            urls = [str(u) for u in (details.get("imageUrls") or []) if u][:3]
+            if urls:
+                hotel.photos = [HotelPhoto(url=u) for u in urls]
+                hotel.image_url = AnyHttpUrl(urls[0])
+            else:
+                warnings.append(
+                    f"Отель «{details.get('name') or hotel.id}» ({hotel.id}): "
+                    "источник не вернул фотографии.")
+        if not hotel.name and details.get("name"):
+            hotel.name = str(details["name"])
+        if not hotel.address and details.get("address"):
+            hotel.address = str(details["address"])
+        if not hotel.location_summary and details.get("address"):
+            hotel.location_summary = str(details["address"])
+        if not hotel.description and details.get("description"):
+            hotel.description = str(details["description"])
+        if not hotel.facilities and details.get("facilities"):
+            hotel.facilities = [str(f) for f in details["facilities"]][:12]
+        if not hotel.check_in_time and details.get("checkInTime"):
+            hotel.check_in_time = str(details["checkInTime"])
+        if not hotel.check_out_time and details.get("checkOutTime"):
+            hotel.check_out_time = str(details["checkOutTime"])
+        if (hotel.coordinates.latitude == 0.0 and hotel.coordinates.longitude == 0.0
+                and isinstance(details.get("latitude"), (int, float))
+                and isinstance(details.get("longitude"), (int, float))):
+            hotel.coordinates = Coordinates(latitude=details["latitude"],
+                                            longitude=details["longitude"])
+        if not hotel.stars and details.get("stars"):
+            hotel.stars = details["stars"]
+    if warnings:
+        return request.model_copy(update={"warnings": warnings})
+    return request
+
+
+def _brief_iso_datetime(value) -> datetime:
+    text = str(value or "").strip().replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return datetime.now(timezone.utc)
+
+
+def _brief_resolve_iata(s, name: str, warnings: list[str]) -> str:
+    """Resolve a city name to a geodata-confirmed IATA code (fail-loud)."""
+    entries = _iata_lookup(name, 5)
+    codes: list[str] = []
+    for entry in entries:
+        for code in _iata_codes_for(entry):
+            if code not in codes:
+                codes.append(code)
+    if not codes:
+        raise TbankApiError(
+            "BAD_CITY", f"«{_cut(name, 60)}»: IATA-код не найден в индексе.")
+    confirmed: set[str] = set()
+    try:
+        records = s.geodata_by_code(codes[:40])
+        confirmed = {str(r.get("code")) for r in records if r.get("code")}
+    except Exception:
+        warnings.append(
+            f"«{_cut(name, 40)}»: справочник геоданных недоступен, код не "
+            "подтверждён банком.")
+    for code in codes:
+        if not confirmed or code in confirmed:
+            return code
+    raise TbankApiError(
+        "BAD_CITY", f"«{_cut(name, 60)}»: банк не подтвердил ни один код "
+        f"({', '.join(codes[:3])}).")
+
+
+def _brief_flight_leg(direction: str, row: dict, origin_name: str,
+                      dest_name: str, search_id: str) -> dict | None:
+    first = (row.get("legs") or [{}])[0] or {}
+    if not first:
+        return None
+    offer_id = str(row.get("offerId") or "")
+    hops = []
+    for hop in first.get("hops") or []:
+        hops.append({
+            "departureAt": _brief_iso_datetime(hop.get("departureAt")).isoformat(),
+            "arrivalAt": _brief_iso_datetime(hop.get("arrivalAt")).isoformat(),
+            "fromCode": str(hop.get("fromAirport") or "")[:4].upper(),
+            "toCode": str(hop.get("toAirport") or "")[:4].upper(),
+            "carrierCode": str(hop.get("marketingCode") or "")[:3].upper(),
+            "flightNumber": str(hop.get("flightNumber") or "")[:6].upper(),
+        })
+    leg = {
+        "id": f"flight-{direction}-{offer_id or 'offer'}",
+        "direction": direction,
+        "mode": "flight",
+        "origin": origin_name,
+        "destination": dest_name,
+        "departureAt": _brief_iso_datetime(first.get("departureAt")).isoformat(),
+        "arrivalAt": _brief_iso_datetime(first.get("arrivalAt")).isoformat(),
+        "carrier": str(first.get("carrier") or "Авиаперевозчик"),
+        "serviceNumber": str(first.get("flightNumber") or ""),
+        "priceRub": float(row.get("priceDecimal") or 0),
+        "originCode": str(first.get("fromAirport") or "")[:4].upper(),
+        "destinationCode": str(first.get("toAirport") or "")[:4].upper(),
+        "carrierCode": str(first.get("marketingCode") or "")[:3].upper(),
+        "flightNumber": str(first.get("flightNumber") or "")[:6].upper(),
+        "hops": hops,
+        "offerId": offer_id,
+        "searchId": search_id,
+        "notes": [],
+    }
+    if row.get("bookingUrl"):
+        leg["bookingUrl"] = row["bookingUrl"]
+    if row.get("tbankUrl"):
+        leg["tbankUrl"] = row["tbankUrl"]
+    return leg
+
+
+def _brief_transport(s, origin: str, city: str, date_from: str, date_to: str,
+                     adults: int) -> tuple[list[dict], list[dict], list[str]]:
+    """Cheapest round-trip flights for the brief; fail-soft via warnings."""
+    warnings: list[str] = []
+    origin_code = _brief_resolve_iata(s, origin, warnings)
+    dest_code = _brief_resolve_iata(s, city, warnings)
+    out_rows, out_res, _ = _flight_offer_rows(
+        s, origin_code, dest_code, date_from, adults=adults, children=0,
+        infants=0, only_bookable=True, limit=5)
+    if not out_rows:
+        raise TbankApiError(
+            "NO_FLIGHTS",
+            f"Бронируемых перелётов {origin_code}→{dest_code} на {date_from} "
+            "не найдено.")
+    search_id = str(out_res.get("searchId") or "")
+    outbound = _brief_flight_leg("outbound", out_rows[0], origin, city, search_id)
+    legs: list[dict] = [outbound] if outbound else []
+    flight_options: list[dict] = []
+    back_rows: list = []
+    if date_to > date_from:
+        try:
+            back_rows, _, _ = _flight_offer_rows(
+                s, dest_code, origin_code, date_to, adults=adults, children=0,
+                infants=0, only_bookable=True, limit=5)
+        except Exception as exc:
+            warnings.append(
+                f"Обратный перелёт {dest_code}→{origin_code} на {date_to} не "
+                f"загружен: {_cut(_redact_value(str(exc)), 140)}")
+    back_leg = (_brief_flight_leg("return", back_rows[0], city, origin, search_id)
+                if back_rows else None)
+    if back_leg:
+        legs.append(back_leg)
+    elif not back_rows:
+        warnings.append(
+            f"Бронируемых обратных перелётов {dest_code}→{origin_code} на "
+            f"{date_to} не найдено; транспорт только в одну сторону.")
+    combos = sorted(
+        ((out, back) for out in out_rows[:3] for back in (back_rows[:3] or [None])),
+        key=lambda pair: pair[0]["priceDecimal"]
+        + (pair[1]["priceDecimal"] if pair[1] else 0))
+    for index, (out, back) in enumerate(combos[:3]):
+        out_leg = _brief_flight_leg("outbound", out, origin, city, search_id)
+        if not out_leg:
+            continue
+        directions = [out_leg]
+        if back is not None:
+            back_leg_opt = _brief_flight_leg("return", back, city, origin, search_id)
+            if back_leg_opt:
+                directions.append(back_leg_opt)
+        total = out["priceDecimal"] + (back["priceDecimal"] if back else 0)
+        label = ("самый дешёвый" if index == 0 else
+                 f"вариант {index + 1}")
+        option = {
+            "id": f"flight-option-{index + 1}",
+            "comment": f"{label}: {'туда и обратно' if back else 'в одну сторону'} "
+                       f"за {round(total)} ₽",
+            "label": label,
+            "priceRub": round(total),
+            "checkoutUrl": out.get("bookingUrl") or "",
+            "directions": directions,
+        }
+        if back is not None and back.get("bookingUrl"):
+            option["directions"][-1].setdefault("notes", []).append(
+                f"Оформление обратного плеча: {back['bookingUrl']}")
+        flight_options.append(option)
+    return legs, flight_options, warnings
+
+
+def _compose_brief_document(brief: dict) -> TravelPageDocument:
+    """Build a trip-page/v2 document from a minimal brief, server-side.
+
+    Bounded fan-out: top-3 enriched hotels, one flight pair, Afisha and
+    restaurants filled by the existing auto-enrichment. Every step is
+    read-only and documented through warnings; nothing is invented.
+    """
+    city = str(brief.get("city") or brief.get("destination") or "").strip()
+    date_from = str(brief.get("dateFrom") or brief.get("date_from") or "").strip()
+    date_to = str(brief.get("dateTo") or brief.get("date_to") or "").strip()
+    origin = str(brief.get("origin") or "").strip()
+    try:
+        adults = int(brief.get("adults") or 2)
+    except (TypeError, ValueError):
+        adults = 2
+    if not city:
+        raise TbankApiError("BAD_BRIEF", "brief.city (город поездки) обязателен.")
+    if not 1 <= adults <= 6:
+        raise TbankApiError("BAD_BRIEF", "brief.adults — от 1 до 6.")
+    start = _hotel_date(date_from, "brief.dateFrom")
+    end = _hotel_date(date_to, "brief.dateTo")
+    if end <= start:
+        raise TbankApiError("BAD_BRIEF", "brief.dateTo должен быть позже dateFrom.")
+    nights = (end - start).days
+    warnings: list[str] = []
+
+    s = _public_session()
+    destination_id, resolved_name, dest_warnings = _resolve_hotel_destination(s, city)
+    warnings.extend(dest_warnings)
+    data = s.hotel_search(destination_id, date_from, date_to,
+                          adults=adults, children_ages=[], limit=15)
+    hotels_raw = [h for h in (data.get("hotels") or []) if isinstance(h, dict)]
+    details_by_id = {
+        str(h.get("hotelId")): _hotel_detail_payload(h)
+        for h in hotels_raw if h.get("hotelId") is not None
+    }
+    normalized = normalize_hotel_inventory(hotels_raw)
+    rows = []
+    for row in normalized[:3]:
+        item = _with_leading_tbank_url(
+            {key: value for key, value in row.items()
+             if key not in ("priceDecimal", "tbankUrl")},
+            _hotel_details_url(row.get("hotelId")))
+        item["details"] = details_by_id.get(str(row.get("hotelId") or ""), {
+            "hotelId": str(row.get("hotelId") or ""),
+            "imageUrls": [], "facilities": [],
+        })
+        rows.append(item)
+    if not rows:
+        raise TbankApiError(
+            "NO_HOTELS",
+            f"Доступных отелей в «{resolved_name or city}» на "
+            f"{date_from}—{date_to} не найдено.")
+    enriched, enrich_warnings = _hotel_search_enriched_shortlist(
+        s, rows, date_from, date_to, adults, [], nights)
+    warnings.extend(enrich_warnings)
+    hotel_cards = []
+    for item in enriched:
+        card = {key: value for key, value in item.items()}
+        card["id"] = str(card.pop("hotelId", "") or "")
+        rate = card.get("confirmedRate") or {}
+        if rate.get("checkoutUrl"):
+            card["checkoutUrl"] = rate["checkoutUrl"]
+        digest = card.get("reviewDigest") or {}
+        if isinstance(digest.get("sampleSize"), int) and digest["sampleSize"] > 0:
+            card.setdefault("reviewCount", digest["sampleSize"])
+        hotel_cards.append(card)
+
+    transport: list[dict] = []
+    flight_options: list[dict] = []
+    transport_booking_url = ""
+    if origin:
+        try:
+            legs, flight_options, transport_warnings = _brief_transport(
+                s, origin, city, date_from, date_to, adults)
+            transport = legs
+            warnings.extend(transport_warnings)
+            for leg in legs:
+                if leg.get("bookingUrl"):
+                    transport_booking_url = leg["bookingUrl"]
+                    break
+        except Exception as exc:
+            warnings.append(
+                "Транспорт не подобран: "
+                + _cut(_redact_value(getattr(exc, "message", str(exc))), 200))
+
+    document = {
+        "schemaVersion": "trip-page/v2",
+        "trip": {
+            "title": f"{city}: {date_from} — {date_to}",
+            "destination": city,
+            "dateFrom": date_from,
+            "dateTo": date_to,
+            "travelers": adults,
+            "subtitle": ("Собрано автоматически по brief-запросу"
+                         + (f"; отели найдены в «{resolved_name}»"
+                            if resolved_name and resolved_name != city else "")),
+        },
+        "transport": transport,
+        "flightOptions": flight_options,
+        "hotels": hotel_cards,
+        "selectedHotelId": hotel_cards[0]["id"] if hotel_cards else "",
+        "events": [],
+        "venues": [],
+        "mapPoints": [],
+        "plans": [],
+        "sources": [{
+            "name": "T-Bank Travel (brief)",
+            "url": "https://www.tbank.ru/",
+            "checkedAt": datetime.now(timezone.utc).isoformat(),
+        }],
+        "checkedAt": datetime.now(timezone.utc).isoformat(),
+        "warnings": warnings[:24],
+    }
+    if transport_booking_url:
+        document["transportBookingUrl"] = transport_booking_url
+    return TripPageDocumentV2.model_validate(document)
+
+
 @mcp.tool()
 def get_trip_report(
-    request: TravelPageDocument,
+    request: TravelPageDocument | None = None,
     output_mode: Literal["html", "markdown"] = "html",
     allow_incomplete_after_source_failure: bool = False,
+    strict: bool = False,
+    brief: dict | None = None,
 ) -> dict | str:
     """Готовый отчёт из trip-page/v2 (с events Афиши) или hotel-page/v1.
 
-    Для каждого финального отеля до вызова обязательны hotel_latest_offers,
-    hotel_rates и hotel_reviews. Статические сведения и фотографии возьми из
-    встроенного details любого hotel-тула; hotel_details используй для повторной
-    или расширенной загрузки. Передай facilities, photos, room, meal,
-    cancellation, payment, reviewCount и reviewDigest. Если источник не вернул
-    часть сведений, сначала всё равно вызови соответствующие источники, сохрани
-    явный warning с названием или id отеля и только тогда повтори вызов с
-    allow_incomplete_after_source_failure=true. Без этого явного fallback
-    неполный hotel enrichment блокирует создание итогового отчёта.
+    Краткая форма (рекомендуется по умолчанию): вместо полного документа
+    передай brief={"city": "Сочи", "dateFrom": "2026-10-05",
+    "dateTo": "2026-10-08", "adults": 2, "origin": "Москва"} — сервер сам
+    подберёт три enriched-отеля (details, тариф с checkoutUrl, фото, отзывы),
+    события Афиши на даты, рестораны вокруг отеля и, при заданном origin,
+    перелёт туда-обратно с bookingUrl, затем соберёт документ и отрендерит
+    страницу. Один вызов вместо цепочки из 15+. origin опционален; без него
+    страница без транспортного блока. request и brief взаимоисключающие.
+
+    Карточки отелей принимаются в форме, которую отдают hotel-инструменты:
+    встроенный details, imageUrls/photoUrls, primaryPhotoUrl, confirmedRate,
+    pluses/minuses/suitableFor и tbankUrl маппятся в контракт автоматически
+    (фотографии объединяются, дедуплицируются и сортируются official-first).
+    Достаточно даже bare-id ({"id": 12345}): статика и фотографии догружаются
+    на сервере из details-справочника.
+
+    По умолчанию неполный hotel enrichment НЕ блокирует отчёт: недостающие
+    поля превращаются в явные warnings в ответе. strict=true включает жёсткий
+    режим HOTEL_ENRICHMENT_REQUIRED; allow_incomplete_after_source_failure
+    по-прежнему документирует реальные ошибки источников в request.warnings.
+    Для полных карточек передай facilities, photos, room, meal, cancellation,
+    payment, reviewCount и reviewDigest из enriched-карточек hotel_search,
+    hotel_rates и hotel_reviews.
 
     До вызова предпочтительно получи события локации напрямую через
     afisha_catalog(city=..., date_from=..., date_to=..., response_format="json");
     search_app для этой цепочки не нужен. Перепроверь выбранные сеансы через
     cinema_schedule/concert_schedule и передай фактические события в
-    request.events. Если trip-page/v2 пришёл без events, report сам выполняет
-    ограниченный поиск концертов и спектаклей Афиши, подтверждает их расписание
-    и заполняет секцию. request соответствует опубликованной схеме документа.
+    request.events. Если trip-page/v2 пришёл без events, report сам выполнит
+    ограниченный поиск концертов и спектаклей Афиши, подтвердит их расписание
+    и заполнит секцию. request соответствует опубликованной схеме документа.
 
     Если trip-page/v2 пришёл без venues, report сам вызывает публичный поиск
     ресторанов Яндекс.Карт вокруг выбранного отеля и заполняет HTML и Markdown.
@@ -810,23 +1168,36 @@ def get_trip_report(
     ресторанов в HTML, чтобы sandbox-preview не зависел от внешней сети.
     Исходные HTTPS URL в documentJson сохраняются. markdown — только текст.
     Файлы, бронирование и оплата не создаются.
+    если brief передан — сервер соберёт документ сам (см. краткую форму).
     """
+    if brief is not None and request is None:
+        request = _compose_brief_document(brief)
+    elif request is None:
+        raise TbankApiError(
+            "BAD_REQUEST", "Передай request (готовый документ) или brief "
+            "(минимальный сценарий {city, dateFrom, dateTo, adults, origin?}).")
+    elif brief is not None:
+        raise TbankApiError("BAD_REQUEST", "request и brief взаимоисключающие.")
     provided_warnings = list(request.warnings)
+    # Server-side static backfill (photos/name/coordinates) mirrors the
+    # afisha/restaurant auto-enrichment and rescues bare-id hotel entries.
+    request = _report_hotel_backfill(request)
     enrichment_preview, enrichment_advice = prepare_report_document(request)
     enrichment_warnings = [
         warning for warning in enrichment_preview.warnings
         if warning.startswith("Отель «") and "неполные данные" in warning
     ]
-    if enrichment_advice and not allow_incomplete_after_source_failure:
+    if enrichment_advice and strict and not allow_incomplete_after_source_failure:
         details = " ".join(enrichment_warnings[:5])
         raise TbankApiError(
             "HOTEL_ENRICHMENT_REQUIRED",
             "Итоговый отчёт не сформирован. Встроенные details нужно перенести "
             "из hotel-ответа в карточку итогового документа. "
-            "Сначала вызови hotel_latest_offers для shortlist, затем "
-            "hotel_rates и hotel_reviews для каждого финального "
-            "отеля и повтори get_trip_report с заполненными facilities, photos, "
-            "room, meal, cancellation, payment, reviewCount и reviewDigest. "
+            "Сначала вызови hotel_search(destination=..., comparison_limit=3) "
+            "для enriched shortlist, затем hotel_rates и hotel_reviews для "
+            "каждого финального отеля и повтори get_trip_report с заполненными "
+            "facilities, photos, room, meal, cancellation, payment, reviewCount "
+            "и reviewDigest. "
             + details,
         )
     if enrichment_advice and allow_incomplete_after_source_failure:
@@ -835,7 +1206,7 @@ def get_trip_report(
             if any(f"({hotel.id})" in warning for warning in enrichment_warnings)
         ]
         enrichment_tools = (
-            "hotel_latest_offers", "hotel_details", "hotel_rates", "hotel_reviews",
+            "hotel_search", "hotel_details", "hotel_rates", "hotel_reviews",
         )
         undocumented = [
             hotel for hotel in affected_hotels
@@ -850,7 +1221,7 @@ def get_trip_report(
             raise TbankApiError(
                 "HOTEL_ENRICHMENT_FAILURE_NOT_DOCUMENTED",
                 "allow_incomplete_after_source_failure разрешён только после "
-                "реальной ошибки hotel_latest_offers, hotel_details, hotel_rates "
+                "реальной ошибки hotel_search, hotel_details, hotel_rates "
                 "или hotel_reviews. Добавь в request.warnings конкретную ошибку "
                 f"источника для каждого неполного отеля: {labels}.",
             )
@@ -5662,7 +6033,7 @@ def concert_hall(event_id: str, slot_id: str, object_id: str,
 @_threaded_tool
 def concert_schedule(event_id: str, kind: str = "concert",
                      object_id: str = "", limit: int = 15,
-                     response_format: str = "text") -> str:
+                     response_format: str = "json") -> str:
     """Показы концерта, спектакля или выставки: площадка, дата, slotId и
     objectId для cinema_seats().
     kind — "концерт" | "театр" | "выставка". Кино сюда НЕ ходит: у него показы
@@ -6131,6 +6502,25 @@ def _hotel_repeated_themes(reviews: list[dict], field: str) -> list[str]:
     return [label for label, count in counts.most_common() if count >= 2][:4]
 
 
+def _hotel_review_quotes(reviews: list[dict], limit: int = 3) -> list[dict]:
+    """Short verbatim quotes so the digest does not feel data-scarce."""
+    quotes: list[dict] = []
+    for review in reviews:
+        text = str(review.get("reviewPlus") or review.get("reviewMinus") or "").strip()
+        if not text or text == "-":
+            continue
+        booking = review.get("bookingInfo") or {}
+        quotes.append({
+            "text": _cut(text, 240),
+            "author": _cut(str(review.get("author") or ""), 60),
+            "date": str(booking.get("createdDate") or "")[:10],
+            "rating": review.get("rating"),
+        })
+        if len(quotes) >= limit:
+            break
+    return quotes
+
+
 def _hotel_review_digest(reviews: list[dict]) -> dict:
     pluses = _hotel_repeated_themes(reviews, "reviewPlus")
     minuses = _hotel_repeated_themes(reviews, "reviewMinus")
@@ -6155,6 +6545,7 @@ def _hotel_review_digest(reviews: list[dict]) -> dict:
         "pluses": pluses or ["недостаточно данных"],
         "minuses": minuses or ["недостаточно данных"],
         "suitableFor": suitable_for or ["недостаточно данных"],
+        "quotes": _hotel_review_quotes(reviews),
     }
 
 
@@ -6188,6 +6579,14 @@ def _hotel_rate_summary(data: dict, nights: int) -> dict:
     }
 
 
+def _retry_once(fn, *args, **kwargs):
+    """Call fn, retrying exactly once on any failure (bounded robustness)."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception:
+        return fn(*args, **kwargs)
+
+
 def _hotel_search_enriched_shortlist(
     session, rows: list[dict], checkin_date: str, checkout_date: str,
     adults: int, children_ages: list[int], nights: int,
@@ -6204,18 +6603,29 @@ def _hotel_search_enriched_shortlist(
         if refreshed_details:
             item["details"] = refreshed_details
         try:
-            rates_data = session.hotel_rates(
+            rates_data = _retry_once(
+                session.hotel_rates,
                 hotel_id, checkin_date, checkout_date,
                 adults=adults, children_ages=children_ages, filters=[])
             item["confirmedRate"] = _hotel_rate_summary(rates_data, nights)
+            book_hash = next(
+                (str(row.get("bookHash"))
+                 for group in ("rates", "otherRates")
+                 for row in (rates_data.get(group) or [])
+                 if isinstance(row, dict) and row.get("bookHash")),
+                "")
+            if book_hash:
+                item["confirmedRate"]["checkoutUrl"] = _hotel_checkout_url_for(
+                    adults, checkin_date, checkout_date, hotel_id, book_hash)
         except Exception as exc:
             item["confirmedRate"] = {"available": False}
             warnings.append(
                 f"hotel_rates не загрузил тариф для hotel_id={hotel_id}: "
                 f"{_cut(_redact_value(str(exc)), 180)}")
         try:
-            review_data = session.hotel_reviews(
-                hotel_id, sort="date", sort_type="desc", page_size=10)
+            review_data = _retry_once(
+                session.hotel_reviews,
+                hotel_id, sort="date", sort_type="desc", page_size=30)
             reviews = [
                 _hotel_review_item(review, hotel_id)
                 for review in (review_data.get("reviews") or [])
@@ -6236,30 +6646,80 @@ def _hotel_search_enriched_shortlist(
             "rateConfirmed": bool((item.get("confirmedRate") or {}).get("available")),
             "primaryPhotoUrl": photo_urls[0] if photo_urls else "",
             "photoUrls": photo_urls,
+            "url": str(item.get("tbankUrl") or details.get("tbankUrl") or ""),
+            "images": photo_urls,
             "pluses": list(digest.get("pluses") or ["недостаточно данных"]),
             "minuses": list(digest.get("minuses") or ["недостаточно данных"]),
             "suitableFor": list(
                 digest.get("suitableFor") or ["недостаточно данных"]),
+            "reviewQuotes": list(digest.get("quotes") or []),
         })
         enriched.append(item)
     return enriched, warnings
 
 
+_CURRENCY_SIGNS = {"RUB": "₽", "USD": "$", "EUR": "€", "KZT": "₸", "TRY": "₺"}
+
+
+def _md_cell(value) -> str:
+    text = str(value if value is not None else "").replace("\n", " ").strip()
+    return (text.replace("|", "\\|") or "—")[:220]
+
+
+def _hotel_price_cell(price, currency: str, nights: int) -> tuple[str, str]:
+    if not isinstance(price, (int, float)):
+        return "—", "—"
+    sign = _CURRENCY_SIGNS.get(str(currency or "RUB").upper(),
+                               f"{currency} " if currency else "")
+    total = f"{price:,.0f}".replace(",", " ") + f" {sign}".strip()
+    nightly = (f"{price / nights:,.0f}".replace(",", " ") + f" {sign}".strip()
+               if nights >= 1 else "—")
+    return total, nightly
+
+
 def _hotel_enriched_text(items: list[dict]) -> str:
-    lines = ["Сравнение отелей с деталями, тарифами, фотографиями и отзывами:"]
+    """Ready-to-paste markdown comparison table plus per-hotel detail blocks."""
+    lines = ["Сравнение отелей (цены подтверждены на момент проверки):", "",
+             "| Отель | Звёзды | Рейтинг | Всего | За ночь | Комната и питание | Отмена | Плюсы | Минусы |",
+             "|---|---|---|---|---|---|---|---|---|"]
     for item in items:
         details = item.get("details") or {}
         name = details.get("name") or item.get("name") or f"hotel_id={item.get('hotelId')}"
-        lines.append(f"\n{name} | hotel_id={item.get('hotelId')}")
+        url = str(item.get("tbankUrl") or item.get("url") or "").strip()
+        hotel_cell = f"[{name}]({url})" if url else name
+        nights = int(item.get("nights") or 0)
+        rate = item.get("confirmedRate") or {}
+        if rate.get("available"):
+            total_cell, nightly_cell = _hotel_price_cell(
+                rate.get("totalPrice"), str(rate.get("currency") or "RUB"), nights)
+            room_cell = " | ".join(filter(None, [
+                str(rate.get("room") or ""), str(rate.get("bed") or ""),
+                str(rate.get("meal") or "")]))
+            cancel_cell = (f"бесплатно до {rate.get('freeCancellationUntil')}"
+                           if rate.get("freeCancellationUntil")
+                           else ("невозвратный" if rate.get("nonRefundable") else "по правилам тарифа"))
+        else:
+            total_cell = nightly_cell = room_cell = cancel_cell = "нет подтверждённого тарифа"
+        digest = item.get("reviewDigest") or _hotel_review_digest([])
+        cells = [
+            _md_cell(hotel_cell),
+            _md_cell(item.get("stars") or ""),
+            _md_cell(item.get("rating") or ""),
+            _md_cell(total_cell),
+            _md_cell(nightly_cell),
+            _md_cell(room_cell),
+            _md_cell(cancel_cell),
+            _md_cell("; ".join((digest.get("pluses") or [])[:3])),
+            _md_cell("; ".join((digest.get("minuses") or [])[:3])),
+        ]
+        lines.append("| " + " | ".join(cells) + " |")
+    lines.append("")
+    for item in items:
+        details = item.get("details") or {}
+        name = details.get("name") or item.get("name") or f"hotel_id={item.get('hotelId')}"
+        lines.append(f"### {name} (hotel_id={item.get('hotelId')})")
         if item.get("tbankUrl"):
-            lines.append(f"T-Bank: {item['tbankUrl']}")
-        summary = []
-        if item.get("stars") is not None:
-            summary.append(f"звёзды: {item['stars']}")
-        if item.get("rating") is not None:
-            summary.append(f"рейтинг: {item['rating']}")
-        if summary:
-            lines.append("Характеристики: " + " | ".join(summary))
+            lines.append(f"Карточка отеля: {item['tbankUrl']}")
         if details.get("address"):
             lines.append(f"Адрес: {_cut(details['address'], 140)}")
         if details.get("description"):
@@ -6272,30 +6732,9 @@ def _hotel_enriched_text(items: list[dict]) -> str:
             lines.append("Удобства: " + "; ".join(details["facilities"]))
         image_urls = details.get("imageUrls") or []
         if image_urls:
-            lines.append("Фотографии:")
             lines.extend(
                 f"![{name} — фото {index}]({url})"
-                for index, url in enumerate(image_urls[:3], start=1)
-            )
-        else:
-            lines.append("Фотографии: источник не вернул фото.")
-        rate = item.get("confirmedRate") or {}
-        if rate.get("available"):
-            price = rate.get("totalPrice")
-            currency = rate.get("currency") or "RUB"
-            lines.append(
-                "Тариф: " + " | ".join(filter(None, [
-                    f"{price:.0f} {currency}" if isinstance(price, (int, float)) else "",
-                    rate.get("room") or "",
-                    rate.get("bed") or "",
-                    rate.get("meal") or "",
-                    f"оплата={rate.get('payment')}" if rate.get("payment") else "",
-                    (f"бесплатная отмена до {rate.get('freeCancellationUntil')}"
-                     if rate.get("freeCancellationUntil") else
-                     ("невозвратный" if rate.get("nonRefundable") else "")),
-                ])))
-        else:
-            lines.append("Тариф: источник не вернул подтверждённый вариант.")
+                for index, url in enumerate(image_urls[:3], start=1))
         digest = item.get("reviewDigest") or _hotel_review_digest([])
         period = ""
         if digest.get("dateFrom") or digest.get("dateTo"):
@@ -6306,7 +6745,50 @@ def _hotel_enriched_text(items: list[dict]) -> str:
         lines.append(
             "Кому подходит: "
             + "; ".join(digest.get("suitableFor") or ["недостаточно данных"]))
-    return "\n".join(lines)
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def _hotel_map_payload(items: list[dict]) -> dict:
+    """OSM map links for the enriched shortlist; empty dict when no geo."""
+    pins = []
+    for item in items:
+        latitude = item.get("latitude")
+        longitude = item.get("longitude")
+        details = item.get("details") or {}
+        if not isinstance(latitude, (int, float)) or not isinstance(longitude, (int, float)):
+            latitude, longitude = details.get("latitude"), details.get("longitude")
+        if (not isinstance(latitude, (int, float))
+                or not isinstance(longitude, (int, float))
+                or (latitude == 0 and longitude == 0)):
+            continue
+        pins.append({
+            "hotelId": str(item.get("hotelId") or ""),
+            "name": str(details.get("name") or item.get("name") or ""),
+            "latitude": round(float(latitude), 6),
+            "longitude": round(float(longitude), 6),
+            "osmUrl": (f"https://www.openstreetmap.org/?mlat={latitude:.6f}"
+                       f"&mlon={longitude:.6f}#map=17/{latitude:.6f}/{longitude:.6f}"),
+        })
+    if not pins:
+        return {}
+    center_lat = sum(pin["latitude"] for pin in pins) / len(pins)
+    center_lon = sum(pin["longitude"] for pin in pins) / len(pins)
+    return {
+        "mapUrl": (f"https://www.openstreetmap.org/#map=12/"
+                   f"{center_lat:.5f}/{center_lon:.5f}"),
+        "attribution": "© OpenStreetMap contributors",
+        "hotels": pins,
+    }
+
+
+_NATIVE_IMAGE_HOSTS = frozenset({
+    # Bank CDNs: hotel photos arrive via the t-static imgproxy backed by the
+    # extranet CDN, so both host names are trusted for native image blocks.
+    "cdn.tbank.ru",
+    "cdn.t-static.ru",
+    "extranet-cdn.tinkoff.ru",
+})
 
 
 def _hotel_native_result(session, text: str, items: list[dict]) -> CallToolResult:
@@ -6322,7 +6804,8 @@ def _hotel_native_result(session, text: str, items: list[dict]) -> CallToolResul
         for url in urls[:3]:
             try:
                 parsed = urlparse(url)
-                if (parsed.scheme != "https" or parsed.hostname != "cdn.tbank.ru"
+                if (parsed.scheme != "https"
+                        or parsed.hostname not in _NATIVE_IMAGE_HOSTS
                         or parsed.username or parsed.password
                         or parsed.port not in (None, 443)):
                     raise ValueError("недоверенный URL")
@@ -6389,6 +6872,65 @@ def _hotel_native_result(session, text: str, items: list[dict]) -> CallToolResul
             type="text",
             text="Предупреждения нативных фото: " + "; ".join(warnings),
         ))
+    return CallToolResult(content=content)
+
+
+def _hotel_reviews_native_result(session, text: str,
+                                 reviews: list[dict]) -> CallToolResult:
+    """Attach up to three bounded, trusted guest photos to a review page.
+
+    Same trust and size budget as the hotel-card images: only bank CDN hosts
+    (cdn.tbank.ru, cdn.t-static.ru), HTTPS URLs, <=1.5 MB each, <=4 MB total.
+    Non-trusted photos stay as URLs inside the JSON payload — nothing is
+    fetched or inlined from them.
+    """
+    content = [TextContent(type="text", text=text)]
+    total_bytes = 0
+    attached = 0
+    allowed_types = {"image/jpeg", "image/png", "image/webp"}
+    for review in reviews:
+        if attached >= 3:
+            break
+        for photo in (review.get("photos") or [])[:1]:
+            url = str(photo.get("url") or "").strip()
+            if not url:
+                continue
+            try:
+                parsed = urlparse(url)
+                if (parsed.scheme != "https"
+                        or parsed.hostname not in _NATIVE_IMAGE_HOSTS
+                        or parsed.username or parsed.password
+                        or parsed.port not in (None, 443)):
+                    continue
+                response = session._public_http.get(
+                    url,
+                    headers={"Accept": "image/webp,image/png,image/jpeg"},
+                    timeout=15,
+                )
+                response.raise_for_status()
+                mime_type = str(
+                    response.headers.get("content-type") or "").split(";", 1)[0]
+                payload = response.content
+                if mime_type not in allowed_types or not payload:
+                    continue
+                if len(payload) > 1_500_000 or total_bytes + len(payload) > 4_000_000:
+                    continue
+                total_bytes += len(payload)
+                caption = (f"Фото гостя: {review.get('author') or 'гость'}"
+                           + (f", оценка {review.get('rating')}"
+                              if review.get("rating") is not None else ""))
+                content.append(TextContent(type="text", text=caption))
+                content.append(ImageContent(
+                    type="image",
+                    data=base64.b64encode(payload).decode("ascii"),
+                    mimeType=mime_type,
+                ))
+                attached += 1
+                break
+            except Exception:
+                continue
+    if not attached:
+        return CallToolResult(content=[TextContent(type="text", text=text)])
     return CallToolResult(content=content)
 
 
@@ -6621,7 +7163,7 @@ def hotel_similar(
 
     Порядок результата задаёт рекомендательная модель, поэтому не сортируй его
     заново. priceHint не является офертой: актуальные доступность и цену перед
-    показом пользователю получай через hotel_latest_offers() или hotel_rates().
+    показом пользователю получай через hotel_rates() или hotel_search().
     Пустой список — штатный результат. Tool только читает данные, не бронирует
     отель и не списывает деньги.
     """
@@ -6703,7 +7245,7 @@ def hotel_similar(
 
 @_threaded_tool
 def hotel_autocomplete(query: str, limit: int = 10,
-                       response_format: str = "text") -> str:
+                       response_format: str = "json") -> str:
     """Найти destination_id для hotel_search() по названию города/места.
 
     Возвращает отдельно локации и конкретные отели. Для каждой отельной
@@ -6752,6 +7294,10 @@ def hotel_autocomplete(query: str, limit: int = 10,
             return _json_envelope({
                 "query": query,
                 "suggestions": suggestions,
+                "hints": [
+                    {"tool": "hotel_search",
+                     "why": "передай id локации как destination_id с датами поездки"},
+                ],
             }, source="T-Bank Hotels", warnings=warnings,
                meta={"complete": len(shown) == len(rows),
                      "detailsComplete": not detail_warnings})
@@ -6783,40 +7329,73 @@ def hotel_autocomplete(query: str, limit: int = 10,
         return _formatted_error(e, response_format, source="T-Bank Hotels")
 
 
+def _resolve_hotel_destination(s, destination: str) -> tuple[int, str, list[str]]:
+    """Resolve a place name to a hotel location id via autocomplete."""
+    data = s.hotel_autocomplete(destination)
+    locations = [x for x in (data.get("locations") or []) if isinstance(x, dict)]
+    if not locations:
+        raise TbankApiError(
+            "BAD_DESTINATION",
+            f"Локация «{_cut(destination, 80)}» не найдена; проверь название "
+            "или подбери точный id через hotel_autocomplete().")
+    best = locations[0]
+    warnings: list[str] = []
+    if len(locations) > 1:
+        alternatives = ", ".join(
+            _flat(x.get("name") or "") for x in locations[1:3])
+        warnings.append(
+            f"destination=«{_cut(destination, 60)}» неоднозначна: выбрана "
+            f"«{_flat(best.get('name') or '')}»"
+            + (f"; альтернативы: {alternatives}" if alternatives else ""))
+    try:
+        resolved_id = int(best.get("id") or 0)
+    except (TypeError, ValueError):
+        resolved_id = 0
+    if resolved_id <= 0:
+        raise TbankApiError(
+            "BAD_DESTINATION",
+            f"Локация «{_cut(destination, 80)}» вернула некорректный id.")
+    return resolved_id, _flat(best.get("name") or ""), warnings
+
+
 @_threaded_tool
-def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
-                 adults: int = 1, children_ages: str = "", limit: int = 15,
-                 response_format: str = "text",
+def hotel_search(checkin_date: str, checkout_date: str, destination: str = "",
+                 destination_id: int = 0, adults: int = 1,
+                 children_ages: str = "", limit: int = 15,
+                 response_format: str = "json",
                  comparison_limit: int = 3) -> CallToolResult:
     """Поиск доступных отелей с деталями, фото, тарифами и отзывами.
+
+    Город можно передать напрямую: destination="Сочи" — сервер сам разрешит
+    название в destination_id через autocomplete и вернёт resolvedDestination.
+    Точный id из hotel_autocomplete() передавай как destination_id; если заданы
+    оба, используется destination_id. Даты — YYYY-MM-DD; adults — 1..6;
+    children_ages — возраста через запятую (например ``5,12``) или JSON
+    ``[5,12]``.
 
     Тул обогащает первые comparison_limit=1..5 карточек: повторно загружает их
     полные статические details, актуальный тариф и сопоставимую выборку из 10
     последних отзывов, а затем возвращает готовые плоские поля primaryPhotoUrl,
     photoUrls, pluses, minuses, suitableFor и nights. Поэтому даже хост, который
     использует только один вызов, получает готовый enrichedShortlist с деталями,
-    реальными фото, тарифами и reviewDigest. Если отдельно найденный отель должен
-    заменить карточку shortlist, обогати
-    его через hotel_latest_offers(), hotel_rates() и hotel_reviews().
+    реальными фото, тарифами и reviewDigest. Отдельно найденный отель обогащай
+    через hotel_rates() и hotel_reviews().
 
-    destination_id бери из hotel_autocomplete(); даты — YYYY-MM-DD; adults —
-    1..6; children_ages — возраста через запятую (например ``5,12``) или JSON
-    ``[5,12]``. Тул сам ждёт, пока поставщики закончат формировать выдачу, затем
-    обновляет нефинальные цены через getLatestHotelOffer и возвращает не больше
-    50 карточек (limit, по умолчанию 15). Это не 300k тарифов: upstream отдаёт
-    каталог отелей страницами по 50. Каждая карточка содержит details с адресом,
-    описанием, временем заезда/выезда, удобствами и максимум тремя фотографиями.
-    comparison_limit по умолчанию 3 и не может превышать 5, чтобы автоматическое
-    обогащение оставалось ограниченным.
+    Тул сам ждёт, пока поставщики закончат формировать выдачу, затем обновляет
+    нефинальные цены через getLatestHotelOffer и возвращает не больше 50 карточек
+    (limit, по умолчанию 15). Это не 300k тарифов: upstream отдаёт каталог отелей
+    страницами по 50. Каждая карточка содержит details с адресом, описанием,
+    временем заезда/выезда, удобствами и максимум тремя фотографиями.
+    comparison_limit по умолчанию 3 и не может превышать 5, чтобы
+    автоматическое обогащение оставалось ограниченным.
+    В JSON-ответе: comparisonMarkdown (готовая таблица сравнения), map
+    (ссылка на карту OpenStreetMap с точками отелей).
     Запрос read-only и уходит без банковских
     credentials. MCP не бронирует и не оплачивает отель. Для комнат/bookHash
-    одного отеля вызови hotel_rates(); для availability-aware фильтров —
-    hotel_search_filters().
+    одного отеля вызови hotel_rates().
     """
     try:
         fmt = _response_format(response_format)
-        if int(destination_id) <= 0:
-            raise TbankApiError("BAD_DESTINATION", "destination_id должен быть положительным.")
         if not 1 <= adults <= 6:
             raise TbankApiError("BAD_GUESTS", "adults должен быть от 1 до 6.")
         if not 1 <= int(limit) <= 50:
@@ -6832,6 +7411,22 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
         ages = _hotel_children(children_ages)
 
         s = _public_session()
+        resolved_destination: dict = {}
+        destination_warnings: list[str] = []
+        if destination and int(destination_id) > 0:
+            destination_warnings.append(
+                "Переданы и destination, и destination_id: использован "
+                "destination_id.")
+        elif destination:
+            resolved_id, resolved_name, destination_warnings = (
+                _resolve_hotel_destination(s, destination))
+            destination_id = resolved_id
+            resolved_destination = {"id": resolved_id, "name": resolved_name}
+        elif int(destination_id) <= 0:
+            raise TbankApiError(
+                "BAD_DESTINATION",
+                "Укажи destination (название города/курорта) или destination_id "
+                "из hotel_autocomplete().")
         data = s.hotel_search(int(destination_id), checkin_date, checkout_date,
                               adults=adults, children_ages=ages, limit=limit)
         hotels = [h for h in (data.get("hotels") or []) if isinstance(h, dict)]
@@ -6871,6 +7466,7 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
             adults, ages, nights,
         )
         detail_warnings.extend(enrichment_warnings)
+        detail_warnings.extend(destination_warnings)
         if fmt == "json":
             warnings = list(detail_warnings)
             if not loading_completed:
@@ -6888,15 +7484,26 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
                     "Неполные каталоговые карточки намеренно не публикуются.")
             payload = _json_envelope({
                 "destinationId": int(destination_id),
+                **({"resolvedDestination": resolved_destination}
+                   if resolved_destination else {}),
                 "checkinDate": checkin_date,
                 "checkoutDate": checkout_date,
                 "nights": nights,
                 "comparisonMarkdown": _hotel_enriched_text(enriched_shortlist),
                 "enrichedShortlist": enriched_shortlist,
+                "map": _hotel_map_payload(enriched_shortlist),
                 "isLoadingCompleted": loading_completed,
                 "pricesFinal": prices_final,
                 "total": total,
                 "catalogSampleCount": len(rows),
+                "hints": [
+                    {"tool": "hotel_rates",
+                     "why": "подтверждённый тариф, bookHash и checkoutUrl для отеля"},
+                    {"tool": "hotel_reviews",
+                     "why": "полные отзывы с фото гостей и цитатами"},
+                    {"tool": "get_trip_report",
+                     "why": "собрать страницу-подборку из выбранных отелей"},
+                ],
             }, source="T-Bank Hotels", warnings=warnings,
                meta={"complete": loading_completed and prices_final,
                      "detailsComplete": not detail_warnings,
@@ -6907,6 +7514,9 @@ def hotel_search(destination_id: int, checkin_date: str, checkout_date: str,
                     f"{checkin_date}—{checkout_date} не найдено.")
 
         out = _hotel_enriched_text(enriched_shortlist)
+        map_payload = _hotel_map_payload(enriched_shortlist)
+        if map_payload.get("mapUrl"):
+            out += f"\nКарта отелей: {map_payload['mapUrl']}"
         out += (
             f"\n\nКаталог на {checkin_date}—{checkout_date}: {total} отелей; "
             f"поиск просмотрел {len(rows)}, для сравнения полностью обогащены "
@@ -6933,7 +7543,7 @@ def hotel_search_filters(
         map_frame_input: dict | None = None,
         favorite_hotel_ids: list[int] | None = None,
         language: Literal["RU", "EN", "ZH", "KY", "TG", "TT", "UZ"] = "RU",
-        response_format: str = "text") -> str:
+        response_format: str = "json") -> str:
     """Доступные фильтры и число отелей для конкретного поиска (searchFilters_v3).
 
     ВЫЗЫВАЙ после hotel_autocomplete(), когда известны location_id, даты и гости,
@@ -7024,7 +7634,7 @@ def hotel_latest_offers(
         location_id: int | None = None, adults: int = 1,
         children_ages: list[int] | None = None,
         filters: list[dict] | None = None,
-        response_format: str = "text") -> str:
+        response_format: str = "json") -> str:
     """Перепроверить актуальные цены и условия выбранных отелей одним запросом.
 
     ВЫЗЫВАЙ после hotel_search() для шорт-листа из 1–1000 hotel_id и прямо перед
@@ -7147,7 +7757,7 @@ def hotel_latest_offers(
 
 @_threaded_tool
 def hotel_details(hotel_id: str, max_facilities: int = 40, max_images: int = 3,
-                  response_format: str = "text") -> str:
+                  response_format: str = "json") -> str:
     """Карточка отеля по hotel_id из hotel_search()/hotel_autocomplete().
 
     Показывает адрес, описание, часы заезда/выезда, удобства и до max_images
@@ -7229,14 +7839,15 @@ def hotel_details(hotel_id: str, max_facilities: int = 40, max_images: int = 3,
 def hotel_rates(hotel_id: str, checkin_date: str, checkout_date: str,
                 adults: int = 1, children_ages: list[int] | None = None,
                 filters: list[dict] | None = None, limit: int = 20,
-                response_format: str = "text") -> str:
+                response_format: str = "json") -> str:
     """Доступные комнаты и тарифы конкретного отеля (Hotels API v3).
 
     hotel_id бери из hotel_search()/hotel_autocomplete(); даты — YYYY-MM-DD:
     заезд сегодня или в следующие 730 дней, проживание 1–30 ночей. Поддерживается
     одна комната: adults=1..6 и до четырёх children_ages от 0 до 17.
 
-    filters — JSON-массив объектов из hotel_filters(). У каждого нужен
+    filters — JSON-массив объектов вида availableFilters из ответа
+    hotel_search. У каждого нужен
     ``$objectType``: array (values), range (price: min/max), boolean (value) или
     radio (review_rating: value), плюс ``filterId``. limit ограничивает отдельно
     rates и otherRates (1..100). response_format=json сохраняет полные объекты
@@ -7294,6 +7905,14 @@ def hotel_rates(hotel_id: str, checkin_date: str, checkout_date: str,
         })
         warnings.extend(detail_warnings)
         if fmt == "json":
+            # Pre-attach the hand-off checkout link to every rate that has a
+            # bookHash, so agents surface links without a separate ceremony.
+            for group in (shown_rates, shown_other):
+                for row in group:
+                    if isinstance(row, dict) and row.get("bookHash"):
+                        row["checkoutUrl"] = _hotel_checkout_url_for(
+                            int(adults), checkin_date, checkout_date, hotel_id,
+                            str(row["bookHash"]))
             return _json_envelope({
                 "hotelId": hotel_id,
                 "hotelDetails": hotel_details,
@@ -7309,6 +7928,15 @@ def hotel_rates(hotel_id: str, checkin_date: str, checkout_date: str,
                 "rates": shown_rates,
                 "otherRates": shown_other,
                 "rooms": rooms,
+                "checkedAt": datetime.now().isoformat(timespec="seconds"),
+                "hints": [
+                    {"note": "checkoutUrl валидны на момент checkedAt: bookHash "
+                             "протухает вместе с доступностью. Если страница "
+                             "показала другую цену или тариф исчез — повтори "
+                             "hotel_rates, и строки придут со свежими ссылками."},
+                    {"tool": "hotel_reviews",
+                     "why": "обзор отзывов и цитаты гостей для этого отеля"},
+                ],
             }, source="T-Bank Hotels", warnings=warnings,
                meta={"complete": len(shown_rates) == len(rates)
                              and len(shown_other) == len(other_rates),
@@ -7370,6 +7998,21 @@ def hotel_rates(hotel_id: str, checkin_date: str, checkout_date: str,
         return _formatted_error(e, response_format, source="T-Bank Hotels")
 
 
+def _hotel_checkout_url_for(guests: int, checkin_date: str, checkout_date: str,
+                            hotel_id: str, book_hash: str) -> str:
+    """Build the T-Bank hotel checkout URL locally (no network, no booking)."""
+    query = urlencode({
+        "guests": guests,
+        "locationCode": "hotel",
+        "dateFrom": checkin_date,
+        "dateTo": checkout_date,
+        "destinationId": hotel_id,
+        "hotelId": hotel_id,
+        "bookHash": book_hash,
+    })
+    return f"https://www.tbank.ru/travel/hotels/new/checkout/?{query}"
+
+
 @mcp.tool()
 def hotel_checkout_url(hotel_id: str, checkin_date: str, checkout_date: str,
                        book_hash: str, guests: int = 1,
@@ -7416,8 +8059,9 @@ def hotel_checkout_url(hotel_id: str, checkin_date: str, checkout_date: str,
             "hotelId": hotel_id,
             "bookHash": book_hash,
         })
-        return (f"https://www.tbank.ru/travel/hotels/new/checkout/?{query}\n"
-                "Ссылка ведёт на оформление выбранного тарифа; бронь ещё не создана. "
+        return (_hotel_checkout_url_for(guests, checkin_date, checkout_date,
+                                        hotel_id, book_hash)
+                + "\nСсылка ведёт на оформление выбранного тарифа; бронь ещё не создана. "
                 "Проверь итоговую цену и условия на странице T-Bank.")
     except Exception as e:
         return _err(e)
@@ -7428,14 +8072,17 @@ def hotel_reviews(hotel_id: str, source_code: str = "",
                   sort: Literal["date", "rating"] = "date",
                   sort_type: Literal["asc", "desc"] = "desc",
                   cursor: str = "", page_size: int = 10,
-                  search_text: str = "", response_format: str = "text") -> str:
-    """Отзывы гостей для обязательного сравнения финальных отелей.
+                  search_text: str = "", response_format: str = "json") -> CallToolResult:
+    """Отзывы гостей для сравнения финальных отелей.
 
     Для каждого отеля в финальном shortlist вызови одну сопоставимую страницу:
-    sort="date", sort_type="desc", page_size=10, response_format="json". В
-    видимом ответе укажи размер выборки и обобщи её отдельно как «Плюсы»,
-    «Минусы», «Кому подходит». Повторяющейся считай только тему минимум из двух
+    sort="date", sort_type="desc", page_size=30 (по умолчанию json). В
+    видимом ответе укажи размер выборки, приведи 2–3 короткие цитаты гостей и
+    обобщи её отдельно как «Плюсы», «Минусы», «Кому подходит».
+    Повторяющейся считай только тему минимум из двух
     отзывов; иначе пиши «недостаточно данных». Не смешивай разные отели.
+    К ответу автоматически прикрепляются до трёх доверенных фото гостей
+    (cdn.tbank.ru, cdn.t-static.ru) как нативные image-блоки; остальные фото остаются URL.
 
     hotel_id бери из hotel_search()/hotel_autocomplete(). sort=date или rating;
     sort_type=asc/desc. source_code ограничивает поставщика (например hotels,
@@ -7481,7 +8128,7 @@ def hotel_reviews(hotel_id: str, source_code: str = "",
             "hotelId": hotel_id, "imageUrls": [], "facilities": [],
         })
         if fmt == "json":
-            return _json_envelope({
+            payload = _json_envelope({
                 "hotelId": hotel_id,
                 "hotelDetails": hotel_details,
                 "sort": sort,
@@ -7496,6 +8143,10 @@ def hotel_reviews(hotel_id: str, source_code: str = "",
                     "repeatedThemeMinimumReviews": 2,
                     "insufficientDataText": "недостаточно данных",
                 },
+                "hints": [
+                    {"tool": "get_trip_report",
+                     "why": "собрать финальную страницу с этим отелем"},
+                ],
             }, source="T-Bank Hotels", warnings=detail_warnings, meta={
                 "complete": not bool(next_cursor),
                 "pageSize": int(page_size),
@@ -7503,6 +8154,7 @@ def hotel_reviews(hotel_id: str, source_code: str = "",
                 "hasNextPage": bool(next_cursor),
                 "detailsComplete": not detail_warnings,
             })
+            return _hotel_reviews_native_result(session, payload, reviews)
         if not reviews:
             out = f"Отзывы для hotel_id={hotel_id} по заданным условиям не найдены."
             if rendered := _hotel_detail_text(hotel_details):
@@ -7576,7 +8228,7 @@ def restaurant_search(
     longitude: float | None = None,
     radius_meters: int = 1800,
     limit: int = 5,
-    response_format: str = "text",
+    response_format: str = "json",
 ) -> str:
     """Рестораны Яндекс.Карт рядом с отелем или другой точкой поездки.
 
@@ -7690,7 +8342,7 @@ def nearby_search(city: str, anchor_name: str = "", address: str = "",
 @_threaded_tool
 def weather(city: str, latitude: float, longitude: float,
             date_from: str, date_to: str,
-            response_format: str = "text") -> str:
+            response_format: str = "json") -> str:
     """Погода или климатическая оценка для диапазона до 30 дней.
 
     city — подпись места, latitude/longitude — координаты, даты — YYYY-MM-DD.
@@ -7737,7 +8389,7 @@ def weather(city: str, latitude: float, longitude: float,
 
 @_threaded_tool
 def train_stations(search_text: str, limit: int = 20,
-                   response_format: str = "text") -> str:
+                   response_format: str = "json") -> str:
     """Резолвер названия города/станции в числовой код ЖД-поиска.
 
     Передай search_text, например «Москва» или «Москва Казанская». Возвращаемый
@@ -7769,7 +8421,7 @@ def train_stations(search_text: str, limit: int = 20,
 @_threaded_tool
 def train_search(origin: str, destination: str, date: str, adults: int = 1,
                  children: int = 0, limit: int = 15,
-                 response_format: str = "text") -> str:
+                 response_format: str = "json") -> str:
     """Публичный поиск поездов по числовым РЖД-кодам станций.
 
     origin/destination — числовые коды для поискового API (2000000 — Москва,
@@ -7857,24 +8509,308 @@ def train_calendar(origin: str, destination: str, limit: int = 30) -> str:
         return _err(e)
 
 
+def _flight_calendar_nearby(s, from_code: str, to_code: str, date: str, *,
+                            adults: int = 1, children: int = 0,
+                            infants: int = 0, days: int = 3):
+    """Zubat cache prices around `date` for one direction; fail-soft.
+
+    Reads the same cheap cache as flight_price_calendar (not a live search),
+    so an empty window only means «not in cache». Returns (rows, warnings).
+    """
+    try:
+        base = datetime.strptime(date, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return [], []
+    window_from = str(base - timedelta(days=days))
+    window_to = str(base + timedelta(days=days))
+    try:
+        rows = s.flight_price_calendar(
+            [from_code], [to_code], departure_from=window_from,
+            departure_to=window_to, adults=adults, children=children,
+            infants=infants)
+    except Exception as exc:
+        return [], [f"Календарь цен недоступен ({str(exc)[:120]})."]
+    out = []
+    for row in rows or []:
+        departure = str(row.get("departureDate") or "")[:10]
+        if not departure:
+            continue
+        out.append({
+            "departureDate": departure,
+            "price": row.get("price"),
+            "direct": bool(row.get("direct")),
+        })
+    out.sort(key=lambda item: item["departureDate"])
+    return out, []
+
+
+def _flight_offer_rows(s, from_code: str, to_code: str, date: str, *,
+                       adults: int, children: int, infants: int,
+                       only_bookable: bool, limit: int):
+    """One live flight search → (rows with bookingUrl, raw result, total)."""
+    res = s.flight_search(from_code, to_code, date, adults=adults,
+                          children=children, infants=infants,
+                          only_bookable=only_bookable)
+    normalized = sorted(
+        normalize_flight_inventory(res, only_bookable=only_bookable),
+        key=lambda row: row["priceDecimal"])
+    for row in normalized:
+        candidate_url = row.pop("candidateUrl", "")
+        tbank_url = _safe_tbank_url(candidate_url)
+        if not tbank_url and str(row.get("vendor")) == "Tinkoff":
+            # Bookable in the bank: a checkout link exists even when the
+            # source row carried no URL of its own.
+            tbank_url = avia_checkout_url(row.get("offerId"))
+        if tbank_url:
+            row["tbankUrl"] = tbank_url
+    shown = normalized[:limit] if limit > 0 else normalized
+    rows = [{
+        "offerId": row["offerId"],
+        "price": row["price"],
+        # Decimal → float: JSON payload must serialize as a number and the
+        # best-labels/combos logic compares it numerically.
+        "priceDecimal": float(row["priceDecimal"] or 0),
+        "currency": row["currency"],
+        "summary": row["summary"],
+        "departureAt": row["departureAt"],
+        "arrivalAt": row["arrivalAt"],
+        "durationMinutes": row.get("durationMinutes") or 0,
+        "withBaggage": row["withBaggage"],
+        "refundable": row["refundable"],
+        "vendor": row["vendor"],
+        "legs": row["legs"],
+        "bookingUrl": row.get("tbankUrl") or "",
+        **({"tbankUrl": row["tbankUrl"]} if row.get("tbankUrl") else {}),
+    } for row in shown]
+    return rows, res, len(normalized)
+
+
+def _flight_slim(row: dict) -> dict:
+    return {
+        "offerId": row.get("offerId") or "",
+        "price": row.get("price"),
+        "currency": row.get("currency") or "",
+        "summary": row.get("summary") or "",
+        "durationMinutes": row.get("durationMinutes") or 0,
+        "bookingUrl": row.get("bookingUrl") or "",
+        "labels": list(row.get("labels") or []),
+    }
+
+
+def _flight_best_labels(rows: list[dict]) -> dict:
+    """Label cheapest/fastest/optimal offers in place; return the best block."""
+    for row in rows:
+        row["labels"] = []
+    priced = [row for row in rows
+              if isinstance(row.get("priceDecimal"), (int, float))
+              and row["priceDecimal"] > 0]
+    if len(priced) < 2:
+        return {}
+    by_price = sorted(priced, key=lambda row: row["priceDecimal"])
+    by_duration = sorted(priced, key=lambda row: row.get("durationMinutes") or 10**9)
+    rank_price = {row["offerId"]: i for i, row in enumerate(by_price)}
+    rank_duration = {row["offerId"]: i for i, row in enumerate(by_duration)}
+    cheapest, fastest = by_price[0], by_duration[0]
+    optimal = min(priced, key=lambda row: (
+        rank_price[row["offerId"]] + rank_duration[row["offerId"]]))
+
+    def label(row, text):
+        for candidate in rows:
+            if candidate["offerId"] == row["offerId"]:
+                candidate["labels"].append(text)
+
+    label(cheapest, "самый дешёвый")
+    label(fastest, "самый быстрый")
+    label(optimal, "оптимальный")
+    return {"cheapest": _flight_slim(cheapest),
+            "fastest": _flight_slim(fastest),
+            "optimal": _flight_slim(optimal)}
+
+
+def _flight_forecast_field(s, search_id: str) -> dict | None:
+    if not search_id:
+        return None
+    try:
+        return {"willPriceIncrease": bool(s.flight_price_forecast(search_id))}
+    except Exception:
+        return None
+
+
+def _flight_month_window(date: str) -> tuple[str, str] | None:
+    """('2026-10-01', '2026-10-31') for month-precision '2026-10', else None."""
+    try:
+        base = datetime.strptime(date, "%Y-%m").date()
+    except (TypeError, ValueError):
+        return None
+    last = (base + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    return str(base), str(last)
+
+
+def _flight_month_response(s, fmt, from_code, to_code, month, window, *,
+                           adults, children, infants, response_format):
+    first, last = window
+    warnings: list[str] = []
+    rows: list = []
+    try:
+        rows = s.flight_price_calendar(
+            [from_code], [to_code], departure_from=first, departure_to=last,
+            adults=adults, children=children, infants=infants) or []
+    except Exception as exc:
+        warnings.append(f"Календарь цен недоступен ({_cut(str(exc), 120)}).")
+    def cal_row(row):
+        return {
+            "departureDate": str(row.get("departureDate") or "")[:10],
+            "price": row.get("price"),
+            "direct": bool(row.get("direct")),
+        }
+    month_calendar = sorted(
+        (cal_row(row) for row in rows if str(row.get("departureDate") or "")[:10]),
+        key=lambda row: row["departureDate"])
+    priced = sorted(
+        (row for row in month_calendar
+         if isinstance(row.get("price"), (int, float)) and row["price"]),
+        key=lambda row: row["price"])
+    if rows and not priced:
+        warnings.append(
+            "Кэш вернул даты без цен; пустой ответ значит «не в кэше», "
+            "а не «рейсов нет».")
+    cheapest_dates = priced[:3]
+    if fmt == "json":
+        return _json_envelope({
+            "mode": "month",
+            "fromCode": from_code,
+            "toCode": to_code,
+            "month": month,
+            "monthCalendar": month_calendar,
+            "cheapestDates": cheapest_dates,
+            "hints": [
+                {"note": "Живой поиск за месяц не запускался: выбери дату из "
+                         "cheapestDates и вызови flight_search с date=YYYY-MM-DD "
+                         "за реальными ценами и bookingUrl."},
+            ],
+        }, source="T-Bank Avia", warnings=warnings)
+    if not month_calendar:
+        return (f"В кэше нет цен {from_code}→{to_code} за {month}. Это не значит, "
+                "что рейсов нет — спроси конкретную дату через flight_search.")
+    cells = ", ".join(
+        f"{row['departureDate'][5:]}: {row['price']}" for row in month_calendar[:14])
+    out = (f"Календарь цен {from_code}→{to_code} за {month} (кэш): {cells}")
+    if cheapest_dates:
+        best = ", ".join(
+            f"{row['departureDate']} за {row['price']}" for row in cheapest_dates)
+        out += f"\n💰 Самые дешёвые даты: {best}."
+        out += ("\nНазови одну из дат — flight_search вернёт живые цены и "
+                "bookingUrl.")
+    return out
+
+
+def _flight_multi_date_response(s, fmt, from_code, to_code, dates_list, *,
+                                adults, children, infants, only_bookable):
+    by_date: dict[str, dict] = {}
+    warnings: list[str] = []
+    for date in dates_list:
+        try:
+            rows, res, total = _flight_offer_rows(
+                s, from_code, to_code, date, adults=adults, children=children,
+                infants=infants, only_bookable=only_bookable, limit=3)
+        except Exception as exc:
+            by_date[date] = {"error": _cut(_redact_value(str(exc)), 180)}
+            warnings.append(f"{date}: поиск не удался.")
+            continue
+        by_date[date] = {
+            "offers": rows,
+            "best": _flight_best_labels(rows),
+            "complete": bool(res.get("complete")),
+            "totalOffers": total,
+        }
+        if not res.get("complete"):
+            warnings.append(f"{date}: поток прерван по таймауту — не вся выдача.")
+    cheapest: dict | None = None
+    for date, block in by_date.items():
+        for row in block.get("offers") or []:
+            price = row.get("priceDecimal")
+            if (isinstance(price, (int, float)) and price > 0
+                    and (cheapest is None or price < cheapest["priceDecimal"])):
+                cheapest = dict(row, date=date)
+    if fmt == "json":
+        payload = {
+            "mode": "multi-date",
+            "fromCode": from_code,
+            "toCode": to_code,
+            "dates": dates_list,
+            "byDate": by_date,
+        }
+        if cheapest:
+            payload["cheapestDate"] = {
+                "date": cheapest["date"],
+                "price": cheapest["price"],
+                "currency": cheapest.get("currency") or "RUB",
+                "offerId": cheapest.get("offerId") or "",
+                "summary": cheapest.get("summary") or "",
+                "bookingUrl": cheapest.get("bookingUrl") or "",
+            }
+        return _json_envelope(payload, source="T-Bank Avia", warnings=warnings)
+    if not any(block.get("offers") for block in by_date.values()):
+        return f"Рейсов {from_code}→{to_code} на даты {', '.join(dates_list)} не найдено."
+    out = [f"Сравнение дат {from_code}→{to_code}:"]
+    for date in dates_list:
+        block = by_date.get(date) or {}
+        if block.get("error"):
+            out.append(f"- {date}: ошибка — {block['error']}")
+            continue
+        offers = block.get("offers") or []
+        if not offers:
+            out.append(f"- {date}: бронируемых предложений не найдено.")
+            continue
+        top = offers[0]
+        out.append(
+            f"- {date}: от {top['price']} {top.get('currency') or 'RUB'} — "
+            f"{top.get('summary') or ''}"
+            + (f" | [открыть билет]({top['bookingUrl']})"
+               if top.get("bookingUrl") else ""))
+    if cheapest:
+        out.append(
+            f"💰 Дешевле всего {cheapest['date']} за {cheapest['price']} "
+            f"{cheapest.get('currency') or 'RUB'}.")
+    return "\n".join(out)
+
+
 @_threaded_tool
 def flight_search(from_code: str, to_code: str, date: str, adults: int = 1,
                   children: int = 0, infants: int = 0,
                   only_bookable: bool = True, limit: int = 15,
-                  response_format: str = "text") -> str:
-    """Поиск авиабилетов. from_code/to_code — коды IATA (MOW, LED, SVO),
-    date — YYYY-MM-DD.
+                  response_format: str = "json", return_date: str = "",
+                  dates: list[str] | None = None,
+                  flexible_days: int = 3) -> str:
+    """Поиск авиабилетов: одна дата, месяц, несколько дат и туда-обратно.
 
-    Резолвера «название города → код» у банка нет. Коды вместе с названиями
-    отдаёт flight_history() — оттуда их и бери, а не угадывай.
+    from_code/to_code — коды IATA (MOW, LED, SVO); название города в код
+    разрешает search_iata_code(). date — YYYY-MM-DD; допустим формат месяца
+    YYYY-MM («2026-10», «найди подешевле в октябре»): живой поиск тогда не
+    запускается, возвращается monthCalendar с минимальными кэш-ценами за весь
+    месяц и cheapestDates — лучшие даты для уточняющего поиска.
+
+    return_date (YYYY-MM-DD, позже date) добавляет обратное плечо: сервер сам
+    ищет оба направления и собирает roundTripOptions — связки «туда+обратно»
+    с суммарной ценой и bookingUrl каждого плеча. dates — список 1..7 дат
+    YYYY-MM-DD: сервер сравнит их за один вызов и вернёт byDate и
+    cheapestDate. flexible_days (0–14, по умолчанию 3) расширяет окно
+    priceCalendarNearby — кэша минимальных цен по соседним датам.
+
+    offers помечены labels («самый дешёвый», «самый быстрый», «оптимальный»;
+    сводный блок best), а при свежем searchId прикладывается
+    priceForecast.willPriceIncrease — подрастёт ли цена до вылета.
+
+    Каждый бронируемый оффер содержит bookingUrl — ссылку T-Bank на страницу
+    оформления выбранного билета; показывай её пользователю.
 
     only_bookable=True (по умолчанию) — только те предложения, что бронируются
     внутри банка; их отдаёт первый же батч, поэтому поиск быстрый. False
     дочитывает весь поток: это десятки секунд и тысячи предложений, почти все —
     от партнёров, которые уводят на свой сайт.
 
-    Купить билет через MCP нельзя: подтверждённого шага бронирования и оплаты
-    нет. Это поиск и сравнение, покупка — в приложении.
+    Купить билет через MCP нельзя: bookingUrl передаёт пользователя на
+    оформление в T-Bank, подтверждённого шага бронирования и оплаты в MCP нет.
 
     Публичный метод: `login()` не нужен (подтверждено на проде — ни Bearer,
     ни sessionid в запросе нет, разницы в ответе между анонимным и вошедшим
@@ -7882,116 +8818,167 @@ def flight_search(from_code: str, to_code: str, date: str, adults: int = 1,
     try:
         fmt = _response_format(response_format)
         s = _public_session()
-        res = s.flight_search(from_code, to_code, date, adults=adults,
-                              children=children, infants=infants,
-                              only_bookable=only_bookable)
-        flights, offers = res["flights"], res["offers"]
-        if only_bookable:
-            offers = [o for o in offers if str(o.get("vendor")) == "Tinkoff"]
-        def money(o):
-            # price is {"amount": "19076.41", "currency": "RUB"}, not a number.
+        from_upper = from_code.upper().strip()
+        to_upper = to_code.upper().strip()
+        dates_list: list[str] = []
+        if dates:
+            if not 1 <= len(dates) <= 7:
+                raise TbankApiError("BAD_DATES", "dates — от 1 до 7 дат YYYY-MM-DD.")
+            for item in dates:
+                try:
+                    datetime.strptime(str(item), "%Y-%m-%d")
+                except (TypeError, ValueError):
+                    raise TbankApiError(
+                        "BAD_DATES", f"dates: {item!r} не в формате YYYY-MM-DD.")
+                if str(item) not in dates_list:
+                    dates_list.append(str(item))
+        if not 0 <= int(flexible_days) <= 14:
+            raise TbankApiError("BAD_FLEXIBLE_DAYS", "flexible_days — от 0 до 14.")
+        month_window = _flight_month_window(date) if date else None
+        if month_window and (return_date or dates_list):
+            raise TbankApiError(
+                "BAD_DATE",
+                "date=YYYY-MM (месяц) не комбинируется с return_date/dates: "
+                "сначала выбери конкретную дату из cheapestDates.")
+        if return_date:
             try:
-                return float((o.get("price") or {}).get("amount") or 0)
+                dep = datetime.strptime(date, "%Y-%m-%d").date()
+                ret = datetime.strptime(return_date, "%Y-%m-%d").date()
             except (TypeError, ValueError):
-                return 0.0
+                raise TbankApiError("BAD_DATES", "date и return_date — YYYY-MM-DD.")
+            if ret <= dep:
+                raise TbankApiError("BAD_DATES", "return_date должен быть позже date.")
+        if not date and not dates_list:
+            raise TbankApiError("BAD_DATE", "Укажи date или dates.")
 
-        offers = sorted(offers, key=lambda o: money(o) or 1e12)
-        names = ((res.get("info") or {}).get("carrierNames") or {})
+        if month_window:
+            return _flight_month_response(
+                s, fmt, from_upper, to_upper, date, month_window,
+                adults=adults, children=children, infants=infants,
+                response_format=response_format)
+        if len(dates_list) > 1:
+            return _flight_multi_date_response(
+                s, fmt, from_upper, to_upper, dates_list,
+                adults=adults, children=children, infants=infants,
+                only_bookable=only_bookable)
 
-        def leg_data(index):
-            try:
-                flight = flights[int(index)] if 0 <= int(index) < len(flights) else {}
-            except (TypeError, ValueError):
-                flight = {}
-            segments = flight.get("flightSegments") or []
-            if not segments:
-                return None
-            departure = segments[0].get("departure") or {}
-            arrival = segments[-1].get("arrival") or {}
-            carrier = (segments[0].get("carriers") or {}).get("marketing") or ""
-            return {
-                "carrier": str(names.get(carrier, carrier) or ""),
-                "fromAirport": str(departure.get("airport") or ""),
-                "toAirport": str(arrival.get("airport") or ""),
-                "departureAt": str(departure.get("time") or ""),
-                "arrivalAt": str(arrival.get("time") or ""),
-                "durationMinutes": flight.get("duration") or 0,
-                "stops": max(0, len(segments) - 1),
-            }
+        rows, res, total = _flight_offer_rows(
+            s, from_upper, to_upper, date, adults=adults, children=children,
+            infants=infants, only_bookable=only_bookable, limit=limit)
+        best = _flight_best_labels(rows)
+        forecast = _flight_forecast_field(s, str(res.get("searchId") or ""))
+        return_rows: list[dict] = []
+        round_trip: list[dict] = []
+        if return_date:
+            return_rows, _, _ = _flight_offer_rows(
+                s, to_upper, from_upper, return_date, adults=adults,
+                children=children, infants=infants,
+                only_bookable=only_bookable, limit=5)
+            _flight_best_labels(return_rows)
+            combos = sorted(
+                ({"outbound": outbound, "return": back,
+                  "totalPrice": outbound["priceDecimal"] + back["priceDecimal"]}
+                 for outbound in rows[:5] for back in return_rows[:5]),
+                key=lambda combo: combo["totalPrice"])
+            round_trip = [{
+                "totalPrice": round(combo["totalPrice"]),
+                "currency": combo["outbound"].get("currency") or "RUB",
+                "outbound": _flight_slim(combo["outbound"]),
+                "return": _flight_slim(combo["return"]),
+            } for combo in combos[:5]]
+
+        calendar, calendar_warnings = _flight_calendar_nearby(
+            s, from_upper, to_upper, date,
+            adults=adults, children=children, infants=infants,
+            days=int(flexible_days))
+        warnings = list(calendar_warnings)
+        if not res.get("complete"):
+            warnings.append("Поток прерван по таймауту — это НЕ вся выдача.")
+        if len(rows) < total:
+            warnings.append(f"Показано {len(rows)} из {total} предложений.")
+
+        def row_text(row):
+            duration = row.get("durationMinutes") or 0
+            bag = "с багажом" if row.get("withBaggage") else "только ручная кладь"
+            refund = "возврат" if row.get("refundable") else "невозвратный"
+            labels = (" | " + ", ".join(row["labels"])) if row.get("labels") else ""
+            link = (f" | [открыть билет]({row['bookingUrl']})"
+                    if row.get("bookingUrl") else "")
+            return (f"- {row['price']} {row.get('currency') or 'RUB'} | "
+                    f"{row.get('summary') or '—'}"
+                    + (f" ({duration // 60}ч{duration % 60:02d}м)" if duration else "")
+                    + f" | {bag} | {refund}{link}{labels}")
 
         if fmt == "json":
-            normalized = sorted(
-                normalize_flight_inventory(res, only_bookable=only_bookable),
-                key=lambda row: row["priceDecimal"],
-            )
-            for row in normalized:
-                candidate_url = row.pop("candidateUrl", "")
-                tbank_url = _safe_tbank_url(candidate_url)
-                if tbank_url:
-                    row["tbankUrl"] = tbank_url
-            shown = normalized[:limit] if limit > 0 else normalized
-            rows = [{
-                "offerId": row["offerId"],
-                "price": row["price"],
-                "currency": row["currency"],
-                "summary": row["summary"],
-                "departureAt": row["departureAt"],
-                "arrivalAt": row["arrivalAt"],
-                "withBaggage": row["withBaggage"],
-                "refundable": row["refundable"],
-                "vendor": row["vendor"],
-                "legs": row["legs"],
-                **({"tbankUrl": row["tbankUrl"]} if row.get("tbankUrl") else {}),
-            } for row in shown]
-            warnings = []
-            if not res.get("complete"):
-                warnings.append("Поток прерван по таймауту — это НЕ вся выдача.")
-            if len(shown) < len(normalized):
-                warnings.append(f"Показано {len(shown)} из {len(normalized)} предложений.")
-            return _json_envelope({
-                "fromCode": from_code.upper(),
-                "toCode": to_code.upper(),
+            payload = {
+                "fromCode": from_upper,
+                "toCode": to_upper,
                 "date": date,
                 "searchId": str(res.get("searchId") or ""),
                 "complete": bool(res.get("complete")),
                 "offers": rows,
-            }, source="T-Bank Avia", warnings=warnings,
-               meta={"complete": bool(res.get("complete"))})
-        if not offers:
-            return (f"Рейсов {from_code}→{to_code} на {date} не найдено"
+                "priceCalendarNearby": calendar,
+                "hints": [
+                    {"tool": "flight_price_calendar",
+                     "why": "полный диапазон дат и минимальные кэш-цены направления"},
+                    {"tool": "hotel_search",
+                     "why": "подбор отеля в городе прилёта (destination=название города)"},
+                ],
+            }
+            if best:
+                payload["best"] = best
+            if forecast:
+                payload["priceForecast"] = forecast
+            if return_date:
+                payload["returnDate"] = return_date
+                payload["returnOffers"] = return_rows
+                payload["roundTripOptions"] = round_trip
+            return _json_envelope(
+                payload, source="T-Bank Avia", warnings=warnings,
+                meta={"complete": bool(res.get("complete"))})
+
+        if not rows:
+            return (f"Рейсов {from_upper}→{to_upper} на {date} не найдено"
                     + (" среди бронируемых в банке (попробуй only_bookable=False)."
                        if only_bookable else "."))
-
-        def leg(i):
-            f = flights[i] if 0 <= i < len(flights) else {}
-            segs = f.get("flightSegments") or []
-            if not segs:
-                return ""
-            dep, arr = segs[0].get("departure") or {}, segs[-1].get("arrival") or {}
-            car = (segs[0].get("carriers") or {}).get("marketing") or ""
-            hop = f", {len(segs) - 1} пересадка" if len(segs) > 1 else " прямой"
-            dur = f.get("duration") or 0
-            return (f"{names.get(car, car)} {dep.get('airport', '')}→{arr.get('airport', '')}"
-                    f" {str(dep.get('time') or '')[11:16]}"
-                    + (f" ({dur // 60}ч{dur % 60:02d}м{hop})" if dur else hop))
-
-        def render(o):
-            idx = o.get("flights") or []
-            route = " / ".join(x for x in (leg(i) for i in idx[:2]) if x)
-            if len(idx) > 2:
-                route += f" (+{len(idx) - 2} ещё)"
-            bag = "с багажом" if o.get("withBaggage") else "только ручная кладь"
-            ref = "возврат" if o.get("refundable") else "невозвратный"
-            return (f"- {money(o):.0f} ₽ | {route or '—'} | {bag} | {ref}"
-                    + (f" | offerId={o.get('offerId')}" if o.get("offerId") else ""))
-
-        head = (f"Рейсы {from_code}→{to_code} на {date}"
+        head = (f"Рейсы {from_upper}→{to_upper} на {date}"
                 + (" (бронируемые в банке)" if only_bookable else ""))
-        tail = "" if res["complete"] else (
-            "\n⚠️ Поток прерван по таймауту — это НЕ вся выдача.")
-        return _rows_out(offers, render, limit=limit, total=len(offers),
-                         header=head, order_note="дешёвые сверху",
-                         more_hint=f"Передай limit={len(offers)}.") + tail
+        out = "\n".join(row_text(row) for row in rows)
+        if calendar:
+            cheapest = min(
+                (c for c in calendar
+                 if isinstance(c.get("price"), (int, float))),
+                key=lambda c: c["price"], default=None)
+            cells = ", ".join(
+                f"{c['departureDate'][5:]}: {c['price']}" for c in calendar[:9])
+            out += f"\n💰 Цены по соседним датам (±{int(flexible_days)} дн., кэш): {cells}"
+            if cheapest:
+                out += (f" — минимум {cheapest['departureDate']}"
+                        f" за {cheapest['price']}")
+        if best:
+            out += "\n⭐ " + "; ".join(
+                f"{key} — {block['summary']} за {block['price']} "
+                f"{block['currency'] or 'RUB'}"
+                for key, block in best.items())
+        if forecast:
+            out += ("\n📈 Прогноз: цена до вылета, скорее всего, вырастет — "
+                    "бронировать стоит сейчас." if forecast["willPriceIncrease"]
+                    else "\n📈 Прогноз: роста цены не ожидается, можно не торопиться.")
+        if round_trip:
+            combo_lines = "\n".join(
+                f"- {combo['totalPrice']} {combo['currency']} всего: "
+                f"туда {combo['outbound']['summary']} + обратно "
+                f"{combo['return']['summary']}"
+                + (f" | [туда]({combo['outbound']['bookingUrl']})"
+                   if combo["outbound"]["bookingUrl"] else "")
+                + (f" [обратно]({combo['return']['bookingUrl']})"
+                   if combo["return"]["bookingUrl"] else "")
+                for combo in round_trip)
+            out += (f"\n\nТуда-обратно (возврат {return_date}), лучшие связки:\n"
+                    + combo_lines)
+        for warning in warnings:
+            out += f"\n⚠️ {warning}"
+        return f"{head}\n{out}"
     except Exception as e:
         return _formatted_error(e, response_format, source="T-Bank Avia")
 
@@ -8065,7 +9052,7 @@ def flight_price_calendar(from_code: str, to_code: str,
                           total_days_from: int | None = None,
                           total_days_to: int | None = None,
                           limit: int = 60,
-                          response_format: str = "text") -> str:
+                          response_format: str = "json") -> str:
     """Календарь цен: минимальная цена по каждой дате вылета для направления.
 
     Публичный метод: `login()` не нужен, вызывается даже без банковской
@@ -8149,7 +9136,7 @@ def flight_price_calendar(from_code: str, to_code: str,
 
 
 @mcp.tool()
-def flight_price_forecast(search_id: str, response_format: str = "text") -> str:
+def flight_price_forecast(search_id: str, response_format: str = "json") -> str:
     """Вырастет ли минимальная цена по уже выполненному поиску до вылета.
 
     Публичный метод: `login()` не нужен (подтверждено на проде). Но сам
@@ -8180,7 +9167,7 @@ def flight_price_forecast(search_id: str, response_format: str = "text") -> str:
 
 @mcp.tool()
 def flight_schedule(from_code: str, to_code: str, date: str | None = None,
-                    limit: int = 30, response_format: str = "text") -> str:
+                    limit: int = 30, response_format: str = "json") -> str:
     """Расписание рейсов между двумя точками — таймтейбл, а не живой поиск цен.
 
     Публичный метод: `login()` не нужен (подтверждено на проде — ни Bearer,
@@ -8252,8 +9239,111 @@ def flight_schedule(from_code: str, to_code: str, date: str | None = None,
 
 
 @mcp.tool()
+def search_iata_code(query: str, limit: int = 10,
+                     response_format: str = "json") -> str:
+    """Резолвер «название города/аэропорта → IATA-коды» для flight_search().
+
+    У банка нет поиска геоданных по названию, поэтому тул объединяет
+    курируемый статический индекс популярных направлений со справочником
+    банка: каждый предложенный код перепроверяется через geodata_by_code(),
+    неподтверждённые коды отбрасываются с warning. Индекс покрывает
+    популярные города России, СНГ и мира; экзотику проверяй напрямую
+    geodata_by_code() по коду.
+
+    query — не менее 2 символов (кириллица или латиница, регистр не важен);
+    limit — максимум подсказок (1–20). Каждая подсказка содержит code
+    (его передавай в from_code/to_code), type, name, city, country и
+    airports. Публичный метод: login() не нужен."""
+    try:
+        fmt = _response_format(response_format)
+        q = str(query or "").strip()
+        if len(q) < 2:
+            raise TbankApiError(
+                "BAD_QUERY", "query должен содержать не менее 2 символов.")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 20:
+            raise TbankApiError(
+                "BAD_LIMIT", "limit должен быть целым числом от 1 до 20.")
+
+        entries = _iata_lookup(q, limit)
+        warnings: list[str] = []
+        if not entries:
+            data = {"query": q, "suggestions": []}
+            text = ("Ничего не найдено в индексе направлений. Уточни запрос "
+                    "или проверь код через geodata_by_code().")
+            if fmt == "json":
+                return _json_envelope(
+                    data, source="T-Bank Гео + индекс направлений",
+                    warnings=["Индекс направлений не содержит совпадений."])
+            return text
+
+        # Confirm every candidate code against the bank's own directory:
+        # an unconfirmed code is dropped, never guessed into the answer.
+        all_codes: list[str] = []
+        for entry in entries:
+            for code in _iata_codes_for(entry):
+                if code not in all_codes:
+                    all_codes.append(code)
+        geo: dict[str, dict] = {}
+        if all_codes:
+            try:
+                records = _public_session().geodata_by_code(all_codes[:40])
+                geo = {str(r.get("code")): r for r in records if r.get("code")}
+            except Exception as exc:
+                warnings.append(
+                    "Справочник геоданных недоступен "
+                    f"({str(exc)[:120]}); коды из индекса не подтверждены.")
+
+        suggestions: list[dict] = []
+        for entry in entries:
+            codes = _iata_codes_for(entry)
+            primary = next((c for c in codes if c in geo), codes[0])
+            if geo and primary not in geo:
+                warnings.append(
+                    f"Код {primary} для «{entry.ru}» не подтверждён "
+                    "справочником; подсказка пропущена.")
+                continue
+            record = geo.get(primary) or {}
+            names = record.get("name") or {}
+            city = record.get("city_name") or {}
+            country = record.get("country_name") or {}
+            airports = [c for c in entry.airports if c in geo] if geo else list(entry.airports)
+            suggestions.append({
+                "code": primary,
+                "type": record.get("type") or (
+                    "city" if entry.city and primary == entry.city else "airport"),
+                "name": names.get("ru") or entry.ru,
+                "nameEn": names.get("en") or entry.en,
+                "city": city.get("ru") or entry.ru,
+                "country": country.get("ru") or "",
+                "airports": airports or list(entry.airports),
+            })
+            if suggestions and len(suggestions) >= limit:
+                break
+
+        if fmt == "json":
+            return _json_envelope(
+                {"query": q, "suggestions": suggestions},
+                source="T-Bank Гео + индекс направлений", warnings=warnings)
+
+        def render(s):
+            codes = ", ".join(s["airports"][:4])
+            return (f"- {s['name']} — {s['code']} [{s['type']}]"
+                    + (f", {s['country']}" if s.get("country") else "")
+                    + (f". Аэропорты: {codes}" if codes else ""))
+
+        payload = _rows_out(
+            suggestions, render, limit=limit, total=len(suggestions),
+            header=f"IATA-коды для «{q}»",
+            order_note="по релевантности",
+            more_hint=f"Передай limit={len(suggestions)}.")
+        return "\n".join(filter(None, [payload, *(f"⚠️ {w}" for w in warnings)]))
+    except Exception as e:
+        return _formatted_error(e, response_format, source="T-Bank Гео")
+
+
+@mcp.tool()
 def geodata_by_code(codes: str | list[str], limit: int = 0,
-                    response_format: str = "text") -> str:
+                    response_format: str = "json") -> str:
     """Геоданные (город или аэропорт) по IATA-коду — справочник имён и координат.
 
     Публичный метод: `login()` не нужен (подтверждено на проде — ни Bearer,
@@ -9066,7 +10156,7 @@ def ticket_qr(order_id: str) -> str:
 def afisha_catalog(kind: str = "movie", city: str = "", date_from: str = "",
                    date_to: str = "", query: str = "", city_id: int = 0,
                    limit: int = 20, pages: int = 8,
-                   response_format: str = "text") -> str:
+                   response_format: str = "json") -> str:
     """Афиша вертикали за ПЕРИОД дат: что идёт с date_from по date_to.
 
     kind — "кино" | "концерт" | "театр". У выставок каталога по датам нет;
@@ -9135,6 +10225,7 @@ def afisha_catalog(kind: str = "movie", city: str = "", date_from: str = "",
                     event.get("eventNameTransliteration") or "")
                 if source_url:
                     row["sourceUrl"] = source_url
+                    row["url"] = source_url
                 rows.append(row)
             warnings = []
             if scanned < amount:
@@ -9149,6 +10240,14 @@ def afisha_catalog(kind: str = "movie", city: str = "", date_from: str = "",
                 "scanned": scanned,
                 "total": amount,
                 "events": rows,
+                "hints": [
+                    {"tool": "get_trip_report",
+                     "why": "включить выбранные события в страницу поездки (request.events)"},
+                    {"tool": "restaurant_search",
+                     "why": "куда пойти поесть рядом с отелем"},
+                    {"tool": "weather",
+                     "why": "погода на даты поездки"},
+                ],
             }, source="T-Bank Afisha", warnings=warnings,
                meta={"complete": scanned >= amount})
         if not events:
@@ -9212,7 +10311,7 @@ def afisha_catalog(kind: str = "movie", city: str = "", date_from: str = "",
 @_threaded_tool
 def afisha_places(kind: str = "movie", city: str = "", query: str = "",
                   city_id: int = 0, limit: int = 20, pages: int = 4,
-                  response_format: str = "text") -> str:
+                  response_format: str = "json") -> str:
     """Площадки города: кинотеатры, залы, театры, музеи — с их objectId.
 
     Это единственный способ узнать objectId площадки, не заходя через какое-то

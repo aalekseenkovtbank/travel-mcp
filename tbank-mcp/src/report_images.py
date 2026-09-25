@@ -18,6 +18,8 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 _TRUSTED_IMAGE_HOSTS = frozenset({
     "cdn.tbank.ru",
+    "cdn.t-static.ru",
+    "extranet-cdn.tinkoff.ru",
     "avatars.mds.yandex.net",
     "cdn.kassir.ru",
     "kassa.rambler.ru",
