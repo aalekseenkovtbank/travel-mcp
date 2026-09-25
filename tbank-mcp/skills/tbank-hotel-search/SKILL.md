@@ -29,43 +29,27 @@ Ask one short clarification only when a required value cannot be obtained from
  the request or a safe default. Never infer a city, hotel id, dates or budget
 from unrelated searches.
 
-## 2. Resolve the destination or hotel
+## 2. Search the inventory (destination resolves itself)
 
-Call:
-
-```text
-hotel_autocomplete(query="Париж", response_format="json")
-```
-
-Use only ids returned by the tool:
-
-- choose a location/destination id for a city or area search;
-- choose a hotel id when the user named a specific property;
-- if several same-name locations are returned, ask the user to choose;
-- do not turn a hotel id into a destination id or invent an id from a name.
-
-## 3. Inspect filters when constraints are explicit
-
-If the user specifies stars, price, area, room, meal, cancellation or asks how
-many hotels match, call `hotel_search_filters()` **before** the card search, with
-the same location, dates and guests.
-
-It returns available filter values and `filteredHotelsCount`, not hotel cards.
-Use its returned filter ids/values in the subsequent `hotel_search()` and, where
-supported, in `hotel_rates()` calls. Report the filters that were applied and the
-returned count. A generic filter catalog from `hotel_filters()` is optional; it
-is not a substitute for the date-specific `hotel_search_filters()` call.
-
-## 4. Search the inventory
-
-Call:
+Pass the city straight to the search:
 
 ```text
 hotel_search(
-  destination_id=..., checkin_date=..., checkout_date=...,
+  destination="Париж", checkin_date=..., checkout_date=...,
   adults=..., children_ages=..., response_format="json"
 )
 ```
+
+The server resolves the name via autocomplete internally and returns
+`resolvedDestination` (plus a warning listing alternatives when ambiguous).
+For an exact location id or a repeat search use `destination_id` from
+`hotel_autocomplete()`; when the user named a specific property, resolve it
+with `hotel_autocomplete()` and use its hotel id with `hotel_rates()`/`hotel_reviews()`.
+Do not invent an id from a name.
+
+When the user specifies stars, price, area or asks how many hotels match, use
+the `availableFilters` block returned by `hotel_search()` and report the count;
+a preliminary filter call is no longer part of the flow.
 
 Keep `limit` within the tool's limit (maximum 50). Treat the returned cards as an
 inventory snapshot, not as a reservation. Check `isLoadingCompleted`, `pricesFinal`,
@@ -74,21 +58,27 @@ source marked it non-final.
 
 `hotel_search()` also returns `enrichedShortlist` for the first
 `comparison_limit` cards (default 3, maximum 5). Each item already contains the
-freshly reloaded `details`, current `confirmedRate` and a ten-review
+freshly reloaded `details`, current `confirmedRate` **with a ready
+`checkoutUrl`** and a ten-review
 `reviewDigest` with **Плюсы**, **Минусы** and **Кому подходит**, in addition to
 real photos. A
 normal hotel-only answer should select from this block so the result is complete
 without redundant calls.
 
-The JSON projection starts with ready-to-render `comparisonMarkdown`, followed
-by this shortlist, and does not publish incomplete raw catalogue cards. It also
-flattens `primaryPhotoUrl`, `photoUrls`, `pluses`, `minuses`, `suitableFor` and
-`nights` onto every enriched item. For every hotel included in the visible
+The JSON projection starts with ready-to-render `comparisonMarkdown` — a
+complete markdown table (price, nightly price, room/meal, cancellation, pros,
+cons) followed by per-hotel detail blocks — plus a `map` block with an
+OpenStreetMap link and per-hotel coordinates. It does not publish incomplete
+raw catalogue cards. Every enriched item also carries the flat
+`primaryPhotoUrl`, `photoUrls`, `pluses`, `minuses`, `suitableFor` and
+`nights`. For every hotel included in the visible
 answer, render at least one of those photos and all three explicitly labelled
-review fields. Use `total` and `catalogSampleCount` only as numeric catalogue
+review fields — the simplest way is to reuse `comparisonMarkdown` verbatim.
+Use `total` and `catalogSampleCount` only as numeric catalogue
 context; they do not describe additional selectable cards.
 `hotel_search` also attaches one bounded native MCP image block for every
-enriched card, using only the trusted T-Bank image CDN. Preserve those images in
+enriched card, using only trusted T-Bank image CDNs (`cdn.tbank.ru`,
+`cdn.t-static.ru`). Preserve those images in
 the visible result even when the host summarizes the JSON text.
 
 Every hotel-returning tool includes `details` for each hotel: static name/address,
@@ -102,22 +92,15 @@ to three strong candidates with meaningfully different trade-offs; for a broad
 hotel-only request, the tool contract permits up to five. Do not force a number
 when fewer suitable properties are available.
 
-## 5. Refresh current offers before comparing
+## 3. Refresh current offers before comparing
 
-If a separately obtained hotel must replace one of the complete cards, call one:
-
-```text
-hotel_latest_offers(
-  hotel_ids=[...], checkin_date=..., checkout_date=...,
-  adults=..., children_ages=..., response_format="json"
-)
-```
-
-Match the response by `hotelId`. If an id is missing, do not show it as currently
-available. If `price.isFinalPrice` is not explicitly true, do not claim that meal,
+For a separately obtained hotel outside the enriched shortlist, re-run
+`hotel_search(destination=..., comparison_limit=...)` or call
+`hotel_rates(hotel_id=..., ...)` directly — its rate rows are the current
+offer. If `price.isFinalPrice` is not explicitly true, do not claim that meal,
 cancellation, payment or availability is confirmed.
 
-## 6. Inspect each final hotel and its rates
+## 4. Inspect each final hotel and its rates
 
 For every separately obtained hotel that replaces a complete shortlist card, call:
 
@@ -143,7 +126,7 @@ For every separately obtained hotel that replaces a complete shortlist card, cal
 
 ```text
 hotel_reviews(hotel_id=..., sort="date", sort_type="desc",
-              page_size=10, response_format="json")
+              page_size=30, response_format="json")
 ```
 
 Reviews are mandatory for the final hotel shortlist. A review page is a sample,
@@ -153,19 +136,18 @@ a visible warning that the review sample is unavailable. For a composed trip,
 summarize the sample as `reviewDigest` and pass it with the hotel item to
 `tbank-trip-generation`; the report composer does not call reviews itself.
 
-## 7. Checkout hand-off
+## 5. Checkout hand-off
 
-After `hotel_rates()` you may immediately call `hotel_checkout_url()` for each
-rate whose `bookHash` should be shown to the user; this is not required to be the
-final step and does not require a separate final confirmation. Pass:
-
-- the unchanged `bookHash` from `hotel_rates`;
-- matching hotel id and dates;
-- the guest composition used for the rate.
+Each `hotel_rates()` rate row and each enriched `confirmedRate` already carries
+a pre-attached `checkoutUrl` (the T-Bank hand-off link for that `bookHash`) —
+surface it directly when the user picks a rate. The response also carries
+`checkedAt`: a `bookHash` ages with availability, so if the checkout page shows
+a different price or the rate is gone, re-run `hotel_rates()` and surface the
+fresh links.
 
 The result is only a user hand-off URL. It does not create a booking or payment.
 
-## 8. Return the result
+## 6. Return the result
 
 Return a concise shortlist with, for each hotel:
 

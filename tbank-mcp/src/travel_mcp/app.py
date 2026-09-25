@@ -1,8 +1,9 @@
 """Travel MCP application shell (FastMCP instance, resources, prompt, tool wiring).
 
 Thin by design: the server object, the instruction resources, the one travel
-prompt and the tool-decorator that attaches title/annotations. Tool bodies live
-in ``tools/*``; session/format helpers in ``runtime``.
+prompt and the tool wiring that binds allowlisted tool bodies from the canonical
+implementation module ``src.server`` (single source of truth) onto this
+travel-only FastMCP instance with audited descriptions and annotations.
 """
 from __future__ import annotations
 
@@ -19,28 +20,46 @@ from ..instructions import InstructionDocument, instruction_documents
 
 READ, WRITE, MONEY = "read", "write", "money"
 
-# Disabled from the travel-only surface for now. Implementations stay in their
+# Disabled from the travel-only surface. Implementations stay in their
 # modules so they can be restored without reconstructing code or contracts.
+# The 2026-09 consolidation removed ceremony/catalog tools whose capability
+# now lives inside the deep search tools:
+#   hotel_search_filters/hotel_filters -> hotel_search(filters) + availableFilters
+#   hotel_latest_offers               -> hotel_search enrichment + trip brief
+#   hotel_checkout_url                -> checkoutUrl on every rate row
+#   flight_price_forecast             -> flight_search priceForecast (auto)
+#   compare_flight_prices             -> flight_search(dates=[...])
+#   compare_train_prices/compare_hotel_prices/compare_flight_hotel_prices
+#                                     -> deep tools + get_trip_report(brief)
 # Keep this list in one place: registration decorators consult it below.
 DISABLED_TOOL_NAMES = frozenset({
     "nearby_search", "flows", "format_trip_reply",
     "compose_travel_page", "render_trip_page", "render_travel_page",
     "travel_page_schema", "validate_travel_page",
+    "hotel_search_filters", "hotel_filters", "hotel_latest_offers",
+    "hotel_checkout_url", "flight_price_forecast", "compare_flight_prices",
+    "compare_train_prices", "compare_hotel_prices",
+    "compare_flight_hotel_prices",
 })
 
-# The travel-only import surface currently registers exactly these tools. Keep
-# this allowlist next to the agent-facing metadata so instructions and titles
-# cannot drift from tools/list when a module is intentionally not imported.
+# The travel-only surface registers exactly these tools. Bodies come from
+# ``src.server`` via _register_travel_tools(); the instruction fallback tools
+# are defined locally in this module. Keep this allowlist next to the
+# agent-facing metadata so instructions and titles cannot drift from
+# tools/list when a module is intentionally not registered.
+# Bank-session tools (train_calendar, trip_personalization_profile, …) stay on
+# the unified surface only: this surface has no login(), so they could never
+# succeed here and would ship a permanent dead end.
 ACTIVE_TOOL_NAMES = frozenset({
-    "compare_flight_prices", "compare_train_prices", "compare_hotel_prices",
-    "compare_flight_hotel_prices", "compose_travel_page", "flight_search",
-    "flight_price_calendar", "flight_price_forecast", "flight_schedule",
+    "flight_search",
+    "flight_price_calendar", "flight_schedule",
     "geodata_by_code", "search_iata_code",
-    "hotel_autocomplete", "hotel_search", "hotel_search_filters",
-    "hotel_latest_offers", "hotel_details", "hotel_rates", "hotel_checkout_url",
-    "hotel_reviews", "hotel_filters", "train_stations", "train_search",
-    "train_calendar", "weather", "restaurant_search", "get_trip_report",
-    "trip_personalization_profile",
+    "hotel_autocomplete", "hotel_search", "hotel_details", "hotel_rates",
+    "hotel_reviews", "train_stations", "train_search",
+    "weather", "restaurant_search", "get_trip_report",
+    # Read-only events surface: catalog, venues and schedule confirmation.
+    "afisha_catalog", "afisha_places", "place_info", "place_schedule",
+    "cinema_schedule", "concert_schedule",
     "list_instructions", "read_instruction", "get_travel_prompt",
 })
 
@@ -63,20 +82,23 @@ def _travel_server_instructions() -> str:
         "Travel Nova — MCP для планирования путешествий: авиабилеты, отели, ЖД, "
         "выгодные цены. Workflow и карточка поездки: "
         "mcp({instructions:\"travel\"}). "
-        "Начни с read_instruction(\"tbank-trip-generation\") — это общий workflow "
-        "составной поездки. Затем при необходимости загрузи "
-        "read_instruction(\"tbank-flight-search\") для авиа или "
-        "read_instruction(\"tbank-hotel-search\") для отелей. HTML и Markdown-режим "
-        "задаются output_mode у get_trip_report. "
+        "Основной путь — get_trip_report(brief={city, dateFrom, dateTo, adults, "
+        "origin?}, output_mode=\"html\" или \"markdown\"): сервер сам подберёт "
+        "отели, события, рестораны и перелёт. Полный документ request "
+        "используй, когда нужен ручной контроль. "
+        "Для деталей читай read_instruction(\"tbank-trip-generation\"), затем "
+        "при необходимости \"tbank-flight-search\" и \"tbank-hotel-search\". "
         "Если resources скрыты, вызови list_instructions(), затем "
         "read_instruction(slug). "
-        "Рестораны ищет публичный restaurant_search из Яндекс.Карт; для пустого "
-        "venues get_trip_report запускает его автоматически. Основной путь "
-        "сборки: get_trip_report(request, output_mode=\"html\" или "
-        "\"markdown\"). Каждый hotel-тул возвращает details и до трёх фото. "
-        "Перед report обязательно вызови hotel_latest_offers, hotel_rates и "
-        "hotel_reviews; неполный enrichment по умолчанию "
-        "блокирует отчёт. HTML или Markdown возвращаются из одного тула. "
+        "flight_search умеет туда-обратно (return_date), месяц (date=\"2026-10\") "
+        "и сравнение дат (dates=[...]); офферы помечены «самый дешёвый/быстрый/"
+        "оптимальный» и содержат bookingUrl. hotel_search принимает "
+        "destination=\"город\" и возвращает comparisonMarkdown, map и тарифы с "
+        "checkoutUrl; тарифы hotel_rates — checkoutUrl с checkedAt. "
+        "Рестораны ищет публичный restaurant_search из Яндекс.Карт; события и "
+        "развлечения — read-only afisha_catalog, afisha_places, place_info, "
+        "place_schedule, cinema_schedule и concert_schedule; для пустого "
+        "venues get_trip_report запускает рестораны автоматически. "
         "Checkout-ссылки только передают управление пользователю: "
         "бронирование и оплата через MCP не выполняются. Не выдумывай цены, id, "
         "расписания, наличие, фотографии или URL; executable schemas имеют "
@@ -199,7 +221,6 @@ def personalized_weekend_landing(
     date_to: str,
     hotel_query: str = "",
     adults: int = 2,
-    spending_lookback_days: int = 60,
     output_mode: Literal["html", "chat"] = "html",
 ) -> str:
     """Build the agent prompt for a personalized travel landing page."""
@@ -220,15 +241,14 @@ def personalized_weekend_landing(
     )
     return f"""Подготовь персональный лендинг для поездки в {city} с {date_from} по {date_to}.
 Состав поездки: {adults} взрослых; транспорт и отели ищи с adults={adults}.
-Период анализа трат: последние {spending_lookback_days} дней.
 {hotel_part}
 
 Работай по этому сценарию:
-1. Вызови trip_personalization_profile() и используй только агрегированные рекомендации. Если профиль недоступен, продолжай по живым предложениям и добавь предупреждение.
-2. Подбери транспорт туда и обратно через flight_search или train_search. Для гибких дат используй соответствующий compare_*; для прогноза передай searchId из flight_search в flight_price_forecast(). Это только поиск: не утверждай, что билет куплен. Сохрани только URL и идентификаторы, которые вернул источник.
-3. Подбери отели через hotel_autocomplete, hotel_search, hotel_latest_offers, hotel_rates и hotel_reviews. Каждый hotel-тул уже возвращает details с адресом, описанием, удобствами и максимум тремя фотографиями; hotel_details используй только для повторной или расширенной загрузки. Для финальной поездки собери до трёх выбранных вариантов с возрастающими полными ценами; конкретные условия подтверждай только финальной ценой. Для каждого варианта передай facilities, room, meal, cancellation, payment, reviewCount и reviewDigest. Если источник не вернул часть сведений, добавь warning с названием и id отеля. После hotel_rates() можно сразу получить hand-off URL через hotel_checkout_url() с неизменённым bookHash.
-4. Вызови restaurant_search() с координатами выбранного отеля или оставь venues пустым: get_trip_report() выполнит тот же публичный поиск Яндекс.Карт автоматически.
-5. Собери request только из фактических данных и передай его в get_trip_report(). Не добавляй необязательные данные без источника и не вызывай report до завершения обязательного hotel enrichment. По умолчанию report отклоняет неполные карточки. allow_incomplete_after_source_failure=true допустим только после фактической ошибки hotel-инструмента и с конкретным warning для каждого затронутого отеля.
+1. Основной путь — один вызов get_trip_report(brief={{city: "{city}", dateFrom: "{date_from}", dateTo: "{date_to}", adults: {adults}, origin: "<город вылета, если известен>"}}, output_mode="html"): сервер сам подберёт транспорт, отели, события и рестораны. Проверь его warnings и при неполных данных дострой вручную.
+2. Транспорт вручную: flight_search(from_code, to_code, date, return_date=...) — там-обратно одним вызовом; для месяца передай date="YYYY-MM", для сравнения дат dates=[...]. Каждый бронируемый оффер уже содержит bookingUrl и метки «самый дешёвый/быстрый/оптимальный». Это только поиск: не утверждай, что билет куплен.
+3. Отели вручную: hotel_search(destination="{city}", ...) — первые карточки уже enriched (details, тариф с checkoutUrl, фото, отзывы); hotel_rates/hotel_reviews — для отдельного отеля. Карточки передавай как есть: get_trip_report сам смаппит details/imageUrls/confirmedRate/pluses и догрузит фотографии.
+4. restaurant_search() с координатами выбранного отеля необязателен: для пустого venues get_trip_report() выполнит тот же публичный поиск Яндекс.Карт автоматически.
+5. Собери request только из фактических данных и передай его в get_trip_report(). Неполный enrichment не блокирует страницу: недостающие поля превращаются в warnings, а фотографии догружаются на сервере; strict=true возвращает жёсткий режим. Фактические сбои источников документируй в request.warnings.
 6. {output_part} Не создавай отдельный HTML-проект и не пиши файлы. Checkout-ссылка не означает бронь или оплату.
 7. Не выдумывай цены, id, расписания, наличие, фотографии или URL. Цены снабжай временем проверки."""
 
@@ -237,35 +257,30 @@ _untraced_tool = mcp.tool
 # Explicit descriptions are the stable MCP contract. Function docstrings remain
 # useful for developers, but hosts receive these short, audited descriptions.
 TOOL_DESCRIPTIONS: dict[str, str] = {
-    "flight_search": "Ищет авиапредложения и возвращает цены, сегменты, offerId и searchId. from_code/to_code — IATA, date — YYYY-MM-DD; adults/children/infants задают состав, only_bookable ограничивает предложения T-Bank, limit — размер выдачи. response_format=json возвращает структурированный результат; поиска брони и оплаты нет.",
-    "search_iata_code": "Разрешает название города или аэропорта в IATA-коды. query — не менее 2 символов, limit ограничен 20; результат содержит code, name, city, country и type. Это read-only резолвер без бронирования и оплаты.",
-    "flight_price_calendar": "Возвращает кэш минимальных цен по датам вылета. Коды IATA и типы from_kind/to_kind задают направление; диапазоны дат, обратные даты, длительность и фильтры ограничивают выборку. Это не живой тариф; пустой кэш не означает отсутствие рейсов.",
-    "flight_price_forecast": "Читает сигнал изменения цены для уже выполненного flight_search. Передай search_id из ответа поиска; новый поиск не запускается, сигнал не гарантирует изменение тарифа. Метод read-only и не бронирует билет.",
-    "flight_schedule": "Возвращает расписание выполняемых рейсов по IATA-направлению. date необязателен и сужает расписание до дня; minPrice — ориентир, не гарантия тарифа. limit ограничивает число рейсов, response_format=json возвращает структуру.",
+    "flight_search": "Поиск авиабилетов: одна дата, месяц (date=\"2026-10\" — календарь цен и лучшие даты), список дат dates (сравнение дат за один вызов) и туда-обратно (return_date — сервер ищет оба плеча и собирает roundTripOptions с суммарной ценой). from_code/to_code — IATA, flexible_days расширяет окно priceCalendarNearby. Офферы содержат bookingUrl и labels («самый дешёвый», «самый быстрый», «оптимальный», блок best); при свежем searchId прикладывается priceForecast. Бронирования и оплаты нет.",
+    "search_iata_code": "Разрешает название города или аэропорта в IATA-коды (словарь банка: 5k+ аэропортов, группировка городов). query — не менее 2 символов, limit ограничен 20; результат содержит code, name, city, country, type и airports-соседей, подтверждённые справочником банка. Read-only резолвер.",
+    "flight_price_calendar": "Возвращает кэш минимальных цен по датам вылета. Коды IATA и типы from_kind/to_kind задают направление; диапазоны дат, обратные даты, длительность и фильтры ограничивают выборку. Это не живой тариф; пустой кэш не означает отсутствие рейсов. Для конкретной даты используй flight_search.",
+    "flight_schedule": "Возвращает расписание выполняемых рейсов по IATA-направлению. date необязателен и сужает расписание до дня; minPrice — ориентир, не гарантия тарифа. limit ограничивает число рейсов; по умолчанию json, text доступен явным параметром response_format.",
     "geodata_by_code": "Проверяет IATA-коды и возвращает названия, координаты, country/city codes и timezone. codes — один код или список, limit ограничивает записи; неизвестный код даёт ошибку. Метод только читает справочник.",
-    "compare_flight_prices": "Сравнивает живые авиапредложения максимум по 7 датам и возвращает варианты и дельты цен. dates — YYYY-MM-DD; max_stops, max_duration_minutes, baggage_required, refundable_required, sort_by и limit ограничивают результат. Неполные даты и lowest observed помечаются в warnings.",
-    "train_stations": "Разрешает название города или станции в числовой searchCode для train_search. search_text — произвольный запрос, limit ограничивает подсказки; response_format=json возвращает stations и warnings. Бронирование не выполняется.",
+    "train_stations": "Разрешает название города или станции в числовой searchCode для train_search. search_text — произвольный запрос, limit ограничивает подсказки; по умолчанию json (stations и warnings), text доступен явным параметром response_format. Бронирование не выполняется.",
     "train_search": "Ищет поезда по числовым кодам origin/destination и дате. date — YYYY-MM-DD, adults/children задают пассажиров, limit — 0 или до 100; результат содержит расписание, минимальные цены и места. MCP не бронирует и не оплачивает.",
-    "train_calendar": "Возвращает доступные даты продажи по паре числовых searchCode станций. origin и destination обязательны, limit ограничивает выдачу; пустой результат не доказывает причину отсутствия данных. Метод read-only.",
-    "compare_train_prices": "Сравнивает поезда по 1–5 датам и возвращает группы, тарифы и дельты. origin/destination — searchCode из train_stations; limit и max_duration_minutes фильтруют выдачу. Неполные даты и lowest observed отражаются в warnings.",
-    "hotel_autocomplete": "Находит локации и отели с id для следующих hotel-вызовов. Каждая hotel-подсказка содержит details с адресом, описанием, удобствами и до 3 фото. query должен содержать не менее 3 символов, limit ограничивает подсказки; для hotel_search используй id локации. Бронь и оплата не выполняются.",
-    "hotel_search": "Ищет доступные отели и предварительные цены на даты. Для первых comparison_limit карточек (1–5, по умолчанию 3) сразу повторно загружает полные details, актуальный тариф и 10 последних отзывов; готовые карточки возвращаются в enrichedShortlist и comparisonMarkdown. destination_id берётся из autocomplete, даты — YYYY-MM-DD, adults 1–6, limit 1–50; children_ages принимает CSV или JSON-массив. Нефинальные цены и неполная выдача отмечаются; MCP не бронирует.",
-    "hotel_search_filters": "Возвращает доступные фильтры и filteredHotelsCount для локации, дат и состава гостей. filters — объекты filterId/value, limit отсутствует; метод не возвращает карточки, после него вызови hotel_search. Только чтение.",
-    "hotel_latest_offers": "Перепроверяет цены и условия shortlist отелей одним запросом. Каждый hotel item содержит details и до 3 фото. hotel_ids — 1–1000 id, даты и adults должны совпадать с поиском; filters ограничивают запрос. При price.isFinalPrice=false питание, оплату, отмену и наличие не считай подтверждёнными.",
-    "hotel_details": "Возвращает статическую карточку отеля: адрес, описание, часы, удобства и HTTPS-фото из источника. hotel_id — числовой id, max_images — 1–12 (по умолчанию 3); response_format=json даёт структурированные поля для страницы. Наличие тарифа и бронь не проверяются.",
-    "hotel_rates": "Возвращает hotelDetails с детальной карточкой и до 3 фото, а также комнаты и актуальные тарифы с bookHash, ценой, питанием, оплатой и отменой. hotel_id и даты обязательны, проживание 1–30 ночей, adults 1–6, limit 1–100; filters берутся из hotel_filters. Запрос read-only.",
-    "hotel_checkout_url": "Строит hand-off ссылку T-Bank для тарифа из hotel_rates(). Можно вызвать сразу после поиска тарифов; передай book_hash без изменений, совпадающие hotel_id/даты/guests. rate_confirmed оставлен для совместимости и не является обязательным финальным подтверждением; ссылка не создаёт бронь и не списывает деньги.",
+    "hotel_autocomplete": "Находит локации и отели с id для следующих hotel-вызовов. Каждая hotel-подсказка содержит details с адресом, описанием, удобствами и до 3 фото. query должен содержать не менее 3 символов, limit ограничивает подсказки; для hotel_search используй id локации или просто destination=название. Бронь и оплата не выполняются.",
+    "hotel_search": "Ищет доступные отели: передай destination=\"Сочи\" (сервер сам разрешит город) или destination_id из hotel_autocomplete, даты YYYY-MM-DD и взрослых. Для первых comparison_limit карточек (1–5, по умолчанию 3) сразу загружает полные details, подтверждённый тариф (включая checkoutUrl) и выборку свежих отзывов с цитатами: enrichedShortlist + comparisonMarkdown (готовая таблица) + map (OpenStreetMap с точками отелей). Карточка содержит url, rating, фото, плюсы/минусы. MCP не бронирует.",
+    "hotel_details": "Возвращает статическую карточку отеля: адрес, описание, часы, удобства и HTTPS-фото из источника. hotel_id — числовой id, max_images — 1–12 (по умолчанию 3); по умолчанию json со структурированными полями для страницы, text доступен явным параметром. Наличие тарифа и бронь не проверяются.",
+    "hotel_rates": "Возвращает hotelDetails с детальной карточкой и до 3 фото, а также комнаты и актуальные тарифы с bookHash, ценой, питанием, оплатой, отменой и готовым checkoutUrl у каждой tariff-строки. checkedAt фиксирует время проверки: если страница показывает другую цену — повтори вызов, строки придут со свежими ссылками. hotel_id и даты обязательны, проживание 1–30 ночей, adults 1–6. Запрос read-only.",
     "hotel_reviews": "Возвращает hotelDetails с детальной карточкой и до 3 фото, а также страницу отзывов с сортировкой и cursor-пагинацией. hotel_id обязателен, page_size 1–50; cursor следующей страницы передавай без изменений, search_text поддерживает фильтр onlyPhotos. Отзывы не подтверждают условия тарифа.",
-    "hotel_filters": "Возвращает общий каталог фильтров для UI и hotel_rates. max_chars ограничивает текст, 0 возвращает весь ответ; доступность на конкретные даты этот метод не проверяет.",
-    "compare_hotel_prices": "Сравнивает отели по 1–7 окнам проживания и возвращает цены, группы и дельты. Каждый item содержит details и до 3 фото. windows задают даты, destination_id — локацию, фильтры и limit ограничивают результат. На каждое окно выполняется один bounded search; неполные данные отмечаются, автоматических повторов нет.",
-    "compare_flight_hotel_prices": "Сравнивает два перелёта и отель по 1–3 окнам и возвращает bundleTotal с дельтами. Сумма включает только outbound, return и отель; фильтры и budget_rub ограничивают варианты. Каждый item содержит hotelDetails с адресом, описанием, удобствами и максимум тремя фотографиями; для get_trip_report дополнительно вызови hotel_latest_offers, hotel_rates и hotel_reviews.",
     "weather": "Возвращает forecast или climate по координатам и диапазону дат. city — подпись, latitude/longitude — координаты, date_from/date_to — YYYY-MM-DD с диапазоном до 30 дней; kind в результате различает прогноз и ERA5-оценку. Частичный ответ сопровождается warnings.",
-    "trip_personalization_profile": "Считает агрегированные бюджетные ориентиры и предпочтения поездки без сырых операций. Вход задаёт транспорт, ночи, период и явные бюджеты; актуальные цены можно передать как fallback. Ответ содержит агрегаты и warnings, а не банковские записи.",
     "restaurant_search": "Ищет рестораны в публичной выдаче Яндекс.Карт рядом с координатами или адресом. Возвращает report-ready карточки с рейтингом, числом отзывов, фото, часами и sourceUrl; банковская сессия не используется.",
-    "get_trip_report": "Валидирует готовый request trip-page/v2 или hotel-page/v1 и возвращает html или markdown по output_mode. До вызова для каждого финального отеля обязательны hotel_latest_offers, hotel_rates и hotel_reviews; facilities и фотографии возьми из встроенного details любого hotel-тула. По умолчанию неполный enrichment блокирует отчёт. allow_incomplete_after_source_failure допустим только после фактической ошибки источника с конкретным warning для каждого отеля. События получи прямым afisha_catalog и передай в request.events. Для пустого venues report автоматически ищет рестораны Яндекс.Карт вокруг выбранного отеля; файлов, бронирования и оплаты нет.",
+    "get_trip_report": "Готовая страница поездки: html или markdown по output_mode. Краткая форма — brief={city, dateFrom, dateTo, adults, origin?}: сервер сам подберёт 3 enriched-отеля (тариф с checkoutUrl, фото, отзывы), события Афиши, рестораны и, при origin, перелёт туда-обратно — один вызов вместо цепочки из 15+. Полный request (trip-page/v2 / hotel-page/v1) принимается как раньше: карточки отелей в форме hotel-инструментов, включая bare-id; маппинг и догрузка фотографий на сервере. Неполный enrichment превращается в warnings; strict=true — жёсткий режим. Файлов, бронирования и оплаты нет.",
     "list_instructions": "Возвращает каталог travel-only инструкций, если клиент не показывает resources. Результат содержит доступные slug и порядок чтения; банковские и отключённые вертикали в каталог не входят.",
     "read_instruction": "Возвращает один travel-only документ по slug из list_instructions. Передай server, index или slug из каталога; неизвестный slug возвращает ошибку и каталог. Внешних действий нет.",
     "get_travel_prompt": "Возвращает параметризованный prompt для поиска транспорта, отелей и страницы поездки. city/date_from/date_to обязательны, adults 1–6, output_mode — html или chat; prompt только инструктирует агента и ничего не бронирует.",
+    "afisha_catalog": "События и развлечения города по датам: кино, концерты, спектакли, выставки. kind задаёт категорию (movie по умолчанию, concert, theatre, exhibition), city — название города, date_from/date_to — YYYY-MM-DD. Карточки содержат название, даты, цены от, url (ссылка на событие) и imageUrl (постер). Read-only, без брони и оплаты.",
+    "afisha_places": "Площадки города: кинотеатры, театры, концертные залы. kind задаёт тип, query ищет по названию, city ограничивает город; возвращает place_id, название, адрес и координаты для place_info и place_schedule. Только чтение.",
+    "place_info": "Детальная карточка площадки по object_id из afisha_places или search: адрес, координаты, описание. Read-only справочник.",
+    "place_schedule": "Сеансы и события площадки по object_id и датам. Возвращает расписание залов; подтверждение сеансов для финального ответа делай через cinema_schedule/concert_schedule. Только чтение.",
+    "cinema_schedule": "Сеансы кино по event_id из afisha_catalog и датам; cinema — objectId кинотеатра из afisha_places. Подтверждает время сеансов и цены. Бронирование мест не выполняется.",
+    "concert_schedule": "Сеансы концертов и спектаклей по event_id из afisha_catalog. kind — concert или spectacle; возвращает даты, площадки и цены от. Read-only подтверждение расписания.",
 }
 
 TOOL_KINDS: dict[str, tuple[str, str]] = {
@@ -275,32 +290,27 @@ TOOL_KINDS.update({
     "flight_search": ("Поиск авиабилетов", READ),
     "search_iata_code": ("Резолвер IATA-кодов", READ),
     "flight_price_calendar": ("Календарь цен", READ),
-    "flight_price_forecast": ("Прогноз цены", READ),
     "flight_schedule": ("Расписание рейсов", READ),
     "geodata_by_code": ("Геоданные по IATA-коду", READ),
     "train_stations": ("Резолвер ЖД-станций", READ),
     "train_search": ("Поиск поездов", READ),
-    "train_calendar": ("Календарь ЖД", READ),
     "hotel_autocomplete": ("Поиск направления или отеля", READ),
     "hotel_search": ("Поиск доступных отелей", READ),
-    "hotel_search_filters": ("Доступные фильтры отелей", READ),
-    "hotel_latest_offers": ("Актуальные предложения отелей", READ),
     "hotel_details": ("Карточка отеля", READ),
     "hotel_rates": ("Тарифы отеля", READ),
-    "hotel_checkout_url": ("Ссылка на тариф отеля", READ),
     "hotel_reviews": ("Отзывы об отеле", READ),
-    "hotel_filters": ("Каталог фильтров отелей", READ),
-    "compare_flight_prices": ("Сравнение авиабилетов", READ),
-    "compare_train_prices": ("Сравнение поездов", READ),
-    "compare_hotel_prices": ("Сравнение отелей", READ),
-    "compare_flight_hotel_prices": ("Сравнение перелёта и отеля", READ),
     "weather": ("Погода и климат", READ),
     "restaurant_search": ("Рестораны Яндекс.Карт", READ),
-    "trip_personalization_profile": ("Агрегированный профиль поездки", READ),
     "get_trip_report": ("Готовый дайджест поездки", READ),
     "list_instructions": ("Каталог инструкций", READ),
     "read_instruction": ("Текст инструкции", READ),
     "get_travel_prompt": ("Prompt поездки", READ),
+    "afisha_catalog": ("Афиша событий и развлечений", READ),
+    "afisha_places": ("Площадки города", READ),
+    "place_info": ("Карточка площадки", READ),
+    "place_schedule": ("Сеансы площадки", READ),
+    "cinema_schedule": ("Сеансы кино", READ),
+    "concert_schedule": ("Сеансы концертов и спектаклей", READ),
 })
 
 def _annotations_for(name: str) -> ToolAnnotations:
@@ -358,3 +368,59 @@ def _threaded_tool(fn):
         return await asyncio.to_thread(fn, *args, **kwargs)
 
     return mcp.tool()(offloaded)
+
+
+# --- Local fallback tools (for hosts that hide resources/prompts) ----------
+
+@_traced_tool()
+def list_instructions() -> list[dict[str, str]]:
+    """Catalogue of travel-only instruction documents: slug, title, description."""
+    return travel_instruction_catalog()
+
+
+@_traced_tool()
+def read_instruction(slug: str) -> str:
+    """One travel-only instruction document by slug from list_instructions()."""
+    return travel_instruction_text(slug)
+
+
+@_traced_tool()
+def get_travel_prompt(
+    city: str,
+    date_from: str,
+    date_to: str,
+    hotel_query: str = "",
+    adults: int = 2,
+    output_mode: Literal["html", "chat"] = "html",
+) -> str:
+    """Parameterized agent prompt for a personalized trip landing page."""
+    return personalized_weekend_landing(
+        city, date_from, date_to, hotel_query, adults, output_mode,
+    )
+
+
+_LOCAL_TOOL_NAMES = frozenset({
+    "list_instructions", "read_instruction", "get_travel_prompt",
+})
+
+
+def _register_travel_tools() -> None:
+    """Bind allowlisted tool bodies from the canonical implementation module.
+
+    Tool bodies live exactly once in ``src.server`` (plus its helper modules);
+    this travel-only surface re-registers the allowlisted subset with the
+    audited descriptions, titles and annotations maintained here. A name that
+    is allowlisted but missing from ``src.server`` fails loudly at import time
+    instead of silently disappearing from tools/list.
+    """
+    from .. import server as _server_module
+    for name in sorted(ACTIVE_TOOL_NAMES - _LOCAL_TOOL_NAMES):
+        fn = getattr(_server_module, name, None)
+        if fn is None:
+            raise RuntimeError(
+                f"travel surface: tool {name!r} is allowlisted but has no "
+                f"implementation in src.server")
+        _traced_tool()(fn)
+
+
+_register_travel_tools()

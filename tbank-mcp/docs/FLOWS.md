@@ -489,9 +489,20 @@ already holds, and wants none of the native query context — which is what the
 
 ## 14. Flights — searching, and only searching
 
-`flight_search(from_code, to_code, date, only_bookable)`, `flight_history()`,
-`flight_price_calendar(from_code, to_code, ...)`, `flight_price_forecast(search_id)`,
-`flight_schedule(from_code, to_code, date)`.
+`flight_search(from_code, to_code, date, return_date, dates, flexible_days,
+only_bookable)`, `flight_history()`, `flight_price_calendar(from_code, to_code,
+...)`, `flight_price_forecast(search_id)`, `flight_schedule(from_code, to_code,
+date)`.
+
+`flight_search` is the DEEP tool: `return_date` runs both legs and pairs them
+into `roundTripOptions` (total price, per-leg `bookingUrl`); `date="YYYY-MM"`
+answers month-level asks («подешевле в октябре») with a cached `monthCalendar`
+and `cheapestDates` WITHOUT a live search; `dates=[...]` (up to 7) compares
+dates in one call; `flexible_days` (0–14, default 3) widens the automatic
+`priceCalendarNearby` window; offers are labelled «самый дешёвый» / «самый
+быстрый» / «оптимальный» (block `best`) and a fresh `searchId` yields an
+automatic fail-soft `priceForecast` — the standalone forecast tool remains on
+the unified surface only.
 
 `flight_search`, `flight_price_calendar`, `flight_price_forecast` and
 `flight_schedule` are all PUBLIC — confirmed live against prod with no
@@ -529,10 +540,16 @@ to one day, and even then it is an indicative floor, not a live offer. It
 answers "what flies MOW→LED and when" before `flight_search` answers "what
 does it cost on this exact date".
 
-> **There is no name→IATA resolver anywhere in the captures.** `flight_history()`
-> is the one place a code comes back with its name; take codes from there rather
-> than guessing. And buying is not supported — no confirmed booking or payment
-> step exists, so this searches and compares, nothing more.
+> **Name→IATA resolution** is served by `search_iata_code()` — the bank's own
+> airports dictionary shipped as `src/assets/iata_airports.json` (5k+ active
+> entries: ru/en names plus a derived integer `group` marking same-city
+> airports) plus a small city-name supplement, confirmed against the bank's
+> geodata directory at call time; `flight_history()` also returns codes WITH
+> names for the current session. And buying is not supported — no confirmed
+> booking or payment step exists, so this searches and compares, nothing more.
+> `flight_search()` embeds a `bookingUrl` (T-Bank checkout hand-off) per
+> bookable offer plus a `priceCalendarNearby` cache block; for full date
+> ranges use `flight_price_calendar()`.
 
 ## 15. Rail — searching trains
 
@@ -572,46 +589,49 @@ do not use it as a station resolver.
    доступность проверяй через `hotel_latest_offers()` или `hotel_rates()`.
    Пустой список — штатный результат; исходный отель в выдачу не входит.
    Запрос идёт через Hotels web gateway `hotels.tbank.ru/bff/api/v1/i2i/`.
-1. `hotel_autocomplete(query)` → локации и конкретные отели с их id. Для
-   `hotel_search()` используй id локации, не придумывай его по названию.
-2. `hotel_search(destination_id, checkin_date, checkout_date, adults,
-   children_ages, comparison_limit)` → доступность и цены. Даты — `YYYY-MM-DD`, возраста детей —
+1. `hotel_autocomplete(query)` → локации и конкретные отели с их id. На
+   travel-поверхности он нужен в основном для конкретного отеля; город можно
+   передать в `hotel_search(destination=...)` напрямую — сервер разрешит его
+   этим же autocomplete внутри себя и вернёт `resolvedDestination` (при
+   неоднозначности — warning с альтернативами).
+2. `hotel_search(destination | destination_id, checkin_date, checkout_date,
+   adults, children_ages, comparison_limit)` → доступность и цены. Даты — `YYYY-MM-DD`, возраста детей —
    строка `5,12` или JSON `[5,12]`. Сервер ждёт `isLoadingCompleted`, обновляет
    нефинальные офферы и возвращает не больше 50 карточек. Это каталог отелей
    (страницы по 50), не поток из сотен тысяч тарифов. Первые
    `comparison_limit` карточек (3 по умолчанию, максимум 5) одновременно
-   повторно загружают статические details, тарифы и выборку из 10 отзывов и
+   повторно загружают статические details, тарифы (с готовым `checkoutUrl` и
+   одним bounded retry при сбое) и выборку из 10 отзывов и
    возвращаются в `enrichedShortlist` с полями `confirmedRate` и
-   `reviewDigest`. Для JSON этот
-   блок идёт после готового `comparisonMarkdown`; неполные сырые карточки наружу
+   `reviewDigest`. JSON-ответ содержит готовую таблицу `comparisonMarkdown`
+   (цена/за ночь/тариф/отмена/плюсы/минусы + детальные блоки и фото) и блок
+   `map` (ссылка OpenStreetMap и координаты отелей); неполные сырые карточки наружу
    не публикуются. На каждой карточке также есть плоские
    `primaryPhotoUrl`, `photoUrls`, `pluses`, `minuses`, `suitableFor` и `nights`.
    `total` и `catalogSampleCount` — только числовая сводка каталога, а не
    дополнительные варианты. В видимом сравнении покажи минимум одно фото и все
    три review-поля для каждого включённого отеля. Кроме URL, `hotel_search`
-   прикладывает по одному bounded нативному MCP image-блоку на обогащённый отель.
-3. `hotel_search_filters(location_id, checkin_date, checkout_date, adults,
-   children_ages, filters, map_frame_input, favorite_hotel_ids, language)` →
-   availability-aware фильтры и `filteredHotelsCount` для этих дат и гостей.
-   Вызывай при фильтрации/поиске на карте; значения имеют форму
-   `{filterId, value: [...]}`. Это Hotels Search API `searchFilters_v3`, а не
-   статический `hotel_filters()`.
-4. `hotel_latest_offers(hotel_ids, checkin_date, checkout_date, location_id,
-   adults, children_ages, filters)` → одним запросом актуальные цены, наличие,
-   питание, оплату и отмену для шорт-листа. Вызывай непосредственно перед тем,
-   как сравнивать эти изменчивые условия. При `price.isFinalPrice=false` остальные
-   условия по контракту не подтверждены.
+   прикладывает по одному bounded нативному MCP image-блоку на обогащённый отель
+   (доверенные CDN банка: `cdn.tbank.ru`, `cdn.t-static.ru`).
+3. `hotel_search_filters(...)` и `hotel_filters()` → (только единая
+   поверхность) availability-aware и статические фильтры; travel-поток
+   использует `availableFilters` из ответа `hotel_search`.
+4. `hotel_latest_offers(hotel_ids, ...)` → (только единая поверхность)
+   перепроверка цен shortlist одним запросом; travel-поток повторно вызывает
+   `hotel_search` или `hotel_rates`.
 5. `hotel_details(hotel_id, max_facilities, max_images)` → повторная или
    расширенная загрузка отдельной карточки; адрес, описание, время заезда/выезда,
    удобства и до `max_images` официальных HTTPS-фотографий в `imageUrls`.
 6. `hotel_rates(hotel_id, checkin_date, checkout_date, adults, children_ages,
    filters)` → комнаты и все актуальные тарифы выбранного отеля: полная цена,
-   питание, способ оплаты, правила отмены и доступность. `filters` — массив из
-   `hotel_filters()`; без него возвращаются все тарифы.
-7. Покажи тарифы пользователю и уточни конкретный выбор. Только после явного
-   выбора вызови `hotel_checkout_url(..., book_hash, rate_confirmed=true)`, передав
-   `bookHash` выбранного тарифа из `hotel_rates()` без изменений. Тул локально
-   создаёт ссылку на страницу оформления, но не открывает её и не создаёт бронь.
+   питание, способ оплаты, правила отмены и доступность. Каждая tariff-строка
+   с `bookHash` несёт готовый `checkoutUrl`; `checkedAt` фиксирует время
+   проверки — bookHash протухает вместе с доступностью, при изменившейся цене
+   повтори вызов за свежими ссылками. `filters` — массив вида `availableFilters`
+   из ответа `hotel_search`; без него возвращаются все тарифы.
+7. Покажи тарифы пользователю и уточни конкретный выбор: у каждой tariff-строки
+   уже есть `checkoutUrl` (hand-off в T-Bank); отдельный
+   `hotel_checkout_url()` остаётся только на единой поверхности.
 8. `hotel_reviews(hotel_id, source_code, sort, sort_type, cursor, page_size,
    search_text)` → страница отзывов. Для следующей страницы передай вернувшийся
    `cursor` без изменений; `search_text="onlyPhotos"` оставляет отзывы с фото.
@@ -619,20 +639,20 @@ do not use it as a station resolver.
    `hotel_search()`. Если финальный shortlist содержит другие отели, выполни для
    них шаги 4, 6 и 8. Видимый ответ оформи по каноническому разделу
    [«Обзор отзывов»](TRAVEL_OUTPUT_MODES.md#обзор-отзывов).
-9. `hotel_filters()` → общий каталог фильтров для UI/rates; он не учитывает
-   конкретные даты, гостей и доступность предложений.
-10. Для итогового `get_trip_report()` передай по каждому финальному отелю
-    `reviewCount`, `facilities`, `room`, `meal`, `cancellation`, `payment` и
-    структурированный `reviewDigest`. Если любой блок отсутствует, report по
-    умолчанию вернёт `HOTEL_ENRICHMENT_REQUIRED` без итоговой страницы. Только
-    после фактической ошибки hotel-инструмента повтори вызов с
-    `allow_incomplete_after_source_failure=true` и конкретным warning с названием
-    или id каждого затронутого отеля.
-11. Для ресторанного блока вызови `restaurant_search(city, latitude,
-    longitude, radius_meters=1800, limit=5, response_format="json")` с
-    координатами выбранного отеля и передай `data.restaurants` в `venues`.
-    Карточки уже содержат id, координаты, рейтинг, число отзывов, фото, часы и
-    прямой `sourceUrl` Яндекс.Карт. Если `venues` пуст, `get_trip_report()`
+9. Для итогового `get_trip_report()` передай по каждому финальному отелю
+   `reviewCount`, `facilities`, `room`, `meal`, `cancellation`, `payment` и
+   структурированный `reviewDigest` — enriched-карточки `hotel_search` уже
+   несут эти данные. Если любой блок отсутствует, report по
+   умолчанию вернёт `HOTEL_ENRICHMENT_REQUIRED` без итоговой страницы. Только
+   после фактической ошибки hotel-инструмента повтори вызов с
+   `allow_incomplete_after_source_failure=true` и конкретным warning с названием
+   или id каждого затронутого отеля. Краткая форма `get_trip_report(brief=...)`
+   собирает весь документ на сервере и этим цепочкам не нужна.
+10. Для ресторанного блока вызови `restaurant_search(city, latitude,
+     longitude, radius_meters=1800, limit=5, response_format="json")` с
+     координатами выбранного отеля и передай `data.restaurants` в `venues`.
+     Карточки уже содержат id, координаты, рейтинг, число отзывов, фото, часы и
+     прямой `sourceUrl` Яндекс.Карт. Если `venues` пуст, `get_trip_report()`
     выполнит этот шаг автоматически; при отказе Яндекса вернёт warning и
     сохранит остальной отчёт.
 

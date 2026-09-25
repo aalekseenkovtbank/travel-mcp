@@ -319,7 +319,28 @@ class HotelReviewDigest(ContractModel):
         return self
 
 
+def _photo_entry(value) -> dict | None:
+    """Coerce one photo alias value (url string or dict) to a photos[] entry."""
+    if isinstance(value, str) and value.strip():
+        return {"url": value.strip(), "kind": "official"}
+    if isinstance(value, dict) and str(value.get("url") or "").strip():
+        entry = dict(value)
+        entry.setdefault("kind", "official")
+        return entry
+    return None
+
+
 class HotelOptionV2(HotelOption):
+    # ID-based easy path: statics may arrive empty when the caller passes a
+    # bare hotel id from an earlier search; get_trip_report backfills them
+    # server-side and the lenient gate surfaces leftovers as warnings instead
+    # of rejecting the whole document.
+    name: str = ""
+    address: str = ""
+    coordinates: Coordinates = Field(
+        default_factory=lambda: Coordinates(latitude=0.0, longitude=0.0))
+    nightly_price_rub: float = Field(default=0, ge=0)
+    total_price_rub: float = Field(default=0, ge=0)
     photos: list[HotelPhoto] = Field(default_factory=list, max_length=3)
     description: str = ""
     check_in_time: str = ""
@@ -331,26 +352,181 @@ class HotelOptionV2(HotelOption):
 
     @model_validator(mode="before")
     @classmethod
-    def _derive_details_url(cls, value):
-        if not isinstance(value, dict) or value.get("details_url") or value.get("detailsUrl"):
+    def _normalize_tool_aliases(cls, value):
+        """Accept hotel cards in the exact shape the hotel tools emit.
+
+        The hotel tools return ``details``, ``imageUrls``/``photoUrls``,
+        ``primaryPhotoUrl``, ``confirmedRate``, ``pluses``/``minuses``/
+        ``suitableFor`` and ``tbankUrl`` flat fields. Mapping all of that into
+        the contract by hand is where photos get lost, so the mapping happens
+        here, server-side: photos are merged (explicit entries first),
+        de-duplicated, sorted official-before-guest and capped at three.
+        """
+        if not isinstance(value, dict):
             return value
-        details_url = hotel_details_url(value.get("id"))
-        return {**value, "details_url": details_url} if details_url else value
+        data = dict(value)
+        details = data.pop("details", None)
+        if not isinstance(details, dict):
+            details = {}
+
+        photo_rows: list[dict] = []
+        for item in list(data.pop("photos", None) or []):
+            entry = _photo_entry(item)
+            if entry:
+                photo_rows.append(entry)
+        for key in ("imageUrls", "photoUrls", "images"):
+            for item in list(data.pop(key, None) or []):
+                entry = _photo_entry(item)
+                if entry:
+                    photo_rows.append(entry)
+        for key in ("primaryPhotoUrl", "image_url", "imageUrl"):
+            entry = _photo_entry(data.pop(key, None))
+            if entry:
+                photo_rows.append(entry)
+        for item in list(details.get("imageUrls") or []):
+            entry = _photo_entry(item)
+            if entry:
+                photo_rows.append(entry)
+        seen: set[str] = set()
+        unique: list[dict] = []
+        for entry in photo_rows:
+            url = str(entry.get("url") or "").strip()
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            unique.append({k: v for k, v in entry.items() if v not in (None, "")})
+        unique.sort(key=lambda e: 0 if e.get("kind", "official") == "official" else 1)
+        data["photos"] = unique[:3]
+        if unique and not data.get("image_url"):
+            data["image_url"] = unique[0]["url"]
+
+        rate = data.pop("confirmedRate", None)
+        if isinstance(rate, dict):
+            if (not data.get("total_price_rub") and not data.get("totalPriceRub")
+                    and isinstance(rate.get("totalPrice"), (int, float))):
+                data["total_price_rub"] = rate["totalPrice"]
+            if (not data.get("nightly_price_rub") and not data.get("nightlyPriceRub")
+                    and isinstance(rate.get("nightlyPrice"), (int, float))):
+                data["nightly_price_rub"] = rate["nightlyPrice"]
+            for src in ("room", "meal", "payment"):
+                if not data.get(src) and rate.get(src):
+                    data[src] = rate[src]
+            if not data.get("cancellation"):
+                if rate.get("freeCancellationUntil"):
+                    data["cancellation"] = (
+                        f"бесплатная отмена до {rate['freeCancellationUntil']}")
+                elif rate.get("nonRefundable"):
+                    data["cancellation"] = "невозвратный тариф"
+
+        # Raw hotel_rates/hotel_search review digests use the tool field names
+        # (pluses/minuses/suitableFor list, quotes); convert to the contract
+        # shape instead of rejecting the card.
+        raw_digest = data.pop("reviewDigest", None)
+        if isinstance(raw_digest, dict) and not data.get("review_digest"):
+            converted: dict = {}
+            if isinstance(raw_digest.get("sampleSize"), int):
+                converted["sample_size"] = raw_digest["sampleSize"]
+            pros = raw_digest.get("pluses") or raw_digest.get("pros") or []
+            cons = raw_digest.get("minuses") or raw_digest.get("cons") or []
+            if pros:
+                converted["pros"] = [str(item) for item in list(pros)[:5]]
+            if cons:
+                converted["cons"] = [str(item) for item in list(cons)[:5]]
+            suitable = raw_digest.get("suitableFor") or raw_digest.get("suitable_for")
+            if isinstance(suitable, list) and suitable:
+                converted["suitable_for"] = "; ".join(
+                    str(item) for item in suitable)[:200]
+            elif isinstance(suitable, str) and suitable:
+                converted["suitable_for"] = suitable[:200]
+            if raw_digest.get("dateFrom"):
+                converted["date_from"] = raw_digest["dateFrom"]
+            if raw_digest.get("dateTo"):
+                converted["date_to"] = raw_digest["dateTo"]
+            if converted:
+                converted.setdefault("sort", "date")
+                data["review_digest"] = converted
+
+        # Scalar pricing/geo/availability fields from tool cards: fold the
+        # useful ones, drop the rest — the contract derives them from
+        # confirmedRate and coordinates anyway.
+        raw_price = data.pop("price", None)
+        data.pop("currency", None)
+        if (not data.get("total_price_rub") and not data.get("totalPriceRub")
+                and isinstance(raw_price, (int, float))):
+            data["total_price_rub"] = raw_price
+        data.pop("isFinalPrice", None)
+        data.pop("availableRooms", None)
+        data.pop("availableRoomsCount", None)
+        latitude = data.pop("latitude", None)
+        longitude = data.pop("longitude", None)
+        if (not data.get("coordinates")
+                and isinstance(latitude, (int, float))
+                and isinstance(longitude, (int, float))):
+            data["coordinates"] = {"latitude": latitude, "longitude": longitude}
+
+        pluses = data.pop("pluses", None) or []
+        minuses = data.pop("minuses", None) or []
+        suitable_for = data.pop("suitableFor", None) or []
+        data.pop("reviewQuotes", None)
+        data.pop("nights", None)
+        data.pop("rateConfirmed", None)
+        if ((pluses or minuses or suitable_for)
+                and not (data.get("review_digest") or data.get("reviewDigest"))):
+            digest: dict = {}
+            if pluses:
+                digest["pros"] = list(pluses)[:5]
+            if minuses:
+                digest["cons"] = list(minuses)[:5]
+            if suitable_for:
+                digest["suitable_for"] = "; ".join(
+                    str(item) for item in suitable_for)[:200]
+            if digest:
+                data["review_digest"] = digest
+
+        if details:
+            if not data.get("name") and details.get("name"):
+                data["name"] = details["name"]
+            if not data.get("stars") and details.get("stars"):
+                data["stars"] = details["stars"]
+            if not data.get("address") and details.get("address"):
+                data["address"] = details["address"]
+            if (not data.get("location_summary") and not data.get("locationSummary")
+                    and details.get("address")):
+                data["location_summary"] = details["address"]
+            if not data.get("description") and details.get("description"):
+                data["description"] = details["description"]
+            for dst, src in (("check_in_time", "checkInTime"),
+                             ("check_out_time", "checkOutTime"),
+                             ("facilities", "facilities")):
+                if not data.get(dst) and details.get(src):
+                    data[dst] = details[src]
+            if (not data.get("details_url") and not data.get("detailsUrl")
+                    and details.get("tbankUrl")):
+                data["details_url"] = details["tbankUrl"]
+            lat, lon = details.get("latitude"), details.get("longitude")
+            if (not data.get("coordinates")
+                    and isinstance(lat, (int, float)) and isinstance(lon, (int, float))):
+                data["coordinates"] = {"latitude": lat, "longitude": lon}
+
+        link = data.pop("tbankUrl", None)
+        fallback_link = data.pop("url", None)
+        link = link or fallback_link
+        if link and not (data.get("details_url") or data.get("detailsUrl")):
+            data["details_url"] = link
+        checkout = data.pop("checkoutUrl", None)
+        if checkout and not (data.get("booking_url") or data.get("bookingUrl")):
+            data["booking_url"] = checkout
+
+        if not (data.get("details_url") or data.get("detailsUrl")):
+            derived = hotel_details_url(data.get("id"))
+            if derived:
+                data["details_url"] = derived
+        return data
 
     @field_validator("details_url")
     @classmethod
     def _https_details_url(cls, value):
         return _require_tbank_url(value, "detailsUrl")
-
-    @model_validator(mode="after")
-    def _photos_are_unique(self):
-        urls = [str(item.url) for item in self.photos]
-        if len(urls) != len(set(urls)):
-            raise ValueError("hotel photos must have unique URLs")
-        kinds = [item.kind for item in self.photos]
-        if "guest" in kinds and "official" in kinds[kinds.index("guest"):]:
-            raise ValueError("official hotel photos must be listed before guest photos")
-        return self
 
 
 class BudgetRecommendation(ContractModel):

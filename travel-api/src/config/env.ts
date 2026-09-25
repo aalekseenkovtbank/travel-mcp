@@ -34,8 +34,8 @@ const envSchema = z.object({
     .min(1)
     .default(path.join(os.homedir(), ".local/share/tbank-mcp/session.json")),
   LLM_PROXY_API_KEY: optionalSecret,
-  LLM_PROXY_BASE_URL: z.string().url().default("https://llm-proxy.t-tech.team/v1"),
-  LLM_PROXY_MODEL: z.string().min(1).default("tgpt/text.instant.medium"),
+  LLM_PROXY_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
+  LLM_PROXY_MODEL: z.string().min(1).default("gpt-4o-mini"),
   OVERPASS_URL: z.string().url().default("https://overpass-api.de/api/interpreter"),
   NOMINATIM_URL: z.string().url().default("https://nominatim.openstreetmap.org"),
   TWOGIS_API_KEY: optionalSecret,
