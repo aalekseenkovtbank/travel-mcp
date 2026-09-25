@@ -23,7 +23,7 @@ from typing import Annotated, Literal, Mapping
 from pydantic import (AnyHttpUrl, BaseModel, ConfigDict, Field, StringConstraints,
                       ValidationError, field_validator, model_validator)
 
-from .tbank_urls import (avia_checkout_url, avia_share_url, hotel_details_url,
+from .tbank_urls import (avia_share_url, hotel_details_url,
                          safe_public_https_url, safe_tbank_url)
 
 
@@ -1787,17 +1787,63 @@ def _trip_share_url(document: TripPageDocumentV2) -> str:
     return avia_share_url(legs, adults=document.trip.travelers)
 
 
-def _leg_booking_url(leg) -> str:
-    """Primary T-Bank link for one flight leg: source tbankUrl, else the offer
-    checkout link built from its offerId (bookable T-Bank offers). Empty when
-    neither exists — show «Ссылка T-Bank недоступна»."""
-    source = getattr(leg, "tbank_url", None)
-    if source:
-        return str(source)
-    offer_id = str(getattr(leg, "offer_id", "") or "").strip()
-    if offer_id:
-        return avia_checkout_url(offer_id)
-    return ""
+def _doc_travelers(document) -> int:
+    """Passenger count for share links; 1 when the document says nothing."""
+    try:
+        return int(getattr(getattr(document, "trip", None), "travelers", 1) or 1)
+    except (TypeError, ValueError):
+        return 1
+
+
+def _leg_share_url(leg, adults: int = 1) -> str:
+    """Avia share deep link for ONE leg (no UTM): the search page with this
+    leg's flights preselected, re-validated on open. Unlike a checkout offerId
+    link it never goes stale with the search session that produced the offer.
+
+    Built only from source-verified leg fields — hops (real segments,
+    transfers included) first, else the leg's own carrierCode/flightNumber.
+    Empty when data is missing — callers show «Ссылка T-Bank недоступна»."""
+    if leg.mode != "flight":
+        return ""
+    if not (leg.origin_code and leg.destination_code):
+        return ""
+    segments = []
+    hops = list(leg.hops)
+    if hops:
+        for hop in hops:
+            if not (hop.carrier_code and hop.flight_number):
+                return ""
+            segments.append({
+                "date": hop.departure_at.date().isoformat(),
+                "carrier": hop.carrier_code,
+                "flight": hop.flight_number,
+            })
+    else:
+        if not (leg.carrier_code and leg.flight_number):
+            return ""
+        segments.append({
+            "date": leg.departure_at.date().isoformat(),
+            "carrier": leg.carrier_code,
+            "flight": leg.flight_number,
+        })
+    return avia_share_url([{
+        "origin": leg.origin_code,
+        "destination": leg.destination_code,
+        "date": leg.departure_at.date().isoformat(),
+        "segments": segments,
+    }], adults=adults)
+
+
+def _leg_booking_url(leg, adults: int = 1) -> str:
+    """Primary T-Bank link for one flight leg: the share link the search
+    already returned (tbankUrl/bookingUrl), else a share deep link built from
+    the leg's own fields. Empty when neither exists — show
+    «Ссылка T-Bank недоступна»."""
+    for source in (getattr(leg, "tbank_url", None),
+                   getattr(leg, "booking_url", None)):
+        if source:
+            return str(source)
+    return _leg_share_url(leg, adults=adults)
 
 
 def _flight_options_section(document, *, full: bool = False) -> str:
@@ -1829,7 +1875,7 @@ def _flight_options_section(document, *, full: bool = False) -> str:
             if combined_url:
                 leg_lines.append(f'<div class="row" style="margin-top:8px"><span>{head}</span></div>')
                 continue
-            url = _leg_booking_url(leg)
+            url = _leg_booking_url(leg, adults=_doc_travelers(document))
             action = (f'<a class="{btn_cls}" href="{_e(url)}" target="_blank" '
                       f'rel="noopener noreferrer">Оформить в T-Bank</a>' if url
                       else '<span class="no">Ссылка T-Bank недоступна</span>')
@@ -2010,7 +2056,7 @@ def _compact_trip_page(document: TripPageDocumentV2) -> str:
   <p><b>{_e(_dt(leg.departure_at))}</b> → <b>{_e(_dt(leg.arrival_at))}</b></p>
   {f'<div class="facts">{notes}</div>' if notes else ''}
   <div class="price">{_rub(leg.price_rub)} <small>для {_adults(trip.travelers)}</small></div>
-  {_compact_actions(_leg_booking_url(leg), 'Оформить в T-Bank', leg.booking_url, 'Перейти к оформлению')}
+  {_compact_actions(_leg_booking_url(leg, adults=trip.travelers), 'Оформить в T-Bank', leg.booking_url, 'Перейти к оформлению')}
 </article>""")
     hotel_cards = "".join(
         _compact_hotel_card(
@@ -2232,7 +2278,7 @@ def format_document_reply(document) -> str:
         row = {
             "summary": f"{leg.origin} → {leg.destination}",
             "price": leg.price_rub,
-            "tbankUrl": _leg_booking_url(leg),
+            "tbankUrl": _leg_booking_url(leg, adults=_doc_travelers(document)),
         }
         combined_rt = getattr(document, "combined_flight", None)
         if leg.mode == "train":

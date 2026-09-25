@@ -539,7 +539,7 @@ class MobileSession(
         yield each frame as a parsed dict, without buffering the whole
         response first.
 
-        Used for Zubat's flight `/search/stream`, which emits one
+        Used for T-Bank Avia's flight `/search/stream`, which emits one
         newline-delimited frame per line (`{"type": "Direct"|"Tpo"|"Finished",
         ...}`) over a single connection. Being a generator also means a
         caller that stops iterating early (a `break`, or letting the
@@ -548,7 +548,7 @@ class MobileSession(
         below, not something callers have to remember to do themselves.
 
         An error comes back as a single ordinary JSON body (BadRequestError /
-        TechError per the Zubat spec), not ndjson — signalled by an HTTP
+        TechError per the avia API spec), not ndjson — signalled by an HTTP
         status outside 2xx, which `_unwrap` already knows how to turn into
         the right exception."""
         method, url, params, headers, http, body_kwargs, _tpl = self._prepare_request(

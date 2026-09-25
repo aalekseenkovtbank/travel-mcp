@@ -31,7 +31,7 @@ from mcp.types import (CallToolResult, ClientCapabilities, ElicitationCapability
                        ImageContent, TextContent, ToolAnnotations)
 
 from .tbank_urls import (afisha_event_url as _afisha_event_url,
-                         avia_checkout_url,
+                         avia_share_url,
                          hotel_details_url as _hotel_details_url,
                          safe_tbank_url as _safe_tbank_url,
                          with_leading_tbank_url as _with_leading_tbank_url)
@@ -8512,7 +8512,7 @@ def train_calendar(origin: str, destination: str, limit: int = 30) -> str:
 def _flight_calendar_nearby(s, from_code: str, to_code: str, date: str, *,
                             adults: int = 1, children: int = 0,
                             infants: int = 0, days: int = 3):
-    """Zubat cache prices around `date` for one direction; fail-soft.
+    """Avia calendar cache prices around `date` for one direction; fail-soft.
 
     Reads the same cheap cache as flight_price_calendar (not a live search),
     so an empty window only means «not in cache». Returns (rows, warnings).
@@ -8544,6 +8544,77 @@ def _flight_calendar_nearby(s, from_code: str, to_code: str, date: str, *,
     return out, []
 
 
+# Total wall-clock budget for createOneLink calls inside one flight search.
+# Measured live: ~0.3s per call; rows past the budget still get a locally
+# assembled share link instantly, they only lose the bank's short URL.
+_SHARE_LINK_BUDGET_S = 8.0
+
+
+def _share_offer_flights(row: dict) -> list[list[dict]]:
+    """Per-direction segment lists for one normalized offer row.
+
+    Each leg's hops are the real segments (transfers included); a hop-less
+    leg degrades to its own carrier/flightNumber. Any missing field kills the
+    whole mapping (callers then show no link rather than a guessed one)."""
+    flights: list[list[dict]] = []
+    for leg in row.get("legs") or []:
+        segments = [{
+            "date": str(hop.get("departureAt") or "")[:10],
+            "marketingCarrier": str(hop.get("marketingCode") or ""),
+            "flightNumber": str(hop.get("flightNumber") or ""),
+        } for hop in leg.get("hops") or []]
+        if not segments:
+            segments = [{
+                "date": str(leg.get("departureAt") or "")[:10],
+                "marketingCarrier": str(leg.get("marketingCode") or ""),
+                "flightNumber": str(leg.get("flightNumber") or ""),
+            }]
+        if not segments or not all(
+                seg["date"] and seg["marketingCarrier"] and seg["flightNumber"]
+                for seg in segments):
+            return []
+        flights.append(segments)
+    return flights
+
+
+def _flight_offer_share_url(s, res: dict, row: dict, directions: list[dict],
+                            *, adults: int, children: int, infants: int,
+                            deadline: float | None = None) -> str:
+    """Share link for one bookable offer: the bank's createOneLink short URL,
+    or (fail-soft, instantly) a locally assembled search deep link.
+
+    Both land on the flight search page with this offer's exact flights
+    preselected and re-validated on open — never on /flights/checkout/?offerId=…,
+    which dies with the search session and hands the user a dead page."""
+    segments_by_direction = _share_offer_flights(row)
+    if (not segments_by_direction
+            or len(segments_by_direction) != len(directions)):
+        return ""
+    if deadline is None or time.monotonic() < deadline:
+        try:
+            url = _safe_tbank_url(s.flight_share_one_link(
+                str(res.get("searchId") or ""), directions,
+                {"price": float(row.get("priceDecimal") or 0),
+                 "baggage": bool(row.get("withBaggage")),
+                 "flights": [{"segments": segs}
+                             for segs in segments_by_direction]},
+                adults=adults, children=children, infants=infants))
+            if url:
+                return url
+        except Exception:
+            pass
+    legs = [{
+        "origin": str(direction.get("from") or ""),
+        "destination": str(direction.get("to") or ""),
+        "date": str(direction.get("date") or ""),
+        "segments": [{"date": seg["date"], "carrier": seg["marketingCarrier"],
+                      "flight": seg["flightNumber"]}
+                     for seg in segs],
+    } for direction, segs in zip(directions, segments_by_direction)]
+    return avia_share_url(legs, adults=adults,
+                          baggage=1 if row.get("withBaggage") else 0)
+
+
 def _flight_offer_rows(s, from_code: str, to_code: str, date: str, *,
                        adults: int, children: int, infants: int,
                        only_bookable: bool, limit: int):
@@ -8554,16 +8625,23 @@ def _flight_offer_rows(s, from_code: str, to_code: str, date: str, *,
     normalized = sorted(
         normalize_flight_inventory(res, only_bookable=only_bookable),
         key=lambda row: row["priceDecimal"])
-    for row in normalized:
+    shown = normalized[:limit] if limit > 0 else normalized
+    directions = [{"from": from_code.upper(), "to": to_code.upper(),
+                   "date": date}]
+    deadline = time.monotonic() + _SHARE_LINK_BUDGET_S
+    for row in shown:
         candidate_url = row.pop("candidateUrl", "")
         tbank_url = _safe_tbank_url(candidate_url)
         if not tbank_url and str(row.get("vendor")) == "Tinkoff":
-            # Bookable in the bank: a checkout link exists even when the
-            # source row carried no URL of its own.
-            tbank_url = avia_checkout_url(row.get("offerId"))
+            # Bookable in the bank: a share link exists even when the source
+            # row carried no URL of its own. Share links survive their search:
+            # they open the search page with the offer preselected, while a
+            # checkout offerId link goes stale with the session.
+            tbank_url = _flight_offer_share_url(
+                s, res, row, directions, adults=adults, children=children,
+                infants=infants, deadline=deadline)
         if tbank_url:
             row["tbankUrl"] = tbank_url
-    shown = normalized[:limit] if limit > 0 else normalized
     rows = [{
         "offerId": row["offerId"],
         "price": row["price"],
@@ -8801,16 +8879,19 @@ def flight_search(from_code: str, to_code: str, date: str, adults: int = 1,
     сводный блок best), а при свежем searchId прикладывается
     priceForecast.willPriceIncrease — подрастёт ли цена до вылета.
 
-    Каждый бронируемый оффер содержит bookingUrl — ссылку T-Bank на страницу
-    оформления выбранного билета; показывай её пользователю.
+    Каждый бронируемый оффер содержит bookingUrl — share-ссылку T-Bank
+    (обычно короткую l.tbank.ru): открывает страницу поиска с уже выбранным
+    рейсом и актуальной доступностью; показывай её пользователю. Это не
+    checkout и не бронь: ссылка не устаревает вместе с поисковой сессией.
 
     only_bookable=True (по умолчанию) — только те предложения, что бронируются
     внутри банка; их отдаёт первый же батч, поэтому поиск быстрый. False
     дочитывает весь поток: это десятки секунд и тысячи предложений, почти все —
     от партнёров, которые уводят на свой сайт.
 
-    Купить билет через MCP нельзя: bookingUrl передаёт пользователя на
-    оформление в T-Bank, подтверждённого шага бронирования и оплаты в MCP нет.
+    Купить билет через MCP нельзя: bookingUrl передаёт пользователя в T-Bank
+    (поиск с выбранным рейсом → оформление), подтверждённого шага бронирования
+    и оплаты в MCP нет.
 
     Публичный метод: `login()` не нужен (подтверждено на проде — ни Bearer,
     ни sessionid в запросе нет, разницы в ответе между анонимным и вошедшим
@@ -9058,7 +9139,7 @@ def flight_price_calendar(from_code: str, to_code: str,
     Публичный метод: `login()` не нужен, вызывается даже без банковской
     сессии (подтверждено на проде — ни Bearer, ни sessionid в запросе нет).
 
-    Читает КЭШ банка (Zubat `predictByDepartureDate`), а не запускает живой
+    Читает КЭШ банка (`predictByDepartureDate`), а не запускает живой
     поиск — быстро, но пустой ответ значит «даты не в кэше», а не «рейсов
     нет»; для конкретной даты доверяй `flight_search`, не этому календарю.
 
@@ -9077,7 +9158,7 @@ def flight_price_calendar(from_code: str, to_code: str,
     try:
         fmt = _response_format(response_format)
         # No login() needed: this endpoint is public (@useAuth(NoAuth) in the
-        # Zubat spec, confirmed live — no Bearer/Cookie/sessionid go out).
+        # avia API spec, confirmed live — no Bearer/Cookie/sessionid go out).
         s = _public_session()
         from_codes = [c.strip() for c in from_code.split(",") if c.strip()]
         to_codes = [c.strip() for c in to_code.split(",") if c.strip()]
@@ -9173,7 +9254,7 @@ def flight_schedule(from_code: str, to_code: str, date: str | None = None,
     Публичный метод: `login()` не нужен (подтверждено на проде — ни Bearer,
     ни sessionid в запросе нет).
 
-    Это справочник Zubat о том, какие рейсы вообще ЛЕТАЮТ по направлению и по
+    Это справочник банка о том, какие рейсы вообще ЛЕТАЮТ по направлению и по
     каким дням (`dates`), а не результат живого поиска — `min_price` в ответе
     появляется, только если задан `date` (конкретный день), и это ориентир,
     не гарантированная цена. Для реальных тарифов на дату используй
@@ -9184,7 +9265,7 @@ def flight_schedule(from_code: str, to_code: str, date: str | None = None,
     все рейсы направления с полным списком дат, когда они летают."""
     try:
         fmt = _response_format(response_format)
-        # No login() needed: @useAuth(NoAuth) in the Zubat spec, confirmed
+        # No login() needed: @useAuth(NoAuth) in the avia API spec, confirmed
         # live — a plain unauthenticated POST answers with real schedule data.
         s = _public_session()
         flights = s.flight_schedule(from_code, to_code, date=date)
@@ -9363,7 +9444,7 @@ def geodata_by_code(codes: str | list[str], limit: int = 0,
     конкретной сессии, тут — СПРАВОЧНИК банка по любому коду."""
     try:
         fmt = _response_format(response_format)
-        # No login() needed: @useAuth(NoAuth) in the Zubat spec, confirmed
+        # No login() needed: @useAuth(NoAuth) in the avia API spec, confirmed
         # live — a plain unauthenticated POST with a JSON array body
         # answers with a list of geodata records.
         s = _public_session()

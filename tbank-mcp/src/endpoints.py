@@ -1924,19 +1924,29 @@ BUILTIN_ENDPOINTS.update({
         "params": {}, **_FLIGHT_PUBLIC_POST,
         "headers": {**_FLIGHT_PUBLIC_POST["headers"], "Accept": "application/x-ndjson"},
     },
+    # Universal short link to ONE offer. Landing page is the flight SEARCH with
+    # that offer's exact flights preselected and re-validated when opened —
+    # unlike /flights/checkout/?offerId=…, which dies with the search session.
+    # Same public shape as the stream above (@useAuth(PublicAuthOptions) in the
+    # spec); confirmed live anonymously: 200 + {status:"Ok", payload:{url}}.
+    "flight_share_one_link": {
+        "method": "POST", "host": "https://www.tbank.ru",
+        "path": "/api/travel/flight/search/share/createOneLink",
+        "params": {}, **_FLIGHT_PUBLIC_POST,
+    },
     # willPriceIncrease for an already-run flight_search's searchId.
     "flight_price_forecast": {"method": "GET", "host": "https://www.tbank.ru",
                               "path": "/api/travel/flight/search/priceForecast",
                               "params": {}, **_FLIGHT_PUBLIC},
     # The "price calendar": cheapest price per departure date for a direction,
-    # read from Zubat's calendar cache, not a live search.
+    # read from the avia calendar cache, not a live search.
     "flight_price_calendar": {
         "method": "POST", "host": "https://www.tbank.ru",
         "path": "/api/travel/flight/calendar/predictByDepartureDate",
         "params": {}, **_FLIGHT_PUBLIC_POST,
     },
     # Timetable for a route (all carriers on a from->to pair, optionally on one
-    # date) — Zubat's own scheduled-flights DB, not a live fare search. Also
+    # date) — the bank's scheduled-flights DB, not a live fare search. Also
     # @useAuth(NoAuth) in the spec; confirmed live, no session needed.
     "flight_schedule": {
         "method": "POST", "host": "https://www.tbank.ru",
