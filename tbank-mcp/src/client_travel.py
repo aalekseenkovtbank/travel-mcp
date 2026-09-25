@@ -55,7 +55,7 @@ class TravelMixin:
                       deadline_s: float = 45.0) -> dict:
         """Flights, as {searchId, flights, offers, complete, info}.
 
-        ONE ndjson connection (Zubat's `/flight/search/stream`), PUBLIC —
+        ONE ndjson connection (T-Bank Avia's `/flight/search/stream`), PUBLIC —
         verified live against prod with no Bearer/Cookie/sessionid at all
         (its `@useAuth` in the spec is merely PublicAuthOptions, optional,
         and no observed field differed between an authenticated and an
@@ -87,7 +87,7 @@ class TravelMixin:
                             children: int = 0, infants: int = 0,
                             cabin: str = "Y", only_bookable: bool = False,
                             deadline_s: float = 45.0) -> dict:
-        """Search several segments (one-way or round trip) on Zubat stream.
+        """Search several segments (one-way or round trip) on the T-Bank Avia stream.
 
         Public like flight_search. segments: [{from,to,date}, ...]; a round
         trip = outbound + return legs in one request, and each returned offer
@@ -128,6 +128,43 @@ class TravelMixin:
         return {"searchId": search_id, "flights": flights, "offers": offers,
                 "complete": complete, "info": info}
 
+    def flight_share_one_link(self, search_id: str, directions: list,
+                              offer: dict, *, adults: int = 1,
+                              children: int = 0, infants: int = 0,
+                              cabin: str = "Y") -> str:
+        """Universal short link to one offer (T-Bank Avia's createOneLink), as a URL.
+
+        PUBLIC — confirmed live with no Bearer/Cookie/sessionid. `directions`
+        mirror the search's own legs: [{from, to, date}, …]. `offer` carries
+        {price (float RUB), baggage (bool), flights: [{segments:
+        [{date, marketingCarrier, flightNumber}]}]}. `searchId` from the same
+        search helps the server resolve the offer ("" to skip).
+
+        Returns the bank's URL — usually a short l.tbank.ru link that 302s to
+        the flight search page with exactly those flights preselected, or the
+        full search-page URL when the shortener failed server-side. Either
+        way the page re-validates availability on open, so the link cannot go
+        stale the way a per-session checkout offerId link does. Raises on any
+        error so callers can fail soft (locally-built share URL, then none).
+        """
+        body: dict = {
+            "searchRequest": {
+                "directions": list(directions or []),
+                "passengers": {"adults": adults, "children": children,
+                               "infants": infants},
+                "cabin": cabin,
+            },
+            "offer": offer,
+        }
+        if search_id:
+            body["searchRequest"]["searchId"] = str(search_id)
+        data = self._call_read("flight_share_one_link", body=body) or {}
+        url = str((data or {}).get("url") or "")
+        if not url:
+            raise TbankApiError("NO_SHARE_URL",
+                                "createOneLink answered without payload.url")
+        return url
+
     def flight_price_calendar(self, from_codes: str | list[str],
                               to_codes: str | list[str], *,
                               from_kind: str = "city", to_kind: str = "city",
@@ -141,7 +178,7 @@ class TravelMixin:
                               return_to: str | None = None,
                               total_days_from: int | None = None,
                               total_days_to: int | None = None) -> list[dict]:
-        """Cheapest prices per departure date (Zubat cache, read-only).
+        """Cheapest prices per departure date (the bank's calendar cache, read-only).
 
         One or more from_codes/to_codes as a group; departure window in
         departure_from/departure_to; an optional return window in
@@ -196,8 +233,8 @@ class TravelMixin:
 
 
     def flight_price_forecast(self, search_id: str) -> bool:
-        """Will the cheapest price on a search rise before departure — Zubat's
-        `GET /flight/search/priceForecast`. Takes the `searchId` flight_search()
+        """Will the cheapest price on a search rise before departure — T-Bank
+        Avia's `GET /flight/search/priceForecast`. Takes the `searchId` flight_search()
         already returns; it does not start a new search."""
         data = self._call_read("flight_price_forecast",
                                overrides={"searchId": search_id}) or {}
@@ -206,7 +243,7 @@ class TravelMixin:
 
     def flight_schedule(self, from_code: str, to_code: str,
                         date: str | None = None) -> list[dict]:
-        """Scheduled flights on a route — Zubat's `POST /flight/schedule/
+        """Scheduled flights on a route — T-Bank Avia's `POST /flight/schedule/
         getSchedule`. Verified live against prod, no session required
         (`@useAuth(NoAuth)` in the spec).
 
@@ -225,7 +262,7 @@ class TravelMixin:
 
 
     def geodata_by_code(self, codes: str | list[str]) -> list[dict]:
-        """Geo records (city or airport) for IATA codes — Zubat's `POST
+        """Geo records (city or airport) for IATA codes — T-Bank Avia's `POST
         /geodata/geoDataByCode`. Verified live, no session required
         (`@useAuth(NoAuth)` in the spec).
 

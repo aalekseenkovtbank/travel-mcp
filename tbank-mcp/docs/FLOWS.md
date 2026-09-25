@@ -510,7 +510,7 @@ Bearer, Cookie or sessionid on the wire, no `login()` needed. `flight_history`
 is the one exception (it IS the session's own search history, so it stays on
 the mobile Bearer + `X-Travel-Context: mb` shape probed live for it).
 
-The search is ONE ndjson connection (Zubat's `/flight/search/stream`): the
+The search is ONE ndjson connection (T-Bank Avia's `/flight/search/stream`): the
 server writes a `Direct` frame (Tinkoff's own inventory) and zero or more
 `Tpo` frames (Travelpayouts partners) as they complete, then `Finished`.
 Measured live, `Direct` is NOT reliably first — one request came back Tpo,
@@ -524,7 +524,7 @@ the `Direct` batch early. Every call runs to `Finished`, so `complete` is
 normally always true; `deadline_s` (client-side, not exposed as a tool
 parameter) is the only remaining — and rare — source of a partial result.
 
-`flight_price_calendar` is a SEPARATE, cheaper read: Zubat's calendar cache
+`flight_price_calendar` is a SEPARATE, cheaper read: the avia calendar cache
 (`predictByDepartureDate`), not a live search — cheapest price per departure
 date for a direction, good for picking a date before paying for a real
 `flight_search`. Its `from`/`to` accept a GROUP of IATA codes of one kind
@@ -533,7 +533,7 @@ the same discriminated union the spec uses, not flattened to one code.
 `flight_price_forecast(search_id)` reads a signal (price likely to rise or
 not) for a searchId `flight_search` already minted; it starts no new search.
 
-`flight_schedule` is a THIRD, distinct read: Zubat's `getSchedule` timetable
+`flight_schedule` is a THIRD, distinct read: the bank's `getSchedule` timetable
 of which flights operate a route at all and on which days (`dates`), not a
 fare search — `minPrice` on an entry is only meaningful when `date` narrows
 to one day, and even then it is an indicative floor, not a live offer. It
@@ -666,7 +666,7 @@ Hotel-поиск идёт через публичный production proxy `www.tb
 
 ## 17. Geodata — name + coordinates by IATA code
 
-`geodata_by_code(codes)` — Zubat's `POST /geodata/geoDataByCode`. PUBLIC
+`geodata_by_code(codes)` — T-Bank Avia's `POST /geodata/geoDataByCode`. PUBLIC
 (`@useAuth(NoAuth)`, confirmed live; no Bearer, no sessionid). Body is a
 JSON array of IATA codes; response order matches input order; when a
 code collides between a city and an airport the city wins.
