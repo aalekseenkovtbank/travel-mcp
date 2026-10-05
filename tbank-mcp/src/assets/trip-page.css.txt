@@ -206,17 +206,6 @@ section:not(.hero) { padding: 82px 0; border-bottom: 1px solid var(--line); }
 .credit { position: absolute; right: 7px; bottom: 7px; max-width: calc(100% - 14px); padding: 4px 6px; border-radius: 5px; background: rgba(23,37,32,.76); color: white; font-size: 8px; line-height: 1.2; }
 .empty { grid-column: 1 / -1; padding: 40px; border: 1px dashed var(--line); color: var(--muted); text-align: center; }
 
-#trip-map { position: relative; min-height: 520px; z-index: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: #e6e1d7; }
-#trip-map .map-fallback { position: absolute; inset: 0; z-index: 500; display: none; place-items: center; background: #e6e1d7; color: var(--muted); }
-#trip-map.failed .map-fallback { display: grid; }
-#trip-map.tiles-failed { background: repeating-linear-gradient(45deg,#ece7dd,#ece7dd 12px,#e3ddd2 12px,#e3ddd2 24px); }
-.leaflet-popup-content a { font-weight: 700; }
-.map-legend { display: flex; flex-wrap: wrap; gap: 17px; margin-top: 13px; color: var(--muted); font-size: 10px; }
-.map-legend span::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--orange); }
-.map-legend .event::before { background: var(--purple); }
-.map-legend .restaurant::before { background: var(--gold); }
-.map-legend .bar::before { background: var(--green); }
-
 .plans { display: grid; gap: 10px; }
 .plan { overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: var(--paper); }
 .plan summary { display: grid; grid-template-columns: 50px 1fr; gap: 16px; padding: 24px; cursor: pointer; list-style: none; }
@@ -283,7 +272,6 @@ footer { padding: 25px 0 40px; display: flex; justify-content: space-between; co
   .hotel-comparison { min-width: 820px; }
   .hotel-comparison thead th:first-child, .hotel-comparison tbody th { width: 138px; }
   .plan-content { padding-left: 24px; }
-  #trip-map { min-height: 380px; }
   footer { flex-direction: column; gap: 8px; }
 }
 @media print {
@@ -298,5 +286,4 @@ footer { padding: 25px 0 40px; display: flex; justify-content: space-between; co
   .hotel-comparison { min-width: 0; font-size: 8px; }
   .hotel-comparison th, .hotel-comparison td { padding: 7px; }
   .hotel-comparison thead th:first-child, .hotel-comparison tbody th { position: static; width: auto; }
-  #trip-map { min-height: 320px; }
 }

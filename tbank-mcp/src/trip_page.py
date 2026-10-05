@@ -11,6 +11,7 @@ import base64
 import hashlib
 import html
 import json
+import math
 import os
 import re
 import tempfile
@@ -19,6 +20,7 @@ from contextvars import ContextVar
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Annotated, Literal, Mapping
+from urllib.parse import urlencode
 
 from pydantic import (AnyHttpUrl, BaseModel, ConfigDict, Field, StringConstraints,
                       ValidationError, field_validator, model_validator)
@@ -1043,28 +1045,48 @@ def _transport_checkout_url(document: TripPageDocumentV1):
     return None
 
 
-def _entity_index(document: TripPageDocumentV1) -> dict[str, dict]:
-    index: dict[str, dict] = {}
-    for hotel in document.hotels:
-        selected = hotel.id == document.selected_hotel_id
-        index[hotel.id] = {
-            "id": hotel.id, "kind": "hotel", "label": hotel.name,
-            "lat": hotel.coordinates.latitude, "lon": hotel.coordinates.longitude,
-            "selected": selected,
-        }
-    for event in document.events:
-        if event.coordinates is None:
+def _yandex_map_url(document) -> str:
+    """Public map link with all known coordinates; no provider calls or API key."""
+    points: list[tuple[float, float]] = []
+    for entity in [*document.hotels, *getattr(document, "events", []),
+                   *getattr(document, "venues", [])]:
+        coordinates = entity.coordinates
+        if coordinates is None:
             continue
-        index[event.id] = {
-            "id": event.id, "kind": "event", "label": event.name,
-            "lat": event.coordinates.latitude, "lon": event.coordinates.longitude,
-        }
-    for venue in document.venues:
-        index[venue.id] = {
-            "id": venue.id, "kind": venue.kind, "label": venue.name,
-            "lat": venue.coordinates.latitude, "lon": venue.coordinates.longitude,
-        }
-    return index
+        point = (coordinates.longitude, coordinates.latitude)
+        # The lenient hotel contract uses (0, 0) for missing source coordinates.
+        if isinstance(entity, HotelOptionV2) and point == (0.0, 0.0):
+            continue
+        if point not in points:
+            points.append(point)
+    if not points:
+        return ""
+    longitudes = [point[0] for point in points]
+    # Fit a conservative viewport in Web Mercator, including near-polar points.
+    projected_y = [math.asinh(math.tan(math.radians(max(-85, min(85, lat)))))
+                   for _, lat in points]
+    longitude = (min(longitudes) + max(longitudes)) / 2
+    latitude = math.degrees(math.atan(math.sinh(
+        (min(projected_y) + max(projected_y)) / 2)))
+    span = max((max(longitudes) - min(longitudes)) / 360,
+               (max(projected_y) - min(projected_y)) / (2 * math.pi))
+    zoom = max(1, min(15, math.floor(math.log2(1 / span)))) if span else 15
+    return "https://yandex.ru/maps/?" + urlencode({
+        "ll": f"{longitude:.6f},{latitude:.6f}", "z": zoom, "l": "map",
+        "pt": "~".join(f"{lon:.6f},{lat:.6f}" for lon, lat in points),
+    }, safe=",~")
+
+
+def _render_map_link(document, section_number: str) -> str:
+    url = _yandex_map_url(document)
+    if not url:
+        return ""
+    return (
+        '<section class="map-section" id="map"><div class="section-head">'
+        f'<div><span>{_e(section_number)}</span><h2>Места на карте</h2></div>'
+        '<p>На Яндекс.Картах отмечены места отчёта с известными координатами.</p>'
+        '</div>' + _link(url, "Открыть места в Яндекс.Картах") + '</section>'
+    )
 
 
 def _render_transport(document: TripPageDocumentV1) -> str:
@@ -1567,19 +1589,9 @@ def _page_footer() -> str:
 
 
 def render_html(document: TripPageDocumentV1 | TripPageDocumentV2) -> str:
-    """Render one self-contained trip page, except for remote images and OSM tiles."""
-    leaflet_css = _asset("leaflet-1.9.4.css.txt")
-    leaflet_js = _asset("leaflet-1.9.4.js.txt")
+    """Render one self-contained trip page, except for remote images."""
     app_js = _asset("trip-page.js.txt")
-    entities = _entity_index(document)
-    map_ids = list(dict.fromkeys(
-        [hotel.id for hotel in document.hotels]
-        + [point.ref_id for point in document.map_points]
-    ))
-    map_rows = [entities[entity_id] for entity_id in map_ids if entity_id in entities]
-    map_json = json.dumps(map_rows, ensure_ascii=False, separators=(",", ":"))
-    map_json = map_json.replace("<", "\\u003c").replace(">", "\\u003e")
-    csp = _content_security_policy([leaflet_js, app_js])
+    csp = _content_security_policy([app_js])
     entity_labels = {
         item.id: {"label": item.name}
         for item in [*document.hotels, *document.events, *document.venues]
@@ -1635,7 +1647,7 @@ def render_html(document: TripPageDocumentV1 | TripPageDocumentV2) -> str:
     )
     date_label = (f"{document.trip.date_from.strftime('%d.%m')}–"
                   f"{document.trip.date_to.strftime('%d.%m.%Y')}")
-    head = _page_head(document.trip.title, csp, leaflet_css)
+    head = _page_head(document.trip.title, csp)
     header = _site_header(
         [("route", "Дорога"), ("hotels", "Отели"), ("comparison", "Сравнение"),
          ("events", "Афиша"), ("places", "Места"), ("plans", "Планы")],
@@ -1650,11 +1662,10 @@ def render_html(document: TripPageDocumentV1 | TripPageDocumentV2) -> str:
 <section class="hotels-section" id="hotels"><div class="section-head"><div><span>03</span><h2>Где остановиться</h2></div><p>Три уровня цены с конкретным номером, условиями тарифа, отзывами и ссылкой на карточку T-Bank.</p></div><div class="hotels">{_render_hotels(document)}</div><div class="hotel-comparison-block" id="comparison"><div class="subsection-head"><span>Сравнение</span><h3>Все условия рядом</h3><p>Резюме отзывов относится только к реально загруженной выборке.</p></div>{_render_hotel_comparison(document)}</div></section>
 <section class="events-section" id="events"><div class="section-head"><div><span>04</span><h2>Что посмотреть</h2></div><p>События ранжируются по безопасному профилю интересов без раскрытия истории покупок.</p></div><div class="card-grid events">{_render_events(document)}</div></section>
 <section class="venues-section" id="places"><div class="section-head"><div><span>05</span><h2>Рестораны и бары</h2></div><p>Актуальные карточки заведений, категории, часы, рейтинги и отзывы получены из {_e(_venue_sources_label(document) or 'источника')}.</p></div><div class="card-grid venues">{_render_venues(document)}</div></section>
-<section class="map-section" id="map"><div class="section-head"><div><span>06</span><h2>Всё на карте</h2></div><p>Все три отеля, мероприятия и заведения. Нажмите маркер, чтобы перейти к карточке.</p></div><div id="trip-map" aria-label="Карта поездки OpenStreetMap"><div class="map-fallback">Карта появится при подключении к интернету.</div></div><div class="map-legend"><span class="hotel">Отели</span><span class="event">События</span><span class="restaurant">Рестораны</span><span class="bar">Бары</span></div></section>
+{_render_map_link(document, "06")}
 <section class="plans-section" id="plans"><div class="section-head"><div><span>07</span><h2>Три сценария поездки</h2></div><p>Выберите темп: сбалансированный, культурный или с акцентом на еду и вечернюю жизнь.</p></div><div class="plans">{_render_plans(document, entity_labels)}</div></section>
 {_fine_print(document)}</main>{_page_footer()}
-<script id="trip-map-data" type="application/json">{map_json}</script>
-<script>{leaflet_js}</script><script>{app_js}</script></body></html>"""
+<script>{app_js}</script></body></html>"""
 
 
 def render_hotel_html(document: HotelPageDocumentV1) -> str:
@@ -1682,6 +1693,7 @@ def render_hotel_html(document: HotelPageDocumentV1) -> str:
 <aside class="trip-profile"><span>Рекомендуемый вариант</span><strong>{_rub(selected.total_price_rub)}</strong><small>{_e(selected.name)}</small><div><b>{len(document.hotels)}</b><small>отелей в сравнении</small></div><div><b>{review_sample}</b><small>отзывов загружено</small></div></aside></section>
 <section class="hotels-section" id="hotels"><div class="section-head"><div><span>01</span><h2>Где остановиться</h2></div><p>Актуальные предложения с фотографиями, условиями тарифов и отдельными обзорами отзывов.</p></div><div class="hotels hotels-five">{_render_hotels(document)}</div></section>
 <section class="comparison-section" id="comparison"><div class="section-head"><div><span>02</span><h2>Сравнение отелей</h2></div><p>Отзывы сравниваются на сопоставимых выборках; отсутствующие сведения не подменяются предположениями.</p></div>{_render_hotel_comparison(document)}</section>
+{_render_map_link(document, "03")}
 {_fine_print(document)}</main>{_page_footer()}<script>{app_js}</script></body></html>"""
 
 
@@ -2346,6 +2358,11 @@ def format_document_reply(document) -> str:
                  f"[Открыть перелёт в T-Bank]({share})\n"
                  "Откроется поиск по выбранным рейсам и датам; бронь и оплата — "
                  "у банка.\n")
+    map_url = _yandex_map_url(document)
+    if map_url:
+        reply = (reply.rstrip() + "\n\n[Открыть места в Яндекс.Картах]"
+                 f"({map_url})\n"
+                 "Отмечены места отчёта с известными координатами.\n")
     return reply
 
 
