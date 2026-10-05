@@ -177,6 +177,9 @@ def avia_share_url(legs, *, adults: int = 1, cabin: str = "Y",
         When segments is empty, a single segment is derived from the direction's
         own ``carrier``/``flight``/``date``.
 
+    One direction uses /one-way/ even with transfers; multiple directions
+    (including a round trip) use /multi-way/.
+
     Returns "" when anything is missing or malformed — callers must show
     «Ссылка T-Bank недоступна» then.
     """
@@ -220,6 +223,7 @@ def avia_share_url(legs, *, adults: int = 1, cabin: str = "Y",
         direction_groups.append("_".join(flight_parts))
     if not route_parts:
         return ""
+    route_type = "one-way" if len(route_parts) == 1 else "multi-way"
     query = urlencode({
         "children": 0,
         "source": "share",
@@ -231,7 +235,7 @@ def avia_share_url(legs, *, adults: int = 1, cabin: str = "Y",
         "composite": 0,
     })
     return safe_tbank_url(
-        f"https://{_TBANK_WEB_HOST}/travel/flights/multi-way/"
+        f"https://{_TBANK_WEB_HOST}/travel/flights/{route_type}/"
         + "/".join(route_parts) + "/?" + query)
 
 
