@@ -3,10 +3,14 @@ from __future__ import annotations
 
 import ipaddress
 import re
-from urllib.parse import parse_qsl, urlencode, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
 _SENSITIVE_QUERY_PARTS = ("session", "token")
+_TBANK_WEB_HOST = "www.tbank-online.com"
+_TBANK_WEB_ROOT = "tbank-online.com"
+_LEGACY_TBANK_WEB_ROOT = "tbank.ru"
+_LEGACY_TBANK_SHORT_HOST = "l.tbank.ru"
 
 
 def _has_sensitive_query(url: str) -> bool:
@@ -62,12 +66,25 @@ def safe_public_https_url(value) -> str:
 
 
 def safe_tbank_url(value) -> str:
-    """Return a public T-Bank HTTPS URL without credentials or session data."""
+    """Return a canonical public T-Bank HTTPS URL for user hand-off.
+
+    The current public web domain is ``tbank-online.com``.  Long-form legacy
+    ``*.tbank.ru`` links are migrated to the canonical web host while keeping
+    their path, query and fragment.  The old ``l.tbank.ru`` shortener is not
+    rewritten because its opaque path is host-specific; callers can then fall
+    back to a source-derived long-form URL on the current domain.
+    """
     url = safe_public_https_url(value)
     if not url:
         return ""
-    host = str(urlsplit(url).hostname or "").lower()
-    if not (host == "tbank.ru" or host.endswith(".tbank.ru")):
+    parsed = urlsplit(url)
+    host = str(parsed.hostname or "").lower()
+    if host == _LEGACY_TBANK_SHORT_HOST:
+        return ""
+    if host == _LEGACY_TBANK_WEB_ROOT or host.endswith(
+            f".{_LEGACY_TBANK_WEB_ROOT}"):
+        return urlunsplit(parsed._replace(netloc=_TBANK_WEB_HOST))
+    if not (host == _TBANK_WEB_ROOT or host.endswith(f".{_TBANK_WEB_ROOT}")):
         return ""
     return url
 
@@ -86,13 +103,14 @@ def hotel_details_url(hotel_id) -> str:
     if not re.fullmatch(r"[1-9][0-9]*", value):
         return ""
     return safe_tbank_url(
-        f"https://www.tbank.ru/travel/hotels/new/hotels/{value}")
+        f"https://{_TBANK_WEB_HOST}/travel/hotels/new/hotels/{value}")
 
 
 def avia_checkout_url(offer_id) -> str:
     """T-Bank avia checkout link for one bookable offer (by its offerId).
 
-    Confirmed shape: https://www.tbank.ru/travel/flights/checkout/?offerId=…
+    Confirmed shape:
+    https://www.tbank-online.com/travel/flights/checkout/?offerId=…
     Only used for bookable (vendor=Tinkoff) offers; a partner offer has no
     bank checkout. Empty when the id looks wrong — never guess.
     """
@@ -100,7 +118,7 @@ def avia_checkout_url(offer_id) -> str:
     if not re.fullmatch(r"[A-Za-z0-9._:-]{6,128}", value):
         return ""
     return safe_tbank_url(
-        "https://www.tbank.ru/travel/flights/checkout/?"
+        f"https://{_TBANK_WEB_HOST}/travel/flights/checkout/?"
         + urlencode({"offerId": value}))
 
 
@@ -113,10 +131,10 @@ def avia_checkout_url(offer_id) -> str:
 # internal_* parameters are deliberately not added.
 #
 # Real shape (direct flights):
-#   https://www.tbank.ru/travel/flights/multi-way/OVB-MOW/10-13/MOW-OVB/11-11/
+#   https://www.tbank-online.com/travel/flights/multi-way/OVB-MOW/10-13/MOW-OVB/11-11/
 #     ?...&flights=10-13-S7-2502~11-11-S7-2505&...
 # Real shape (transfer, e.g. OVB→KZN via SVO out, KZN→OVB ret):
-#   https://www.tbank.ru/travel/flights/multi-way/OVB-KZN/10-13/KZN-OVB/11-11/
+#   https://www.tbank-online.com/travel/flights/multi-way/OVB-KZN/10-13/KZN-OVB/11-11/
 #     ?...&flights=10-13-S7-7001_10-14-N4-758~11-11-N4-759_11-11-S7-5344&...
 # Path lists one city pair + departure date per DIRECTION (not per segment);
 # flights lists per-direction groups joined by "~", segments inside a direction
@@ -213,7 +231,7 @@ def avia_share_url(legs, *, adults: int = 1, cabin: str = "Y",
         "composite": 0,
     })
     return safe_tbank_url(
-        "https://www.tbank.ru/travel/flights/multi-way/"
+        f"https://{_TBANK_WEB_HOST}/travel/flights/multi-way/"
         + "/".join(route_parts) + "/?" + query)
 
 
@@ -244,4 +262,4 @@ def afisha_event_url(city: str, kind: str, event_slug: str) -> str:
             or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug)):
         return ""
     return safe_tbank_url(
-        f"https://www.tbank.ru/gorod/afisha/{city_slug}/{section}/{slug}/")
+        f"https://{_TBANK_WEB_HOST}/gorod/afisha/{city_slug}/{section}/{slug}/")

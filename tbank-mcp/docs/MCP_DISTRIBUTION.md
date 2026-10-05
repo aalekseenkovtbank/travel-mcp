@@ -79,8 +79,9 @@ get_travel_prompt
 (`bookingUrl`, `checkoutUrl`) пользователь открывает и проверяет
 самостоятельно. Авиа-ссылки — share-ссылки, а не checkout: `flight_search()`
 строит `bookingUrl` каждого бронируемого оффера через публичный
-T-Bank Avia `/flight/search/share/createOneLink` (обычно короткий `l.tbank.ru`, при
-недоступности — локально собранный `avia_share_url(...)`). Такая ссылка
+T-Bank Avia `/flight/search/share/createOneLink`. В результат всегда попадает
+длинная ссылка на `tbank-online.com`: устаревшая короткая ссылка `l.tbank.ru`
+отбрасывается и заменяется локально собранным `avia_share_url(...)`. Такая ссылка
 открывает страницу поиска с уже выбранным рейсом и актуальной доступностью —
 она не устаревает вместе с поисковой сессией, как
 `/flights/checkout/?offerId=…`. Renderer страницы строит `avia_share_url(...)`

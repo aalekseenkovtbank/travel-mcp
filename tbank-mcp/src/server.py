@@ -1098,7 +1098,7 @@ def _compose_brief_document(brief: dict) -> TravelPageDocument:
         "plans": [],
         "sources": [{
             "name": "T-Bank Travel (brief)",
-            "url": "https://www.tbank.ru/",
+            "url": "https://www.tbank-online.com/",
             "checkedAt": datetime.now(timezone.utc).isoformat(),
         }],
         "checkedAt": datetime.now(timezone.utc).isoformat(),
@@ -8010,7 +8010,7 @@ def _hotel_checkout_url_for(guests: int, checkin_date: str, checkout_date: str,
         "hotelId": hotel_id,
         "bookHash": book_hash,
     })
-    return f"https://www.tbank.ru/travel/hotels/new/checkout/?{query}"
+    return f"https://www.tbank-online.com/travel/hotels/new/checkout/?{query}"
 
 
 @mcp.tool()
@@ -8879,10 +8879,10 @@ def flight_search(from_code: str, to_code: str, date: str, adults: int = 1,
     сводный блок best), а при свежем searchId прикладывается
     priceForecast.willPriceIncrease — подрастёт ли цена до вылета.
 
-    Каждый бронируемый оффер содержит bookingUrl — share-ссылку T-Bank
-    (обычно короткую l.tbank.ru): открывает страницу поиска с уже выбранным
-    рейсом и актуальной доступностью; показывай её пользователю. Это не
-    checkout и не бронь: ссылка не устаревает вместе с поисковой сессией.
+    Каждый бронируемый оффер содержит bookingUrl на tbank-online.com: ссылка
+    открывает страницу поиска с уже выбранным рейсом и актуальной доступностью;
+    показывай её пользователю. Это не checkout и не бронь: ссылка не устаревает
+    вместе с поисковой сессией.
 
     only_bookable=True (по умолчанию) — только те предложения, что бронируются
     внутри банка; их отдаёт первый же батч, поэтому поиск быстрый. False

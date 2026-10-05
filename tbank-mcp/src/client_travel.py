@@ -140,12 +140,12 @@ class TravelMixin:
         [{date, marketingCarrier, flightNumber}]}]}. `searchId` from the same
         search helps the server resolve the offer ("" to skip).
 
-        Returns the bank's URL — usually a short l.tbank.ru link that 302s to
-        the flight search page with exactly those flights preselected, or the
-        full search-page URL when the shortener failed server-side. Either
-        way the page re-validates availability on open, so the link cannot go
-        stale the way a per-session checkout offerId link does. Raises on any
-        error so callers can fail soft (locally-built share URL, then none).
+        Returns the bank's source URL. The server accepts a current
+        tbank-online.com URL directly; legacy short links are replaced with a
+        locally built long-form tbank-online.com share URL. The page
+        re-validates availability on open, so the link cannot go stale the way
+        a per-session checkout offerId link does. Raises on any error so callers
+        can fail soft (locally-built share URL, then none).
         """
         body: dict = {
             "searchRequest": {

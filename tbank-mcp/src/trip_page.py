@@ -36,9 +36,12 @@ _IMAGE_URL_OVERRIDES: ContextVar[Mapping[str, str] | None] = ContextVar(
 
 
 def _require_tbank_url(value, field_name: str):
-    if value is not None and not safe_tbank_url(value):
+    if value is None:
+        return value
+    cleaned = safe_tbank_url(value)
+    if not cleaned:
         raise ValueError(f"{field_name} must be a safe public T-Bank HTTPS URL")
-    return value
+    return cleaned
 
 
 class ContractModel(BaseModel):
@@ -219,9 +222,12 @@ class CombinedFlight(ContractModel):
     @field_validator("checkout_url")
     @classmethod
     def _tbank_checkout(cls, value):
-        if value and not safe_tbank_url(value):
+        if not value:
+            return ""
+        cleaned = safe_tbank_url(value)
+        if not cleaned:
             raise ValueError("combinedFlight.checkoutUrl must be a safe T-Bank HTTPS URL")
-        return str(value or "")
+        return cleaned
 
 
 class FlightOption(ContractModel):
@@ -243,9 +249,12 @@ class FlightOption(ContractModel):
     @field_validator("checkout_url")
     @classmethod
     def _tbank_checkout(cls, value):
-        if value and not safe_tbank_url(value):
+        if not value:
+            return ""
+        cleaned = safe_tbank_url(value)
+        if not cleaned:
             raise ValueError("flight option checkoutUrl must be a safe T-Bank HTTPS URL")
-        return str(value or "")
+        return cleaned
 
     @model_validator(mode="after")
     def _directions_are_valid(self):
