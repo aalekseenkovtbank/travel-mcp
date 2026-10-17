@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Response
 
 
 def _select_surface() -> tuple[object, str]:
@@ -27,12 +28,39 @@ def _select_surface() -> tuple[object, str]:
 
 mcp, SERVICE_NAME = _select_surface()
 
+_DARTS_APP_ROOT = Path(__file__).with_name("static") / "darts-app"
+
 
 @mcp.custom_route("/", methods=["GET"], include_in_schema=False)
 @mcp.custom_route("/health", methods=["GET"], include_in_schema=False)
 async def health(_request: Request) -> JSONResponse:
     """Expose the health endpoint used by the deployment platform."""
     return JSONResponse({"ok": True, "service": SERVICE_NAME})
+
+
+@mcp.custom_route("/darts-app", methods=["GET"], include_in_schema=False)
+async def darts_app_redirect(_request: Request) -> RedirectResponse:
+    """Keep relative browser assets working when the trailing slash is omitted."""
+    return RedirectResponse(url="/darts-app/", status_code=307)
+
+
+@mcp.custom_route("/darts-app/{path:path}", methods=["GET"], include_in_schema=False)
+async def darts_app(request: Request) -> Response:
+    """Serve the Darts single-page application without changing the MCP surface."""
+    root = _DARTS_APP_ROOT.resolve()
+    requested_path = request.path_params.get("path", "")
+    candidate = (root / requested_path).resolve()
+
+    if not candidate.is_relative_to(root):
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+    if candidate.is_file():
+        return FileResponse(candidate)
+
+    index = root / "index.html"
+    if index.is_file() and not Path(requested_path).suffix:
+        return FileResponse(index, headers={"Cache-Control": "no-cache"})
+    return JSONResponse({"detail": "Not Found"}, status_code=404)
+
 
 _DEFAULT_HTTP_HOST = "127.0.0.1"
 _DEFAULT_HTTP_PORT = 8765
